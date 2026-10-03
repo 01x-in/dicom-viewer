@@ -33,9 +33,13 @@ jobs:
         run: uv run --frozen pytest -q
       - name: Committed fixtures match their checksums
         working-directory: fixtures/phantom
-        run: sha256sum -c --quiet SHA256SUMS
+        run: |
+          sha256sum -c --quiet SHA256SUMS
+          # sha256sum -c ignores files absent from the manifest, so reject those explicitly.
+          diff <(awk '{print $2}' SHA256SUMS | sort) <(find . -type f -name '*.dcm' | sed 's|^\./||' | sort)
       - name: Regenerated fixtures match the committed ones
         working-directory: tools/phantom
         run: |
           uv run --frozen python phantom.py "$RUNNER_TEMP/phantom"
-          diff ../../fixtures/phantom/SHA256SUMS "$RUNNER_TEMP/phantom/SHA256SUMS"
+          # Compares the whole tree, so stale or extra files fail too (README.md is hand-written).
+          diff -r -x README.md ../../fixtures/phantom "$RUNNER_TEMP/phantom"
