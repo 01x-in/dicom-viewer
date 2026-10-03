@@ -17,7 +17,7 @@ A DICOM viewer you install from npm into React, Next.js, Vue, or Nuxt. It is bui
 
 ## Development
 
-Prerequisites: Node 22.12+ or 24, pnpm 10, and [uv](https://docs.astral.sh/uv/) for the phantom generator.
+Prerequisites: Node 22.22.2+ or 24.15+, pnpm 10, and [uv](https://docs.astral.sh/uv/) for the phantom generator.
 
 ```bash
 pnpm install
