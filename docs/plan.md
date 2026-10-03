@@ -83,8 +83,8 @@ Vue mirrors these with emits and slots.
 
 ## Packaging strategy (goal: zero bundler config)
 
-1. **Keep codecs out of the main thread.** Core imports only `dicom-image-loader/wadors` and never the root index or `init()`.
-2. **Prebuild the workers.** At library build time, rolldown bundles `decode.worker.js` and `compute.worker.js` as self-contained ESM files.
+1. **Keep codecs out of the main thread.** Core imports only `dicom-image-loader/wadors` and never the root index or `init()`. Cornerstone itself is prebundled into one lazily loaded engine chunk, so hosts bundle neither it nor vtk.js.
+2. **Prebuild the workers.** At library build time, rolldown bundles `decode.worker.js` and `compute.worker.js` as self-contained ESM files (both exist since M1: tools' own compute worker cannot be bundled by hosts, see [ADR 0001](adr/0001-asset-strategy.md)).
    - Bare WASM `new URL` references are rewritten to a configurable `locateFile`.
    - Codecs: J2K (required), JPEG baseline and lossless, JPEG-LS, RLE, HTJ2K, and the uncompressed syntaxes.
 3. **Register the workers.** Use `registerWorker(..., {overwrite:true})` before the first image load.
@@ -99,7 +99,7 @@ Vue mirrors these with emits and slots.
    - (a) Vendor the prebuilt codec JS and WASM behind a thin worker.
    - (b) Ship bundler helpers: a Vite plugin, `withDicomViewer(nextConfig)`, and a Nuxt module.
    - (c) Document manual config.
-8. **Version pinning.** Cornerstone packages are exact-pinned **dependencies** of core, not peers. Renovate groups the bumps, gated on the browser suite.
+8. **Version pinning.** Cornerstone packages are exact-pinned **devDependencies** of core and are bundled into its engine chunk, never peers (changed in M1, see [ADR 0003](adr/0003-prebundled-engine.md)). Renovate groups the bumps, gated on the browser suite.
 
 ## Subsystem notes
 
@@ -212,3 +212,12 @@ Reference files:
 3. Is Nuxt required for v1 or best-effort?
 4. Must Safari and iPad be supported? This affects memory defaults and touch support.
 5. Should default bindings match OHIF exactly?
+
+## M1 outcome
+
+**Go.** The report is [m1-report.md](m1-report.md). Changes to this plan that came out of the spike:
+- Cornerstone is bundled into core (ADR 0003) instead of being a transitive dependency of hosts. Vite fails on vtk.js's Node `events` import, and tools' compute worker cannot be resolved from a host build.
+- Both workers are prebuilt, and the `inline` asset mode embeds them (ADR 0001).
+- The phantom gained a binary SEG (`seg-body-bone`) earlier than M6, to test the adapters against real data.
+- Still open: Safari and Firefox, React 18, the package name, and the `compute` worker size (2.8 MB).
+

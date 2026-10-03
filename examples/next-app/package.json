@@ -4,7 +4,9 @@
   "scripts": {
     "build:turbopack": "viewer-assets copy public/viewer-assets && next build --turbopack",
     "build:webpack": "viewer-assets copy public/viewer-assets && next build --webpack",
-    "serve": "next start --port $PORT --hostname 127.0.0.1"
+    "serve": "next start --port $PORT --hostname 127.0.0.1",
+    "dev:turbopack": "viewer-assets copy public/viewer-assets && next dev --turbopack --port $PORT --hostname 127.0.0.1",
+    "dev:webpack": "viewer-assets copy public/viewer-assets && next dev --webpack --port $PORT --hostname 127.0.0.1"
   },
   "dependencies": {
     "@scope/viewer-core": "0.0.0",

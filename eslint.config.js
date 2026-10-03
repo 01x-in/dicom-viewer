@@ -11,6 +11,10 @@ export default defineConfig(
       '**/node_modules/**',
       '**/.venv/**',
       'fixtures/**',
+      // Examples are standalone projects installed from tarballs; the matrix builds and runs them.
+      'examples/**',
+      '.matrix/**',
+      '.tarballs/**',
       'packages/core/assets/**',
       'packages/core/src/generated/**',
     ],

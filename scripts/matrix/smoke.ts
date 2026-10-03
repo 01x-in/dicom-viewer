@@ -116,11 +116,14 @@ export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeR
   if (input.cpuRendering) query.set('cpu', '1');
 
   try {
-    await page.goto(`${input.pageUrl}?${query.toString()}`, { waitUntil: 'load' });
+    await page.goto(`${input.pageUrl}?${query.toString()}`, {
+      waitUntil: 'load',
+      timeout: 180_000,
+    });
     await page.waitForFunction(
       () => document.documentElement.dataset['dvStatus'] !== undefined,
       undefined,
-      { timeout: 60_000 },
+      { timeout: 120_000 },
     );
     const status = await page.evaluate(() => document.documentElement.dataset['dvStatus']);
     if (status !== 'ready') {
@@ -176,6 +179,15 @@ export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeR
         failures.push(
           `SEG first-slice pixel is ${seg.boneAbsentOnFirstSlice.toString()}, expected 1`,
         );
+    }
+
+    // Real input must reach Cornerstone's tool group through the host's DOM (light DOM, no shadow root).
+    await page.mouse.move(256, 256);
+    await page.mouse.wheel(0, 240);
+    await page.waitForTimeout(500);
+    const afterWheel = await page.evaluate(() => window.__dv?.getImageIndex());
+    if (afterWheel === 10 || afterWheel === undefined) {
+      failures.push(`mouse wheel did not scroll the stack (still on ${String(afterWheel)})`);
     }
 
     // Rendering is asynchronous after setImageIdIndex resolves; give it a couple of frames.

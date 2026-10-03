@@ -1,13 +1,15 @@
-// Installability matrix: builds each example from the packed tarballs, serves the production build,
-// and runs the browser smoke test against the dicomweb-mock in OncoTrace-proxy mode.
+// Installability matrix: builds each example from the packed tarballs, serves the production build
+// (or the dev server with --dev), and runs the browser smoke test against the dicomweb-mock in
+// OncoTrace-proxy mode.
 //
-//   node scripts/matrix/run.ts [--only <variant>] [--keep]
+//   node scripts/matrix/run.ts [--only <variant>] [--keep] [--dev]
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { startMockServer } from '../../tools/dicomweb-mock/src/server.ts';
+import { fileBytes, kib, measureJavaScript, sizeOf, total, type FileSize } from './measure.ts';
 import { packTarballs, type Tarballs } from './pack.ts';
 import { type AssetsMode, launchBrowser, smoke } from './smoke.ts';
 
@@ -18,34 +20,86 @@ interface Variant {
   readonly name: string;
   readonly example: string;
   readonly buildScript: string;
+  /** Starts the framework's dev server (`--dev`). */
+  readonly devScript: string;
   /** Server-rendered frameworks: the server's stderr must stay clean. */
   readonly ssr: boolean;
   readonly port: number;
+  /** Where the production build puts the JavaScript hosts ship to browsers, relative to the project. */
+  readonly jsDir: string;
+  /** Where `viewer-assets copy` put the worker and WASM files, relative to the project. */
+  readonly assetsDir: string;
 }
 
 const VARIANTS: readonly Variant[] = [
-  { name: 'vanilla', example: 'vanilla', buildScript: 'build', ssr: false, port: 4101 },
-  { name: 'vite-react', example: 'vite-react', buildScript: 'build', ssr: false, port: 4102 },
-  { name: 'vite-vue', example: 'vite-vue', buildScript: 'build', ssr: false, port: 4103 },
+  {
+    name: 'vanilla',
+    example: 'vanilla',
+    buildScript: 'build',
+    devScript: 'dev',
+    ssr: false,
+    port: 4101,
+    jsDir: 'dist/assets',
+    assetsDir: 'dist/viewer-assets',
+  },
+  {
+    name: 'vite-react',
+    example: 'vite-react',
+    buildScript: 'build',
+    devScript: 'dev',
+    ssr: false,
+    port: 4102,
+    jsDir: 'dist/assets',
+    assetsDir: 'dist/viewer-assets',
+  },
+  {
+    name: 'vite-vue',
+    example: 'vite-vue',
+    buildScript: 'build',
+    devScript: 'dev',
+    ssr: false,
+    port: 4103,
+    jsDir: 'dist/assets',
+    assetsDir: 'dist/viewer-assets',
+  },
   {
     name: 'next-turbopack',
     example: 'next-app',
     buildScript: 'build:turbopack',
+    devScript: 'dev:turbopack',
     ssr: true,
     port: 4104,
+    jsDir: '.next/static/chunks',
+    assetsDir: 'public/viewer-assets',
   },
   {
     name: 'next-webpack',
     example: 'next-app',
     buildScript: 'build:webpack',
+    devScript: 'dev:webpack',
     ssr: true,
     port: 4105,
+    jsDir: '.next/static/chunks',
+    assetsDir: 'public/viewer-assets',
   },
-  { name: 'nuxt', example: 'nuxt', buildScript: 'build', ssr: true, port: 4106 },
+  {
+    name: 'nuxt',
+    example: 'nuxt',
+    buildScript: 'build',
+    devScript: 'dev',
+    ssr: true,
+    port: 4106,
+    jsDir: '.output/public/_nuxt',
+    assetsDir: '.output/public/viewer-assets',
+  },
 ];
 
 const { values } = parseArgs({
-  options: { only: { type: 'string' }, keep: { type: 'boolean', default: false } },
+  options: {
+    only: { type: 'string' },
+    keep: { type: 'boolean', default: false },
+    dev: { type: 'boolean', default: false },
+  },
 });
 
 function tarballOverrides(tarballs: Tarballs): Record<string, string> {
@@ -83,11 +137,11 @@ async function prepare(variant: Variant, tarballs: Tarballs): Promise<string> {
 }
 
 async function waitForServer(url: string, server: ChildProcess): Promise<void> {
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     if (server.exitCode !== null) throw new Error(`server exited with ${String(server.exitCode)}`);
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (response.status < 500) return;
     } catch {
       // not listening yet
@@ -103,23 +157,54 @@ interface Row {
   readonly failures: string[];
 }
 
+interface Measurement {
+  readonly variant: string;
+  readonly javascript: readonly FileSize[];
+  readonly assets: readonly FileSize[];
+}
+
 async function runVariant(
   variant: Variant,
   tarballs: Tarballs,
   mock: Awaited<ReturnType<typeof startMockServer>>,
-): Promise<Row[]> {
+): Promise<{ rows: Row[]; measurement: Measurement }> {
   console.log(`\n== ${variant.name}: install`);
   const dir = await prepare(variant, tarballs);
   await exec('pnpm', ['install', '--ignore-workspace', '--no-frozen-lockfile'], {
     cwd: dir,
     maxBuffer: 64 * 1024 * 1024,
   });
-  console.log(`== ${variant.name}: build`);
-  await exec('pnpm', ['run', variant.buildScript], { cwd: dir, maxBuffer: 64 * 1024 * 1024 });
+  if (!values.dev) {
+    console.log(`== ${variant.name}: build`);
+    await exec('pnpm', ['run', variant.buildScript], { cwd: dir, maxBuffer: 64 * 1024 * 1024 });
+  }
+  const assetsRoot = join(dir, variant.assetsDir);
+  const measurement: Measurement = values.dev
+    ? { variant: variant.name, javascript: [], assets: [] }
+    : {
+        variant: variant.name,
+        javascript: (await measureJavaScript(join(dir, variant.jsDir))).filter(
+          (item) => !join(dir, variant.jsDir, item.name).startsWith(assetsRoot),
+        ),
+        assets: [
+          await sizeOf(join(assetsRoot, 'decode.worker.js'), 'decode.worker.js'),
+          await sizeOf(join(assetsRoot, 'compute.worker.js'), 'compute.worker.js'),
+          ...(await Promise.all(
+            [
+              'openjpegwasm_decode',
+              'libjpegturbowasm_decode',
+              'charlswasm_decode',
+              'openjphjs',
+            ].map((name) => sizeOf(join(assetsRoot, 'wasm', `${name}.wasm`), `wasm/${name}.wasm`)),
+          )),
+        ],
+      };
 
-  const server = spawn('pnpm', ['run', 'serve'], {
+  const server = spawn('pnpm', ['run', values.dev ? variant.devScript : 'serve'], {
     cwd: dir,
     env: { ...process.env, PORT: String(variant.port), HOST: '127.0.0.1', NITRO_HOST: '127.0.0.1' },
+    // Own process group, so the whole tree (pnpm, then the framework's server) can be stopped.
+    detached: true,
   });
   let serverErrors = '';
   server.stderr.on('data', (chunk: Buffer) => {
@@ -152,16 +237,16 @@ async function runVariant(
         if (entry.status >= 400)
           failures.push(`mock saw ${entry.status.toString()} for ${entry.path}`);
       }
-      if (variant.ssr && /error/i.test(serverErrors))
+      if (variant.ssr && !values.dev && /error/i.test(serverErrors))
         failures.push(`server errors:\n${serverErrors}`);
       rows.push({ variant: variant.name, mode, failures });
     }
   } finally {
     await browser.close();
-    server.kill('SIGTERM');
+    if (server.pid !== undefined) process.kill(-server.pid, 'SIGTERM');
     if (!values.keep) await rm(dir, { recursive: true, force: true });
   }
-  return rows;
+  return { rows, measurement };
 }
 
 const tarballs = await packTarballs(root);
@@ -171,14 +256,83 @@ const mock = await startMockServer({
   port: 8042,
 });
 const rows: Row[] = [];
+const measurements: Measurement[] = [];
 try {
   for (const variant of VARIANTS.filter(
     (item) => values.only === undefined || item.name === values.only,
   )) {
-    rows.push(...(await runVariant(variant, tarballs, mock)));
+    const result = await runVariant(variant, tarballs, mock);
+    rows.push(...result.rows);
+    measurements.push(result.measurement);
   }
 } finally {
   await mock.close();
+}
+
+async function writeSizeReport(): Promise<void> {
+  const lines: string[] = [
+    '# M1 bundle sizes',
+    '',
+    'Generated by `pnpm matrix` (scripts/matrix/run.ts) from the packed tarballs. Sizes are of the production',
+    'build each framework produces, with no bundler configuration. Do not edit by hand.',
+    '',
+    '## Packed tarballs',
+    '',
+    '| Package | Packed (.tgz) |',
+    '|---|---|',
+  ];
+  const packed: readonly (readonly [string, string])[] = [
+    ['core', tarballs.core],
+    ['elements', tarballs.elements],
+    ['react', tarballs.react],
+    ['vue', tarballs.vue],
+  ];
+  for (const [name, path] of packed) {
+    lines.push(`| @scope/viewer-${name} | ${kib(await fileBytes(path))} |`);
+  }
+  lines.push(
+    '',
+    '## Client JavaScript per example',
+    '',
+    'All JavaScript the production build emits for the browser, including the lazily loaded engine chunk',
+    '(Cornerstone, vtk.js, tools, adapters) and, in inline mode, the embedded worker sources.',
+    '',
+    '| Example | Files | Total raw | Total gzip | Total brotli | Largest chunk (raw / brotli) |',
+    '|---|---|---|---|---|---|',
+  );
+  for (const item of measurements) {
+    const sum = total(item.javascript);
+    const [largest] = item.javascript;
+    lines.push(
+      `| ${item.variant} | ${item.javascript.length.toString()} | ${kib(sum.raw)} | ${kib(sum.gzip)} | ${kib(sum.brotli)} | ${largest === undefined ? '-' : `${kib(largest.raw)} / ${kib(largest.brotli)}`} |`,
+    );
+  }
+  const reference = measurements[0];
+  if (reference !== undefined) {
+    lines.push(
+      '',
+      '## `url` mode assets',
+      '',
+      'Served from `public/viewer-assets` (copied by `viewer-assets copy`). Identical in every example.',
+      '',
+      '| File | Raw | gzip | brotli |',
+      '|---|---|---|---|',
+    );
+    for (const asset of reference.assets) {
+      lines.push(
+        `| ${asset.name} | ${kib(asset.raw)} | ${kib(asset.gzip)} | ${kib(asset.brotli)} |`,
+      );
+    }
+    const sum = total(reference.assets);
+    lines.push(`| **total** | ${kib(sum.raw)} | ${kib(sum.gzip)} | ${kib(sum.brotli)} |`);
+  }
+  lines.push('');
+  await writeFile(join(root, 'docs/m1-bundle-sizes.md'), lines.join('\n'));
+}
+
+if (!values.dev && values.only === undefined && rows.every((row) => row.failures.length === 0)) {
+  await writeSizeReport();
+  console.log('\nWrote docs/m1-bundle-sizes.md');
 }
 
 console.log('\n== Results');

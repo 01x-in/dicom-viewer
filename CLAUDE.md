@@ -19,7 +19,7 @@
 ## Architecture rules
 - Only `packages/core/src/engine/**` and `packages/core/workers/**` may import `@cornerstonejs/*`. Everything else goes through `RenderingPort`. ESLint enforces this.
 - The public API never exposes Cornerstone types, except under `viewer.unsafe`.
-- Cornerstone packages are exact-pinned dependencies of `@scope/viewer-core`, not peers.
+- Cornerstone packages are exact-pinned `devDependencies` of `@scope/viewer-core`, bundled into its lazily loaded engine chunk, and never peers (docs/adr/0003-prebundled-engine.md).
 - Vue code must keep Cornerstone and viewer objects out of reactivity (`shallowRef` + `markRaw`).
 
 ## Data
@@ -28,3 +28,4 @@
 ## Commands
 - `pnpm check` runs everything (build, format check, lint, typecheck, test). Build comes first because packages resolve each other through `dist`.
 - Phantom: `cd tools/phantom && uv run pytest -q`.
+- `pnpm matrix` packs the tarballs, installs each example in `examples/` from them, builds it, and runs the browser smoke test (`--only <name>`, `--dev`). Needs Playwright's Chromium; set `DV_CHROMIUM` to use an existing one.
