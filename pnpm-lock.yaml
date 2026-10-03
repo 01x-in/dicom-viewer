@@ -54,6 +54,9 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
     devDependencies:
+      '@babel/runtime':
+        specifier: 7.29.2
+        version: 7.29.2
       '@cornerstonejs/adapters':
         specifier: 5.11.4
         version: 5.11.4(@cornerstonejs/core@5.11.4(@cornerstonejs/metadata@5.11.4)(@cornerstonejs/utils@5.11.4)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@cornerstonejs/metadata@5.11.4)(@cornerstonejs/tools@5.11.4(@cornerstonejs/core@5.11.4(@cornerstonejs/metadata@5.11.4)(@cornerstonejs/utils@5.11.4)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.3))
@@ -155,6 +158,10 @@ packages:
 
   '@babel/runtime-corejs3@7.29.2':
     resolution: {integrity: sha512-Lc94FOD5+0aXhdb0Tdg3RUtqT6yWbI/BbFWvlaSJ3gAb9Ks+99nHRDKADVqC37er4eCB0fHyWT+y+K3QOvJKbw==}
+    engines: {node: '>=6.9.0'}
+
+  '@babel/runtime@7.29.2':
+    resolution: {integrity: sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g==}
     engines: {node: '>=6.9.0'}
 
   '@babel/types@7.29.8':
@@ -2250,6 +2257,8 @@ snapshots:
   '@babel/runtime-corejs3@7.29.2':
     dependencies:
       core-js-pure: 3.50.0
+
+  '@babel/runtime@7.29.2': {}
 
   '@babel/types@7.29.8':
     dependencies:

@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'tsdown';
 
@@ -17,8 +18,26 @@ export default defineConfig([
     // Cornerstone and vtk.js are devDependencies, so they are bundled into the lazily loaded engine
     // chunk. vtk.js reaches xmlbuilder2, which imports Node's `events`; bundlers turn that into an
     // empty stub, so it is aliased to the npm polyfill here (and `url` to a shim). See docs/adr/0003-prebundled-engine.md.
+    plugins: [
+      {
+        name: 'dv-replace-compute-worker-registration',
+        resolveId(source, importer) {
+          if (
+            source.endsWith('/registerComputeWorker.js') &&
+            importer?.includes('@cornerstonejs/tools') === true
+          ) {
+            return fileURLToPath(
+              new URL('./src/engine/shims/register-compute-worker.ts', import.meta.url),
+            );
+          }
+          return null;
+        },
+      },
+    ],
     alias: {
       events: require.resolve('events/'),
+      // @cornerstonejs/adapters imports Babel helpers without declaring @babel/runtime.
+      '@babel/runtime': dirname(require.resolve('@babel/runtime/package.json')),
       url: fileURLToPath(new URL('./src/engine/shims/url.ts', import.meta.url)),
     },
   },

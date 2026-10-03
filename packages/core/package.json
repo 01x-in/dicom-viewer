@@ -25,6 +25,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@babel/runtime": "7.29.2",
     "@cornerstonejs/adapters": "5.11.4",
     "@cornerstonejs/core": "5.11.4",
     "@cornerstonejs/dicom-image-loader": "5.11.4",

@@ -7,6 +7,8 @@ export interface SmokeInput {
   readonly wadoRoot: string;
   readonly studyUid: string;
   readonly seriesUid: string;
+  /** The phantom SEG series, which segments `seriesUid`. */
+  readonly segSeriesUid: string;
   readonly assetsMode: AssetsMode;
   /** Where `url` mode serves assets from, relative to the page. */
   readonly assetsPath: string;
@@ -18,8 +20,15 @@ export interface SmokeResult {
   readonly workerUrls: string[];
 }
 
+interface SegmentationHandle {
+  readonly segments: readonly { number: number; label: string }[];
+  readonly labelmapFrameCount: number;
+  sample(sliceIndex: number, row: number, column: number): number;
+}
+
 interface ViewerHandle {
   readonly imageCount: number;
+  loadSegmentation(segSeriesInstanceUID: string): Promise<SegmentationHandle>;
   getImageIndex(): number;
   setImageIndex(index: number): Promise<void>;
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
@@ -136,6 +145,38 @@ export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeR
     await page.evaluate(() => window.__dv?.setImageIndex(10));
     const index = await page.evaluate(() => window.__dv?.getImageIndex());
     if (index !== 10) failures.push(`scrolling to slice 11 left the viewport on ${String(index)}`);
+
+    // SEG: parsed by the v5 adapters from one whole-instance retrieval (the only kind the proxy allows).
+    const seg = await page.evaluate(async (segSeriesUid) => {
+      const handle = await window.__dv?.loadSegmentation(segSeriesUid);
+      if (handle === undefined) return undefined;
+      return {
+        labels: handle.segments.map((segment) => `${segment.number.toString()}:${segment.label}`),
+        frames: handle.labelmapFrameCount,
+        boneCentre: handle.sample(31, 64, 92),
+        bodyCentre: handle.sample(31, 64, 64),
+        outside: handle.sample(31, 0, 0),
+        boneAbsentOnFirstSlice: handle.sample(0, 64, 92),
+      };
+    }, input.segSeriesUid);
+    if (seg === undefined) {
+      failures.push('SEG did not load');
+    } else {
+      if (seg.labels.join(',') !== '1:Body,2:Bone insert')
+        failures.push(`SEG segments are ${seg.labels.join(',')}`);
+      if (seg.frames !== 64)
+        failures.push(`SEG labelmap has ${seg.frames.toString()} frames, expected 64`);
+      if (seg.boneCentre !== 2)
+        failures.push(`SEG bone insert pixel is ${seg.boneCentre.toString()}, expected 2`);
+      if (seg.bodyCentre !== 1)
+        failures.push(`SEG body pixel is ${seg.bodyCentre.toString()}, expected 1`);
+      if (seg.outside !== 0)
+        failures.push(`SEG background pixel is ${seg.outside.toString()}, expected 0`);
+      if (seg.boneAbsentOnFirstSlice !== 1)
+        failures.push(
+          `SEG first-slice pixel is ${seg.boneAbsentOnFirstSlice.toString()}, expected 1`,
+        );
+    }
 
     // Rendering is asynchronous after setImageIdIndex resolves; give it a couple of frames.
     await page.waitForTimeout(500);

@@ -1,7 +1,7 @@
 import type { DataSource } from './data/types';
 import { assertBrowserEnvironment } from './environment';
 import type { AssetsConfig } from './engine/assets';
-import type { Engine, StackHandle } from './engine/index';
+import type { Engine, SegmentationHandle, StackHandle } from './engine/index';
 
 /**
  * M1 spike surface: just enough to prove packaging. The real API (docs/plan.md, "Public API")
@@ -29,7 +29,11 @@ export interface LoadedSeries {
   getImageIndex(): number;
   setImageIndex(index: number): Promise<void>;
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
+  /** Retrieves one SEG instance of this study and parses it against this series. */
+  loadSegmentation(segSeriesInstanceUID: string): Promise<LoadedSegmentation>;
 }
+
+export type LoadedSegmentation = SegmentationHandle;
 
 /** Browser only. Import this from a client component or an effect, never during SSR. */
 export function createViewer(options: ViewerOptions): Viewer {
@@ -61,7 +65,28 @@ export function createViewer(options: ViewerOptions): Viewer {
       assertAlive();
       const handle = await engine.renderStack(element, series);
       handles.push(handle);
-      return handle;
+      return {
+        imageCount: handle.imageCount,
+        getImageIndex: () => handle.getImageIndex(),
+        setImageIndex: (index) => handle.setImageIndex(index),
+        sampleHu: (imageIndex, row, column) => handle.sampleHu(imageIndex, row, column),
+        async loadSegmentation(segSeriesInstanceUID): Promise<LoadedSegmentation> {
+          const segSeries = await options.dataSource.getSeries(
+            studyInstanceUID,
+            segSeriesInstanceUID,
+          );
+          const sop = segSeries.instances[0]?.sopInstanceUID;
+          if (sop === undefined)
+            throw new Error(`Series ${segSeriesInstanceUID} has no instances.`);
+          const bytes = await options.dataSource.getInstanceBytes(
+            studyInstanceUID,
+            segSeriesInstanceUID,
+            sop,
+          );
+          assertAlive();
+          return engine.loadSegmentation(series, bytes);
+        },
+      };
     },
     destroy(): void {
       destroyed = true;

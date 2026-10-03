@@ -132,7 +132,8 @@ async function runVariant(
     await waitForServer(pageUrl, server);
     const study = mock.fixtures.studyUids[0] ?? '';
     const series = mock.fixtures.series.find((item) => item.description.includes('ct-j2k'));
-    if (series === undefined) throw new Error('phantom J2K series missing');
+    const segSeries = mock.fixtures.series.find((item) => item.modality === 'SEG');
+    if (series === undefined || segSeries === undefined) throw new Error('phantom series missing');
     for (const mode of ['inline', 'url'] as const) {
       console.log(`== ${variant.name}: smoke (${mode})`);
       mock.requestLog.length = 0;
@@ -141,6 +142,7 @@ async function runVariant(
         wadoRoot: mock.url,
         studyUid: study,
         seriesUid: series.seriesUid,
+        segSeriesUid: segSeries.seriesUid,
         assetsMode: mode,
         assetsPath: '/viewer-assets',
         cpuRendering: false,

@@ -4,3 +4,4 @@ declare module 'dv-inline-wasm' {
   export const wasmFiles: Record<string, string>;
 }
 declare module 'dv-upstream-decode-worker';
+declare module 'dv-upstream-compute-worker';

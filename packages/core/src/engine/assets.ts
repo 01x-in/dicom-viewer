@@ -8,8 +8,9 @@ import { INLINE_WASM_BASE } from './inline-base';
  */
 export type AssetsConfig = { mode: 'inline' } | { mode: 'url'; baseUrl: string };
 
-export interface DecodeWorkerSetup {
-  readonly createWorker: () => Worker;
+export interface WorkerSetup {
+  readonly createDecodeWorker: () => Worker;
+  readonly createComputeWorker: () => Worker;
   readonly wasmBasePath: string;
 }
 
@@ -17,22 +18,28 @@ function withTrailingSlash(url: string): string {
   return url.endsWith('/') ? url : `${url}/`;
 }
 
-export async function prepareDecodeWorker(assets: AssetsConfig): Promise<DecodeWorkerSetup> {
+export async function prepareWorkers(assets: AssetsConfig): Promise<WorkerSetup> {
   if (assets.mode === 'inline') {
-    // A dynamic import keeps the ~1.3 MB worker source out of the main chunk of url-mode hosts.
-    const { inlineDecodeWorkerSource } = await import('../generated/inline-assets');
-    const blobUrl = URL.createObjectURL(
-      new Blob([inlineDecodeWorkerSource], { type: 'text/javascript' }),
+    // A dynamic import keeps the worker sources (~1.5 MB with the WASM) out of url-mode hosts.
+    const { inlineDecodeWorkerSource, inlineComputeWorkerSource } = await import(
+      '../generated/inline-assets'
     );
+    const blobUrl = (source: string): string =>
+      URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+    const decodeUrl = blobUrl(inlineDecodeWorkerSource);
+    const computeUrl = blobUrl(inlineComputeWorkerSource);
     return {
-      createWorker: () => new Worker(blobUrl, { type: 'module' }),
+      createDecodeWorker: () => new Worker(decodeUrl, { type: 'module' }),
+      createComputeWorker: () => new Worker(computeUrl, { type: 'module', name: 'compute' }),
       wasmBasePath: INLINE_WASM_BASE,
     };
   }
   const base = new URL(withTrailingSlash(assets.baseUrl), document.baseURI);
-  const workerUrl = new URL('decode.worker.js', base);
+  const decodeUrl = new URL('decode.worker.js', base);
+  const computeUrl = new URL('compute.worker.js', base);
   return {
-    createWorker: () => new Worker(workerUrl, { type: 'module' }),
+    createDecodeWorker: () => new Worker(decodeUrl, { type: 'module' }),
+    createComputeWorker: () => new Worker(computeUrl, { type: 'module', name: 'compute' }),
     wasmBasePath: new URL('wasm/', base).href,
   };
 }

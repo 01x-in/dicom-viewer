@@ -11,9 +11,13 @@ import {
 import { register as registerWadorsLoader } from '@cornerstonejs/dicom-image-loader/wadors';
 import { utilities as metadataUtilities } from '@cornerstonejs/metadata';
 import type { LoadedSeriesData } from '../data/types';
-import { type AssetsConfig, prepareDecodeWorker } from './assets';
+import { type AssetsConfig, prepareWorkers } from './assets';
+import { parseSegmentation, type SegmentationHandle } from './segmentation';
+import { attachStackTools, registerTools } from './tools';
 
 const DECODE_WORKER_NAME = 'dicomImageLoader';
+/** The name @cornerstonejs/tools looks up for segmentation statistics and contours. */
+const COMPUTE_WORKER_NAME = 'compute';
 
 export interface EngineOptions {
   readonly assets: AssetsConfig;
@@ -30,8 +34,11 @@ export interface StackHandle {
   destroy(): void;
 }
 
+export type { SegmentationHandle };
+
 export interface Engine {
   renderStack(element: HTMLElement, series: LoadedSeriesData): Promise<StackHandle>;
+  loadSegmentation(series: LoadedSeriesData, bytes: ArrayBuffer): Promise<SegmentationHandle>;
   destroy(): void;
 }
 
@@ -55,15 +62,22 @@ function ensureRuntime(options: EngineOptions): Promise<void> {
     return runtime.ready;
   }
   const ready = (async (): Promise<void> => {
-    const worker = await prepareDecodeWorker(options.assets);
+    const workers = await prepareWorkers(options.assets);
     initCornerstone({
       debug: {},
       ...(options.cpuRendering === true ? { rendering: { useCPURendering: true } } : {}),
     });
     registerWadorsLoader({});
-    utilities.setWasmBasePath(worker.wasmBasePath);
-    getWebWorkerManager().registerWorker(DECODE_WORKER_NAME, worker.createWorker, {
+    registerTools();
+    utilities.setWasmBasePath(workers.wasmBasePath);
+    const workerManager = getWebWorkerManager();
+    workerManager.registerWorker(DECODE_WORKER_NAME, workers.createDecodeWorker, {
       maxWorkerInstances: Math.max(1, Math.floor((navigator.hardwareConcurrency || 2) / 2)),
+    });
+    // Same options as tools' own registerComputeWorker, which the engine build replaces.
+    workerManager.registerWorker(COMPUTE_WORKER_NAME, workers.createComputeWorker, {
+      maxWorkerInstances: 1,
+      autoTerminateOnIdle: { enabled: true, idleTimeThreshold: 2000 },
     });
   })();
   runtime = { key, ready };
@@ -100,6 +114,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
       const middle = Math.floor(series.imageIds.length / 2);
       await viewport.setStack([...series.imageIds], middle);
       viewport.render();
+      const detachTools = attachStackTools(renderingEngineId, viewportId);
 
       return {
         imageCount: series.imageIds.length,
@@ -121,10 +136,12 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
           return image.preScale?.scaled === true ? stored : stored * image.slope + image.intercept;
         },
         destroy(): void {
+          detachTools();
           renderingEngine.disableElement(viewportId);
         },
       };
     },
+    loadSegmentation: parseSegmentation,
     destroy(): void {
       renderingEngine.destroy();
     },

@@ -1,9 +1,11 @@
-// Prebuilds the decode worker so hosts never bundle Cornerstone's `new URL(..., import.meta.url)` workers.
+// Prebuilds the decode and compute workers so hosts never bundle Cornerstone's
+// `new URL(..., import.meta.url)` workers.
 //
 // Outputs (all generated, none committed):
-//   assets/decode.worker.js          `url` mode worker, loads WASM from `wasmBasePath`
-//   assets/wasm/*.wasm               the codecs that worker loads
-//   src/generated/inline-assets.ts   `inline` mode: the worker source with the WASM embedded
+//   assets/decode.worker.js          `url` mode decode worker, loads WASM from `wasmBasePath`
+//   assets/compute.worker.js         `url` mode compute worker
+//   assets/wasm/*.wasm               the codecs the decode worker loads
+//   src/generated/inline-assets.ts   `inline` mode: both worker sources, WASM embedded in decode
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -16,6 +18,10 @@ const requireFromCore = createRequire(join(packageDir, 'package.json'));
 const loaderEntry = requireFromCore.resolve('@cornerstonejs/dicom-image-loader/wadors');
 const loaderDist = loaderEntry.slice(0, loaderEntry.indexOf('/dist/esm/') + '/dist/esm'.length);
 const requireFromLoader = createRequire(loaderEntry);
+const toolsDist = join(
+  dirname(requireFromCore.resolve('@cornerstonejs/tools/package.json')),
+  'dist/esm',
+);
 
 /** Codecs the viewer supports. JPEG XL is deliberately left out (1 MB, not in the v1 scope). */
 const WASM_SPECIFIERS = [
@@ -47,12 +53,17 @@ function workerPlugin(embedded: Record<string, Buffer>): Plugin {
       if (source === 'dv-upstream-decode-worker') {
         return { id: join(loaderDist, 'decodeImageFrameWorker.js'), moduleSideEffects: true };
       }
+      if (source === 'dv-upstream-compute-worker') {
+        return { id: join(toolsDist, 'workers/computeWorker.js'), moduleSideEffects: true };
+      }
       // package.json says `sideEffects: false`, but the shim exists only for its side effect.
       if (source === './wasm-shim.ts') {
         return { id: join(packageDir, 'workers/wasm-shim.ts'), moduleSideEffects: true };
       }
       // Emscripten glue names these for its Node code path, which never runs in a worker.
       if (source === 'fs' || source === 'path') return '\0dv-empty';
+      // xmlbuilder2 (via vtk.js) requires Node's `url`; `URL` is a global in a worker.
+      if (source === 'url') return '\0dv-url';
       if (source === 'dv-inline-wasm') return '\0dv-inline-wasm';
       // Drop the JPEG XL decoder: its 1 MB WASM is outside the supported syntaxes.
       if (importer !== undefined && source.endsWith('/decodeJPEGXL.js')) return '\0dv-no-jxl';
@@ -63,6 +74,9 @@ function workerPlugin(embedded: Record<string, Buffer>): Plugin {
         return `export const wasmFiles = ${JSON.stringify(base64Files)};`;
       }
       if (id === '\0dv-empty') return 'export default {};';
+      if (id === '\0dv-url') {
+        return 'export const URL = globalThis.URL; export const URLSearchParams = globalThis.URLSearchParams; export default { URL, URLSearchParams };';
+      }
       if (id === '\0dv-no-jxl') {
         return [
           'const unsupported = () => Promise.reject(new Error("JPEG XL is not supported by this build."));',
@@ -75,9 +89,13 @@ function workerPlugin(embedded: Record<string, Buffer>): Plugin {
   };
 }
 
-async function bundle(embedded: Record<string, Buffer>, inline: boolean): Promise<string> {
+async function bundle(
+  entry: 'decode' | 'compute',
+  embedded: Record<string, Buffer>,
+  inline: boolean,
+): Promise<string> {
   const build = await rolldown({
-    input: join(packageDir, 'workers/decode.worker.ts'),
+    input: join(packageDir, `workers/${entry}.worker.ts`),
     platform: 'browser',
     plugins: [workerPlugin(embedded)],
     transform: inline
@@ -99,12 +117,15 @@ if (
 }
 
 const wasm = await readWasmFiles();
-const urlWorker = await bundle({}, false);
-const inlineWorker = await bundle(wasm, true);
+const urlWorker = await bundle('decode', {}, false);
+const inlineWorker = await bundle('decode', wasm, true);
+const urlComputeWorker = await bundle('compute', {}, false);
+const inlineComputeWorker = await bundle('compute', {}, true);
 
 await rm(join(packageDir, 'assets'), { recursive: true, force: true });
 await mkdir(join(packageDir, 'assets/wasm'), { recursive: true });
 await writeFile(join(packageDir, 'assets/decode.worker.js'), urlWorker);
+await writeFile(join(packageDir, 'assets/compute.worker.js'), urlComputeWorker);
 for (const [name, bytes] of Object.entries(wasm)) {
   await writeFile(join(packageDir, 'assets/wasm', name), bytes);
 }
@@ -112,10 +133,16 @@ for (const [name, bytes] of Object.entries(wasm)) {
 await mkdir(join(packageDir, 'src/generated'), { recursive: true });
 await writeFile(
   join(packageDir, 'src/generated/inline-assets.ts'),
-  `// Generated by scripts/build-workers.ts. Do not edit.\nexport const inlineDecodeWorkerSource: string = ${JSON.stringify(inlineWorker)};\n`,
+  [
+    '// Generated by scripts/build-workers.ts. Do not edit.',
+    `export const inlineDecodeWorkerSource: string = ${JSON.stringify(inlineWorker)};`,
+    `export const inlineComputeWorkerSource: string = ${JSON.stringify(inlineComputeWorker)};`,
+    '',
+  ].join('\n'),
 );
 
 const kb = (text: string | Buffer): string => `${(Buffer.byteLength(text) / 1024).toFixed(0)} kB`;
 console.log(`decode worker (url):    ${kb(urlWorker)}`);
 console.log(`decode worker (inline): ${kb(inlineWorker)}`);
+console.log(`compute worker (url):   ${kb(urlComputeWorker)}`);
 for (const [name, bytes] of Object.entries(wasm)) console.log(`  wasm ${name}: ${kb(bytes)}`);
