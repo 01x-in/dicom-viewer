@@ -6,7 +6,14 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/.venv/**', 'fixtures/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/.venv/**',
+      'fixtures/**',
+      'packages/core/assets/**',
+      'packages/core/src/generated/**',
+    ],
   },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
