@@ -18,5 +18,11 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cornerstonejs/adapters": "5.11.4",
+    "@cornerstonejs/core": "5.11.4",
+    "@cornerstonejs/dicom-image-loader": "5.11.4",
+    "@cornerstonejs/tools": "5.11.4"
   }
 }
