@@ -117,7 +117,8 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
             throw new RangeError(
               `Pixel (${row.toString()}, ${column.toString()}) is outside the image.`,
             );
-          return stored * image.slope + image.intercept;
+          // With pre-scaling on (the default) the loader has already applied slope and intercept.
+          return image.preScale?.scaled === true ? stored : stored * image.slope + image.intercept;
         },
         destroy(): void {
           renderingEngine.disableElement(viewportId);

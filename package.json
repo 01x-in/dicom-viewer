@@ -17,7 +17,8 @@
     "check": "pnpm generate && pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && changeset publish",
+    "matrix": "node scripts/matrix/run.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

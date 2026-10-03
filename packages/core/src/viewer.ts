@@ -44,17 +44,27 @@ export function createViewer(options: ViewerOptions): Viewer {
     }),
   );
   const handles: StackHandle[] = [];
+  let destroyed = false;
+
+  function assertAlive(): void {
+    // React StrictMode and fast route changes destroy a viewer while it is still loading.
+    // Stopping here keeps a dead viewer from claiming an element a newer viewer needs.
+    if (destroyed) throw new Error('The viewer was destroyed before the series finished loading.');
+  }
 
   return {
     ready: enginePromise.then(() => undefined),
     async loadSeries(element, studyInstanceUID, seriesInstanceUID): Promise<LoadedSeries> {
       const engine = await enginePromise;
+      assertAlive();
       const series = await options.dataSource.getSeries(studyInstanceUID, seriesInstanceUID);
+      assertAlive();
       const handle = await engine.renderStack(element, series);
       handles.push(handle);
       return handle;
     },
     destroy(): void {
+      destroyed = true;
       for (const handle of handles) handle.destroy();
       void enginePromise.then((engine) => {
         engine.destroy();
