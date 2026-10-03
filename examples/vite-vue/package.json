@@ -1,0 +1,19 @@
+{
+  "name": "example-vite-vue",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "viewer-assets copy public/viewer-assets && vite build",
+    "serve": "vite preview --port $PORT --strictPort --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@scope/viewer-core": "0.0.0",
+    "@scope/viewer-vue": "0.0.0",
+    "vue": "3.5.43"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.9",
+    "typescript": "6.0.3",
+    "vite": "8.3.2"
+  }
+}

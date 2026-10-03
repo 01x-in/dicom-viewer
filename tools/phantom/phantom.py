@@ -2,6 +2,7 @@
 
 The same CT volume is written twice, as Explicit VR Little Endian and as JPEG 2000 lossless,
 which are the two transfer syntaxes the viewer must decode first (see docs/plan.md).
+A binary DICOM SEG with two segments (body, bone insert) references the JPEG 2000 series.
 
 Contents of every slice (LPS coordinates, orientation [1,0,0,0,1,0], so columns run toward
 the patient's left and rows toward the patient's back):
@@ -21,9 +22,11 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+import highdicom as hd
 import numpy as np
 from numpy.typing import NDArray
 from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom.sr.coding import Code
 from pydicom.uid import (
     CTImageStorage,
     ExplicitVRLittleEndian,
@@ -172,6 +175,87 @@ SERIES: tuple[tuple[str, int, UID], ...] = (
 )
 
 
+SEG_SERIES = "seg-body-bone"
+SEG_SERIES_NUMBER = 3
+SEG_SOURCE_SERIES = "ct-j2k"
+BODY_SEGMENT = 1
+BONE_SEGMENT = 2
+# Fixed so that regenerating the phantom reproduces the SEG byte for byte.
+SEG_DATE = "20260101"
+SEG_TIME = "090500"
+
+
+def seg_labelmap(spec: CtSpec) -> NDArray[np.uint8]:
+    """Per-slice segment numbers: the body disc is 1, and the bone insert inside it is 2."""
+    rows, cols = np.mgrid[0 : spec.rows, 0 : spec.columns]
+    center_r = (spec.rows - 1) / 2
+    center_c = (spec.columns - 1) / 2
+    body = (rows - center_r) ** 2 + (cols - center_c) ** 2 <= spec.body_radius_px**2
+    bone_insert = next(insert for insert in INSERTS if insert.name == "bone")
+    bone_r, bone_c = bone_insert.center_rc
+    bone = (rows - bone_r) ** 2 + (cols - bone_c) ** 2 <= spec.insert_radius_px**2
+
+    labelmap = np.zeros((spec.slices, spec.rows, spec.columns), dtype=np.uint8)
+    for index in range(spec.slices):
+        labelmap[index][body] = BODY_SEGMENT
+        if index in spec.insert_slices:
+            labelmap[index][bone] = BONE_SEGMENT
+    return labelmap
+
+
+def seg_dataset(spec: CtSpec) -> Dataset:
+    """A binary DICOM SEG with two segments, referencing every slice of the J2K series."""
+    sources = [ct_dataset(spec, index, SEG_SOURCE_SERIES, 2) for index in range(spec.slices)]
+    tissue = Code("85756007", "SCT", "Tissue")
+    descriptions = [
+        hd.seg.SegmentDescription(
+            segment_number=BODY_SEGMENT,
+            segment_label="Body",
+            segmented_property_category=tissue,
+            segmented_property_type=Code("38266002", "SCT", "Entire body"),
+            algorithm_type=hd.seg.SegmentAlgorithmTypeValues.MANUAL,
+        ),
+        hd.seg.SegmentDescription(
+            segment_number=BONE_SEGMENT,
+            segment_label="Bone insert",
+            segmented_property_category=tissue,
+            segmented_property_type=Code("272673000", "SCT", "Bone"),
+            algorithm_type=hd.seg.SegmentAlgorithmTypeValues.MANUAL,
+        ),
+    ]
+    seg = hd.seg.Segmentation(
+        source_images=sources,
+        pixel_array=seg_labelmap(spec),
+        segmentation_type=hd.seg.SegmentationTypeValues.BINARY,
+        segment_descriptions=descriptions,
+        series_instance_uid=uid(f"{SEG_SERIES}/series"),
+        series_number=SEG_SERIES_NUMBER,
+        sop_instance_uid=uid(f"{SEG_SERIES}/instance"),
+        instance_number=1,
+        manufacturer="dicom-viewer phantom",
+        manufacturer_model_name="phantom.py",
+        software_versions="0.1.0",
+        device_serial_number="0",
+        series_description=f"Phantom SEG ({SEG_SERIES})",
+        content_label="PHANTOM",
+        content_creator_name="Phantom^Generator",
+    )
+    for keyword in ("InstanceCreationDate", "ContentDate", "SeriesDate"):
+        if keyword in seg:
+            setattr(seg, keyword, SEG_DATE)
+    for keyword in ("InstanceCreationTime", "ContentTime", "SeriesTime"):
+        if keyword in seg:
+            setattr(seg, keyword, SEG_TIME)
+    # highdicom stamps the wall clock and a random UID. Replace both so the file is reproducible.
+    for item in seg.ContributingEquipmentSequence:
+        if "ContributionDateTime" in item:
+            item.ContributionDateTime = f"{SEG_DATE}{SEG_TIME}.000000"
+    organization_uid = uid(f"{SEG_SERIES}/dimension-organization")
+    for item in [*seg.DimensionOrganizationSequence, *seg.DimensionIndexSequence]:
+        item.DimensionOrganizationUID = organization_uid
+    return seg
+
+
 def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
     """Writes every phantom series under out_dir and returns the written files."""
     written: list[Path] = []
@@ -188,6 +272,14 @@ def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
             path = series_dir / f"{index + 1:04d}.dcm"
             ds.save_as(path, enforce_file_format=True)
             written.append(path)
+
+    seg_dir = out_dir / SEG_SERIES
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    for stale in seg_dir.glob("*.dcm"):
+        stale.unlink()
+    seg_path = seg_dir / "0001.dcm"
+    seg_dataset(spec).save_as(seg_path, enforce_file_format=True)
+    written.append(seg_path)
     return written
 
 

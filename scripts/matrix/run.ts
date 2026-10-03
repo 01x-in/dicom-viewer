@@ -25,6 +25,23 @@ interface Variant {
 
 const VARIANTS: readonly Variant[] = [
   { name: 'vanilla', example: 'vanilla', buildScript: 'build', ssr: false, port: 4101 },
+  { name: 'vite-react', example: 'vite-react', buildScript: 'build', ssr: false, port: 4102 },
+  { name: 'vite-vue', example: 'vite-vue', buildScript: 'build', ssr: false, port: 4103 },
+  {
+    name: 'next-turbopack',
+    example: 'next-app',
+    buildScript: 'build:turbopack',
+    ssr: true,
+    port: 4104,
+  },
+  {
+    name: 'next-webpack',
+    example: 'next-app',
+    buildScript: 'build:webpack',
+    ssr: true,
+    port: 4105,
+  },
+  { name: 'nuxt', example: 'nuxt', buildScript: 'build', ssr: true, port: 4106 },
 ];
 
 const { values } = parseArgs({

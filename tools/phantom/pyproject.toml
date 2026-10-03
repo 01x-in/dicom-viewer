@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Deterministic synthetic DICOM test data for the viewer. No real or licensed data."
 requires-python = ">=3.12"
 dependencies = [
+  "highdicom>=0.26",
   "numpy>=2.2",
   "pydicom>=3.0",
   "pylibjpeg>=2.0",

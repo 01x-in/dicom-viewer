@@ -1,12 +1,21 @@
 import { chromium } from 'playwright';
 const [url] = process.argv.slice(2);
-const b = await chromium.launch({ executablePath: process.env.DV_CHROMIUM, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const b = await chromium.launch({
+  executablePath: process.env.DV_CHROMIUM,
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+});
 const p = await b.newPage();
 p.on('pageerror', (e) => console.log('PAGEERROR', e.stack?.slice(0, 600)));
 p.on('console', (m) => console.log('CONSOLE', m.type(), m.text().slice(0, 300)));
-p.on('response', (r) => { if (r.status() >= 400) console.log('HTTP', r.status(), r.url().slice(0, 160)); });
+p.on('response', (r) => {
+  if (r.status() >= 400) console.log('HTTP', r.status(), r.url().slice(0, 160));
+});
 p.on('requestfailed', (r) => console.log('REQFAIL', r.url()));
 await p.goto(url);
 await p.waitForTimeout(Number(process.env.WAIT ?? 4000));
-console.log('status', await p.evaluate(() => document.documentElement.dataset.dvStatus), await p.evaluate(() => window.__dvError));
+console.log(
+  'status',
+  await p.evaluate(() => document.documentElement.dataset.dvStatus),
+  await p.evaluate(() => window.__dvError),
+);
 await b.close();
