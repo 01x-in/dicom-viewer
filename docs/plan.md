@@ -1,0 +1,214 @@
+# Plan: standalone DICOM viewer library (Cornerstone3D, OHIF-level tools)
+
+## Context
+
+OncoTrace runs OHIF v3.10.2 as a separate app in an iframe, with a postMessage bridge (`apps/viewer/extensions/oncotrace-bridge`). The user wants a viewer that installs as an npm package into React (Vite), Next.js, and Vue/Nuxt, with OHIF-level tools rather than the bare Cornerstone3D viewport.
+
+Fixed decisions:
+- **New separate repo** from day one. OncoTrace keeps OHIF for now, so this plan makes no OncoTrace changes.
+- **v1 scope** is all four tool groups: navigation, measurements, SEG overlays with a segment panel, and MPR with layouts.
+- **UI** ships as a styled OHIF-like default plus a headless core.
+
+Findings that shape the design:
+- **Cornerstone3D is on v5** (5.11.4 as of 2026-10-02).
+  - A breaking major has shipped every 4–10 months.
+  - Sibling packages exact-pin each other.
+- **Workers and WASM codecs are the main packaging problem.**
+  - `dicom-image-loader` starts its workers with `new URL(..., import.meta.url)` and finds codec WASM by bare package specifiers. Vite pre-bundling and Next break this.
+  - Escape hatches exist: `getWebWorkerManager().registerWorker(..., {overwrite:true})`, `wasmBasePath`, and the codec-free `/wadors` entry.
+- **The OncoTrace proxy is the first real data source to support.** Constraints:
+  - QIDO needs a StudyInstanceUID filter.
+  - CT is served as WADO-RS frames only, with at most 16 per request.
+  - A whole SEG instance can be retrieved.
+  - Whole-study and whole-series retrieval returns 403.
+  - CT uses JPEG 2000 lossless or EVRLE (no HTJ2K yet).
+- **OncoTrace SEG files are binary highdicom.** Each study has two series (organs and tumors). Tumor segments are per tumor type, not per lesion.
+
+## Architecture
+
+**Recommended stack:** a headless TS core, a styled UI built as Lit web components, and thin React and Vue adapters.
+- One UI codebase serves React 19, Vue 3, Next, Nuxt, and vanilla.
+- Viewports stay in light DOM. Only the UI chrome uses shadow DOM, to avoid Cornerstone input and resize issues (verified in M1).
+
+```
+dicom-viewer/ (MIT, pnpm workspaces, changesets fixed versioning)
+  packages/core      @scope/viewer-core      engine/ (only Cornerstone importer, RenderingPort), data/, services/, state/, workers/, bin/viewer-assets
+  packages/elements  @scope/viewer-elements  Lit: <dv-viewer>, toolbar, viewport grid, series/segments/measurements panels, styles.css, /define
+  packages/react     @scope/viewer-react     'use client' <DicomViewer>, <ViewerViewport>, useViewer, useViewerState
+  packages/vue       @scope/viewer-vue       <DicomViewer>, provideViewer/useViewer (shallowRef + markRaw), plugin
+  tools/phantom      Python: deterministic synthetic CT/MR/SEG (no licensed data)
+  tools/dicomweb-mock  Node server; "oncotrace-proxy" mode reproduces the 403 and 16-frame rules
+  examples/          vite-react, next-app (Turbopack + webpack), vite-vue, nuxt, vanilla, oncotrace-like
+  docs/              VitePress + TypeDoc + ADRs
+```
+
+Boundaries:
+- Only `core/src/engine/*` imports `@cornerstonejs/*`. Services depend on a `RenderingPort` interface, so the public API never exposes Cornerstone types.
+- `viewer.unsafe.cornerstone` is the escape hatch, explicitly outside semver.
+- Hosts customize the styled shell through slots:
+  - `banner` (for OncoTrace's disclaimer)
+  - `toolbar-start` and `toolbar-end`
+  - `panel-left` and `panel-right`
+  - `viewport-overlay`
+  - `empty-state`
+- Panels are pluggable via `viewer.ui.registerPanel(...)`, React `panels={{...}}`, and Vue named slots.
+
+## Public API (headless core, key signatures)
+
+```ts
+createViewer(options: ViewerOptions): Viewer            // browser-only
+ViewerOptions = { dataSource, assets?: {mode:'inline'} | {mode:'url', baseUrl}, initialState?, hangingProtocols?,
+                  tools?, windowLevelPresets?, overlay?, memory?: {maxCacheBytes?} }
+Viewer = { ready, loadStudy(uid), setLayout('1x1'|'1x2'|'2x2'|'1+3'), setViewportSeries(id, seriesUid, {orientation?}),
+           navigateTo(NavigateTarget): Promise<NavigateResult>, getState(): ViewerStateV1, setState(patch),
+           subscribe(selector, listener), on(event, handler), viewports, tools, measurements, segmentations, ui, destroy() }
+NavigateTarget = { seriesInstanceUID, sopInstanceUID, frameNumber?, viewportId?,
+                   segmentations?: { seriesInstanceUID, visible, highlightSegments? }[] }
+SegmentationsApi: load, list, setVisible, setSegmentVisible/Color/Opacity, setOpacity, highlight, jumpToSegment({strategy:'largestSlice'|'centroid'|'nearestTo'})
+MeasurementsApi: list, add, update, remove, clear, select, exportJson, importJson (Zod), exportSr? (stretch)
+createDicomWebDataSource({ wadoRoot, qidoRoot?, getRequestHeaders?(req) /* sync, per request */, onUnauthorized?(req) /* refresh then retry once */,
+                           retry?, capabilities?: { studySearch?, instanceRetrieve?: 'all'|'seg-sr-only'|'none', maxFramesPerRequest? } })
+createLocalFileDataSource(files)                         // subpath '/local'
+Events: study:loaded, viewport:image, viewport:voi, tool:active, measurement:*, segmentation:loaded|visibility|warning, state:changed{origin}, error
+ViewerStateV1 (Zod, serializable) + encodeViewerState/decodeViewerState for URL persistence
+```
+
+React adds `DicomViewer` props:
+- `options`, `studyInstanceUID`
+- `navigate` (declarative)
+- `initialState`, or `state` + `onStateChange` (controlled for layout, segmentation, and measurements only)
+- `toolbar`, `panels`, `banner`, `theme`, `viewerRef`
+
+Vue mirrors these with emits and slots.
+
+## Packaging strategy (goal: zero bundler config)
+
+1. **Keep codecs out of the main thread.** Core imports only `dicom-image-loader/wadors` and never the root index or `init()`.
+2. **Prebuild the workers.** At library build time, rolldown bundles `decode.worker.js` and `compute.worker.js` as self-contained ESM files.
+   - Bare WASM `new URL` references are rewritten to a configurable `locateFile`.
+   - Codecs: J2K (required), JPEG baseline and lossless, JPEG-LS, RLE, HTJ2K, and the uncompressed syntaxes.
+3. **Register the workers.** Use `registerWorker(..., {overwrite:true})` before the first image load.
+4. **Two asset modes.**
+   - `inline` (default): Blob-URL workers with base64 WASM. No host config; the CSP needs `worker-src blob:` and `'wasm-unsafe-eval'`.
+   - `url`: assets copied with `npx viewer-assets copy public/viewer-assets`. For strict-CSP hosts and for caching.
+5. **SSR safety.**
+   - React components start with `'use client'` and import core dynamically in `useEffect`, so Next hosts don't need `ssr:false`.
+   - Vue imports core in `onMounted`. Nuxt hosts use `<ClientOnly>`.
+6. **No COOP/COEP needed.** The spike confirms Cornerstone v5 doesn't need SharedArrayBuffer.
+7. **Fallbacks, in order:**
+   - (a) Vendor the prebuilt codec JS and WASM behind a thin worker.
+   - (b) Ship bundler helpers: a Vite plugin, `withDicomViewer(nextConfig)`, and a Nuxt module.
+   - (c) Document manual config.
+8. **Version pinning.** Cornerstone packages are exact-pinned **dependencies** of core, not peers. Renovate groups the bumps, gated on the browser suite.
+
+## Subsystem notes
+
+- **Data**
+  - In-house fetch client: QIDO is used only at series level, plus series metadata, `wadors:` frame image IDs, and whole-instance retrieval only for SEG/SR.
+  - Retries with backoff on 5xx. On 401, refresh the token and retry once. Never retry 403 or 404.
+  - Metadata is Zod-validated.
+  - Series are sorted by `ImagePositionPatient` projected onto the slice normal, and split when orientation is mixed or positions repeat.
+  - Each series gets a `reconstructable` reason.
+  - The `navigateTo` slice loads first, then the rest prefetches outward from it.
+  - Thumbnails are decoded on the CPU (no WebGL context).
+- **Tools**
+  - Two tool groups: stack and MPR.
+  - Mouse: left = active tool, middle = pan, right = zoom, wheel = scroll.
+  - Keyboard shortcuts are scoped to the viewer root.
+  - Toolbar config items: tool, action, menu, separator, custom.
+  - W/L presets: lung 1500/−600, soft tissue 400/40, bone 2500/480, brain 80/40, liver 150/30.
+- **Measurements**
+  - Supported: length, bidirectional, ellipse and rectangle ROI (HU stats), probe, angle.
+  - Annotations map to a Zod `Measurement` union (world-mm coordinates plus references), with pure mappers in both directions.
+  - Export format is `measurements/v1` JSON.
+  - SR TID1500 is a stretch goal, in its own subpath.
+- **Segmentation**
+  - Each SEG series becomes its own Cornerstone segmentation, loaded through adapters as a labelmap.
+  - The store owns visibility, color, and opacity, and a reconciler applies them to every viewport, including ones created later.
+  - A segment index (slices, centroid, largest slice) is built in the compute worker.
+  - `highlight` modes: `dim-others` and `outline`.
+  - Geometry and overlap checks emit `segmentation:warning`.
+  - Performance budget: 512×512×300 with 100 segments decodes in under 3 s.
+- **MPR**
+  - Volumes are streamed only when needed.
+  - A memory pre-flight check runs first. Default `maxCacheBytes` is 1 GB, or 512 MB on low-memory devices, with LRU purge.
+  - Series that are tilted, non-uniform, or over budget fall back to a stack view, and the UI shows the reason.
+  - Crosshairs, plus VOI sync per series.
+  - Layouts are CSS grid templates with stable `vp-0..3` IDs. Hanging protocols are scored per modality.
+  - WebGL uses `ContextPool` mode. v1 supports one viewer per page.
+- **Theming and accessibility**
+  - `--dv-*` CSS tokens, dark by default, light theme via `[data-theme=light]`, plus `::part()`.
+  - The toolbar is a roving-tabindex `role=toolbar`.
+  - Viewports have `role=img` with a throttled live label.
+  - axe checks run in Playwright.
+  - The overlay hides patient-identifying fields by default.
+
+## Milestones (solo part-time; focused dev days)
+
+| # | Milestone | Done when | Days |
+|---|---|---|---|
+| M0 | Bootstrap | Packages build. Tooling: changesets, tsdown/rolldown, TS strict (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`), Biome + ESLint, Vitest, CI. Phantom v0 committed. | 2 |
+| **M1** | **Packaging spike (go/no-go)** | `pnpm pack` tarballs render a J2K phantom stack from `dicomweb-mock` in proxy mode, with zero config, in vite-react, Next (Turbopack and webpack), vite-vue, nuxt, and vanilla. `url` mode works. No SSR errors. Cornerstone works in a Lit light-DOM element. The v5 adapters SEG API is confirmed. Bundle sizes are recorded. ADRs written for assets and DOM strategy. | 7 |
+| M2 | Core foundation | A headless vanilla example loads a study by UID and scrolls. Includes the DICOMweb source (headers, 401 refresh, capabilities), metadata/sort/split, store, events, `ViewerStateV1`, URL codec, and the local-file source. 20 mount/unmount cycles leak nothing. | 6 |
+| M3 | Navigation | Tool bindings, keyboard, W/L presets, zoom/pan/reset/invert, cine, overlay text, slice indicator, and `navigateTo` with prioritized load. `RenderingPort` fake + unit tests. | 5 |
+| M4 | Styled shell + adapters | Lit toolbar, viewport grid, series browser with thumbnails, slots, and panel registry. React and Vue adapters. Light and dark themes. axe clean, and fully usable by keyboard. | 7 |
+| M5 | Measurements | All 6 tools, with a list panel to rename, delete, and jump. Mappers tested in both directions. HU stats within ±0.5 HU on the phantom. JSON round-trip. | 6 |
+| M6 | Segmentation | Two phantom SEGs, with per-segment visibility, color, opacity, jump, and highlight. Visibility stays in sync across viewports. Segment index runs in the worker. Geometry warnings fire. Performance budget met. | 7 |
+| M7 | Layouts + MPR | All four layouts, series drag-and-drop into viewports, hanging protocols, streaming volume, memory policy, crosshairs, VOI sync, and SEG in MPR. Tilted and non-uniform phantoms fall back correctly. | 8 |
+| M8 | Hardening + 1.0 | Visual regression suite, size-limit budgets, publint + attw, TypeDoc + guides, and `1.0.0` published with provenance. | 5 |
+| M9 | OncoTrace readiness | `examples/oncotrace-like` covers the restricted mock proxy, a 10-minute token refresh, the banner slot, organ/tumor toggles, and navigate-by-SOP with segment highlight. A doc maps each bridge message to the API. No OncoTrace changes. | 2 |
+
+**Total:** about 55 days, plus a 20% buffer, so roughly 66 days (about 6 months at 2.5 days a week).
+**Stretch:** SR TID1500 (4 days) and per-lesion connected components (3 days).
+
+OncoTrace bridge mapping, for M9:
+
+| OncoTrace message | Package API |
+|---|---|
+| `oncotrace:auth` | `getRequestHeaders` + `onUnauthorized` |
+| `navigate` | `navigateTo` with `segmentations` |
+| `set-overlay` | `segmentations.setVisible` |
+| `overlay-state` | the `segmentation:visibility` event |
+| `ready` | `viewer.ready` / `study:loaded` |
+
+Reference files:
+- `apps/viewer/extensions/oncotrace-bridge/src/protocol.ts` and `ohifAdapter.ts`
+- `apps/web/src/components/ViewerFrame.tsx`
+- `apps/web/src/viewer/useViewerChannel.ts`
+- `apps/viewer/config/app-config.js.template`
+
+## Verification
+
+- **Unit tests** (Vitest)
+  - Covers metadata, sorting and reconstructability, store and URL codec, mappers, keybindings, SEG index, and hanging protocols.
+  - The DICOMweb client is tested with MSW: headers on every request, 401 refresh then retry once, 403 not retried, multipart parsing.
+- **Real-browser tests**
+  - Vitest browser mode with Playwright and Chromium, against `dicomweb-mock`.
+  - Asserts decoded HU, measurement stats, segment index, and navigation results.
+  - WebGL via `--use-angle=swiftshader --enable-unsafe-swiftshader`, plus a deterministic CPU-backend job.
+- **Visual regression:** Playwright screenshots in the pinned Playwright Docker image.
+- **Installability matrix**
+  - Every PR (and weekly against the latest versions) builds each example from packed tarballs, starts the production build, and runs a smoke test.
+  - The smoke test checks the canvas isn't blank, the worker loaded, J2K decoded, and there are no console errors.
+- **Gates:** publint, `@arethetypeswrong/cli`, size-limit, and a check that only `engine/` imports Cornerstone.
+- **End-to-end:** run `examples/oncotrace-like` against the mock proxy in its OncoTrace restricted mode and walk the M9 bridge mapping by hand.
+
+## Key risks
+
+| Risk | Mitigation |
+|---|---|
+| Cornerstone major churn | Exact pins; `RenderingPort` isolation; grouped upgrade PRs gated on the browser suite |
+| Worker/WASM breaks in a bundler | Inline mode avoids `import.meta.url`; `url` mode and helpers as fallback; tarball matrix in CI |
+| vtk.js touches `window` at import in Next | Dynamic import inside effects; both Next bundlers tested in CI |
+| WebGL context limits | `ContextPool` mode; CPU thumbnails; one viewer per page |
+| Volume memory | Pre-flight memory estimate; LRU purge; stack fallback |
+| Vue reactivity proxying Cornerstone objects | `markRaw` + `shallowRef`; a test asserts no Proxy |
+| SEG geometry mismatch | Validation, warnings, and a mismatch phantom |
+
+## Open questions (resolve during M0/M1)
+
+1. Package name and npm scope, and the element prefix (assumed `dv-`).
+2. React 18 support, or `^19` only?
+3. Is Nuxt required for v1 or best-effort?
+4. Must Safari and iPad be supported? This affects memory defaults and touch support.
+5. Should default bindings match OHIF exactly?
