@@ -1,0 +1,25 @@
+{
+  "name": "@scope/viewer-elements",
+  "version": "0.0.0",
+  "description": "Styled DICOM viewer UI as framework-neutral web components.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scope/viewer-core": "workspace:*"
+  }
+}

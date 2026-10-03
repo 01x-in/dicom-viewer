@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+# Python (tools/phantom)
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Local env
+.env
+.env.*
+!.env.example
+
+# Licensed imaging data must never be committed. Only the synthetic phantom under fixtures/ is allowed.
+data/
+*.nii
+*.nii.gz

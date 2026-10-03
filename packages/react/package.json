@@ -1,0 +1,26 @@
+{
+  "name": "@scope/viewer-react",
+  "version": "0.0.0",
+  "description": "React adapter for the DICOM viewer. Works in Vite and Next.js.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scope/viewer-core": "workspace:*",
+    "@scope/viewer-elements": "workspace:*"
+  }
+}
