@@ -11,8 +11,6 @@ export type AssetsConfig = { mode: 'inline' } | { mode: 'url'; baseUrl: string }
 export interface DecodeWorkerSetup {
   readonly createWorker: () => Worker;
   readonly wasmBasePath: string;
-  /** Releases the Blob URL, if any. */
-  readonly dispose: () => void;
 }
 
 function withTrailingSlash(url: string): string {
@@ -29,9 +27,6 @@ export async function prepareDecodeWorker(assets: AssetsConfig): Promise<DecodeW
     return {
       createWorker: () => new Worker(blobUrl, { type: 'module' }),
       wasmBasePath: INLINE_WASM_BASE,
-      dispose: () => {
-        URL.revokeObjectURL(blobUrl);
-      },
     };
   }
   const base = new URL(withTrailingSlash(assets.baseUrl), document.baseURI);
@@ -39,6 +34,5 @@ export async function prepareDecodeWorker(assets: AssetsConfig): Promise<DecodeW
   return {
     createWorker: () => new Worker(workerUrl, { type: 'module' }),
     wasmBasePath: new URL('wasm/', base).href,
-    dispose: () => undefined,
   };
 }

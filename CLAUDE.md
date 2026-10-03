@@ -26,5 +26,5 @@
 - Only the synthetic phantom in `fixtures/phantom` may be committed. Never commit real, licensed, or de-identified patient data.
 
 ## Commands
-- `pnpm check` runs everything (format check, lint, typecheck, test, build).
+- `pnpm check` runs everything (build, format check, lint, typecheck, test). Build comes first because packages resolve each other through `dist`.
 - Phantom: `cd tools/phantom && uv run pytest -q`.

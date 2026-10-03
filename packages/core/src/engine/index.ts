@@ -37,18 +37,41 @@ export interface Engine {
 
 let engineCount = 0;
 
-export async function createEngine(options: EngineOptions): Promise<Engine> {
-  const worker = await prepareDecodeWorker(options.assets);
+/**
+ * Cornerstone, the loader, and the worker pool are process-wide singletons, so they are set up once
+ * per page. M1 spike: the first viewer's asset settings win and the worker is never released.
+ * M2 owns the real lifecycle ("20 mount/unmount cycles leak nothing").
+ */
+let runtime: { readonly key: string; readonly ready: Promise<void> } | undefined;
 
-  initCornerstone({
-    debug: {},
-    ...(options.cpuRendering === true ? { rendering: { useCPURendering: true } } : {}),
-  });
-  registerWadorsLoader({});
-  utilities.setWasmBasePath(worker.wasmBasePath);
-  getWebWorkerManager().registerWorker(DECODE_WORKER_NAME, worker.createWorker, {
-    maxWorkerInstances: Math.max(1, Math.floor((navigator.hardwareConcurrency || 2) / 2)),
-  });
+function ensureRuntime(options: EngineOptions): Promise<void> {
+  const key = JSON.stringify([options.assets, options.cpuRendering === true]);
+  if (runtime !== undefined) {
+    if (runtime.key !== key) {
+      throw new Error(
+        'A viewer is already running with different asset or rendering settings. Use one configuration per page.',
+      );
+    }
+    return runtime.ready;
+  }
+  const ready = (async (): Promise<void> => {
+    const worker = await prepareDecodeWorker(options.assets);
+    initCornerstone({
+      debug: {},
+      ...(options.cpuRendering === true ? { rendering: { useCPURendering: true } } : {}),
+    });
+    registerWadorsLoader({});
+    utilities.setWasmBasePath(worker.wasmBasePath);
+    getWebWorkerManager().registerWorker(DECODE_WORKER_NAME, worker.createWorker, {
+      maxWorkerInstances: Math.max(1, Math.floor((navigator.hardwareConcurrency || 2) / 2)),
+    });
+  })();
+  runtime = { key, ready };
+  return ready;
+}
+
+export async function createEngine(options: EngineOptions): Promise<Engine> {
+  await ensureRuntime(options);
 
   engineCount += 1;
   const renderingEngineId = `dv-engine-${engineCount.toString()}`;
@@ -103,7 +126,6 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     },
     destroy(): void {
       renderingEngine.destroy();
-      worker.dispose();
     },
   };
 }

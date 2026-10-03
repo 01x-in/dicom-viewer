@@ -14,7 +14,7 @@
     "lint": "eslint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "check": "pnpm generate && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm generate && pnpm build && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish"
@@ -27,6 +27,7 @@
     "eslint": "10.12.0",
     "eslint-plugin-import-x": "4.17.1",
     "jsdom": "30.1.1",
+    "playwright": "1.63.0",
     "publint": "0.3.25",
     "tsdown": "0.23.0",
     "typescript": "6.0.3",
