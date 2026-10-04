@@ -12,8 +12,12 @@ export interface SegmentationHandle {
   readonly segments: readonly SegmentInfo[];
   /** Number of referenced images that received a labelmap frame (one per CT slice). */
   readonly labelmapFrameCount: number;
-  /** Segment number stored at one pixel of one CT slice, or 0 for background. */
+  /** Number of labelmap layers; SEGs with overlapping segments have more than one. */
+  readonly layerCount: number;
+  /** Segment number at one pixel of one CT slice (the lowest layer that has one), or 0. */
   sample(sliceIndex: number, row: number, column: number): number;
+  /** Every segment number at one pixel, one per layer that has one. More than one means overlap. */
+  sampleAll(sliceIndex: number, row: number, column: number): number[];
 }
 
 /**
@@ -57,17 +61,24 @@ export async function parseSegmentation(
     }
   }
 
-  const [firstLayer] = labelMapImages;
+  const layers = labelMapImages.map((layer) => layer.filter(isLabelmapImage));
+  const [firstLayer] = layers;
   if (firstLayer === undefined) throw new Error('The SEG produced no labelmap images.');
-  const frames = firstLayer.filter(isLabelmapImage);
-  return {
-    segments,
-    labelmapFrameCount: frames.length,
-    sample(sliceIndex, row, column): number {
-      const image = frames[sliceIndex];
+  const valueAt = (image: Types.IImage, row: number, column: number): number =>
+    image.voxelManager?.getScalarData()[row * image.columns + column] ?? 0;
+  const sampleAll = (sliceIndex: number, row: number, column: number): number[] =>
+    layers.flatMap((layer) => {
+      const image = layer[sliceIndex];
       if (image === undefined)
         throw new RangeError(`No labelmap for slice ${sliceIndex.toString()}.`);
-      return image.voxelManager?.getScalarData()[row * image.columns + column] ?? 0;
-    },
+      const value = valueAt(image, row, column);
+      return value === 0 ? [] : [value];
+    });
+  return {
+    segments,
+    labelmapFrameCount: firstLayer.length,
+    layerCount: layers.length,
+    sample: (sliceIndex, row, column) => sampleAll(sliceIndex, row, column)[0] ?? 0,
+    sampleAll,
   };
 }

@@ -9,14 +9,17 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Plugin, rolldown } from 'rolldown';
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromCore = createRequire(join(packageDir, 'package.json'));
-const loaderEntry = requireFromCore.resolve('@cornerstonejs/dicom-image-loader/wadors');
-const loaderDist = loaderEntry.slice(0, loaderEntry.indexOf('/dist/esm/') + '/dist/esm'.length);
+const loaderRoot = dirname(
+  requireFromCore.resolve('@cornerstonejs/dicom-image-loader/package.json'),
+);
+const loaderDist = join(loaderRoot, 'dist/esm');
+const loaderEntry = join(loaderDist, 'imageLoader/wadors/index.js');
 const requireFromLoader = createRequire(loaderEntry);
 const toolsDist = join(
   dirname(requireFromCore.resolve('@cornerstonejs/tools/package.json')),
@@ -38,7 +41,7 @@ async function readWasmFiles(): Promise<Record<string, Buffer>> {
   const files: Record<string, Buffer> = {};
   for (const specifier of WASM_SPECIFIERS) {
     const path = requireFromLoader.resolve(specifier);
-    files[path.slice(path.lastIndexOf('/') + 1)] = await readFile(path);
+    files[basename(path)] = await readFile(path);
   }
   return files;
 }

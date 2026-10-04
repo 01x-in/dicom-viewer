@@ -11,7 +11,7 @@
 ## Coding standards
 - TypeScript strict, including `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, and `isolatedDeclarations`.
 - No `any`, and no `as unknown as X` (ESLint enforces both).
-- Named exports only. Default exports are allowed only in tool config files.
+- Named exports only. Default exports are allowed only in tool config files and in framework-mandated entry points (for example Next.js `layout.tsx` and `page.tsx` in `examples/`).
 - Explicit return types on exported functions.
 - Validate external data (DICOM JSON, measurement imports, URL state) with Zod.
 - TDD: write the test first, and never weaken an assertion to make a test pass.

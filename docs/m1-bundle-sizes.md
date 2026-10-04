@@ -7,8 +7,8 @@ build each framework produces, with no bundler configuration. Do not edit by han
 
 | Package | Packed (.tgz) |
 |---|---|
-| @scope/viewer-core | 3303 KiB |
-| @scope/viewer-elements | 4 KiB |
+| @scope/viewer-core | 3304 KiB |
+| @scope/viewer-elements | 5 KiB |
 | @scope/viewer-react | 3 KiB |
 | @scope/viewer-vue | 3 KiB |
 
@@ -19,12 +19,12 @@ All JavaScript the production build emits for the browser, including the lazily 
 
 | Example | Files | Total raw | Total gzip | Total brotli | Largest chunk (raw / brotli) |
 |---|---|---|---|---|---|
-| vanilla | 3 | 7780 KiB | 2210 KiB | 1690 KiB | 4203 KiB / 936 KiB |
-| vite-react | 3 | 7979 KiB | 2270 KiB | 1742 KiB | 4203 KiB / 936 KiB |
-| vite-vue | 3 | 7824 KiB | 2227 KiB | 1706 KiB | 4203 KiB / 936 KiB |
+| vanilla | 3 | 7781 KiB | 2210 KiB | 1691 KiB | 4203 KiB / 936 KiB |
+| vite-react | 3 | 7979 KiB | 2270 KiB | 1743 KiB | 4203 KiB / 936 KiB |
+| vite-vue | 3 | 7825 KiB | 2227 KiB | 1706 KiB | 4203 KiB / 936 KiB |
 | next-turbopack | 11 | 8559 KiB | 2427 KiB | 1881 KiB | 4203 KiB / 946 KiB |
-| next-webpack | 20 | 8610 KiB | 2466 KiB | 1908 KiB | 4203 KiB / 936 KiB |
-| nuxt | 7 | 7908 KiB | 2259 KiB | 1733 KiB | 4203 KiB / 936 KiB |
+| next-webpack | 20 | 8611 KiB | 2466 KiB | 1909 KiB | 4203 KiB / 936 KiB |
+| nuxt | 7 | 7908 KiB | 2259 KiB | 1734 KiB | 4203 KiB / 936 KiB |
 
 ## `url` mode assets
 

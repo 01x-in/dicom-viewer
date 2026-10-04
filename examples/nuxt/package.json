@@ -5,7 +5,7 @@
   "scripts": {
     "build": "viewer-assets copy public/viewer-assets && nuxt build",
     "serve": "node .output/server/index.mjs",
-    "dev": "viewer-assets copy public/viewer-assets && nuxt dev --port $PORT --host 127.0.0.1"
+    "dev": "viewer-assets copy public/viewer-assets && nuxt dev --port ${PORT:-3000} --host 127.0.0.1"
   },
   "dependencies": {
     "@scope/viewer-core": "0.0.0",

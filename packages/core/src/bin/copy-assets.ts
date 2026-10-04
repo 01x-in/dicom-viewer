@@ -10,7 +10,7 @@ const USAGE = 'Usage: viewer-assets copy <destination-dir>';
 
 export function parseCliArguments(args: readonly string[]): CopyCommand {
   const [command, destination, ...rest] = args;
-  if (command !== 'copy' || destination === undefined || rest.length > 0) {
+  if (command !== 'copy' || destination === undefined || destination === '' || rest.length > 0) {
     throw new Error(USAGE);
   }
   return { command, destination };

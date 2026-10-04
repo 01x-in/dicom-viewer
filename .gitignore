@@ -15,7 +15,9 @@ __pycache__/
 !.env.example
 
 # Licensed imaging data must never be committed. Only the synthetic phantom under fixtures/ is allowed.
-data/
+# Anchored, so source folders that happen to be called data/ (packages/core/src/data) are not ignored.
+/data/
+/tools/*/data/
 *.nii
 *.nii.gz
 

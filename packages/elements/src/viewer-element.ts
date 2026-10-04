@@ -81,6 +81,12 @@ export class DvViewerElement extends LitElement {
       seriesInstanceUid === undefined ||
       target === null
     ) {
+      // An input was removed: stop the current viewer and invalidate any load still in flight,
+      // so it cannot announce readiness for inputs that no longer exist.
+      this.#generation += 1;
+      this.#viewer?.destroy();
+      this.#viewer = undefined;
+      this.status = 'idle';
       return;
     }
     const generation = (this.#generation += 1);

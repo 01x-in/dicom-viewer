@@ -6,7 +6,7 @@ import {
   type ViewerOptions,
 } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-react';
-import { useEffect, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 
 // The installability matrix drives this page through the query string and reads the result
 // back from `data-dv-status` and `window.__dv`.
@@ -23,7 +23,7 @@ interface Config {
   readonly series: string;
 }
 
-export function Viewer() {
+export function Viewer(): JSX.Element {
   const [config, setConfig] = useState<Config | undefined>(undefined);
 
   useEffect(() => {

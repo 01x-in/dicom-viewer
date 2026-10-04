@@ -127,11 +127,22 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
           if (imageId === undefined)
             throw new RangeError(`No image at index ${imageIndex.toString()}.`);
           const image = await imageLoader.loadAndCacheImage(imageId);
-          const stored = image.voxelManager?.getScalarData()[row * image.columns + column];
-          if (stored === undefined)
+          // Check each axis, not the flattened offset: column -1 or `columns` would otherwise land on a
+          // neighbouring row and return a wrong pixel instead of failing.
+          if (
+            !Number.isInteger(row) ||
+            !Number.isInteger(column) ||
+            row < 0 ||
+            row >= image.rows ||
+            column < 0 ||
+            column >= image.columns
+          ) {
             throw new RangeError(
-              `Pixel (${row.toString()}, ${column.toString()}) is outside the image.`,
+              `Pixel (${row.toString()}, ${column.toString()}) is outside the ${image.rows.toString()}x${image.columns.toString()} image.`,
             );
+          }
+          const stored = image.voxelManager?.getScalarData()[row * image.columns + column];
+          if (stored === undefined) throw new Error('The image has no scalar data.');
           // With pre-scaling on (the default) the loader has already applied slope and intercept.
           return image.preScale?.scaled === true ? stored : stored * image.slope + image.intercept;
         },

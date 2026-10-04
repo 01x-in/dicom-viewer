@@ -49,5 +49,10 @@ describe('parseCliArguments', () => {
     expect(() => parseCliArguments([])).toThrow(/usage/i);
     expect(() => parseCliArguments(['copy'])).toThrow(/usage/i);
     expect(() => parseCliArguments(['sync', 'x'])).toThrow(/usage/i);
+    expect(() => parseCliArguments(['copy', 'a', 'b'])).toThrow(/usage/i);
+  });
+
+  it('rejects an empty destination, which would otherwise mean the current directory', () => {
+    expect(() => parseCliArguments(['copy', ''])).toThrow(/usage/i);
   });
 });

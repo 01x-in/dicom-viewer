@@ -47,6 +47,10 @@ export function createViewer(options: ViewerOptions): Viewer {
       ...(options.cpuRendering === undefined ? {} : { cpuRendering: options.cpuRendering }),
     }),
   );
+  // Consumers that never read `ready` must not get an unhandled rejection when the engine fails to
+  // start; consumers that do read it still see the rejection.
+  const ready = enginePromise.then(() => undefined);
+  ready.catch(() => undefined);
   const handles: StackHandle[] = [];
   let destroyed = false;
 
@@ -57,7 +61,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   return {
-    ready: enginePromise.then(() => undefined),
+    ready,
     async loadSeries(element, studyInstanceUID, seriesInstanceUID): Promise<LoadedSeries> {
       const engine = await enginePromise;
       assertAlive();
@@ -91,9 +95,14 @@ export function createViewer(options: ViewerOptions): Viewer {
     destroy(): void {
       destroyed = true;
       for (const handle of handles) handle.destroy();
-      void enginePromise.then((engine) => {
-        engine.destroy();
-      });
+      // If the engine never started there is nothing to destroy, and the failure was already reported
+      // through `ready` and `loadSeries`.
+      enginePromise.then(
+        (engine) => {
+          engine.destroy();
+        },
+        () => undefined,
+      );
     },
   };
 }

@@ -16,9 +16,10 @@ export interface DicomViewerProps {
  * browser during SSR and Next.js hosts need no `dynamic(..., { ssr: false })`.
  */
 export function DicomViewer(props: DicomViewerProps): JSX.Element {
-  const { studyInstanceUID, seriesInstanceUID, className, style } = props;
+  const { options, studyInstanceUID, seriesInstanceUID, className, style } = props;
   const hostRef = useRef<HTMLDivElement>(null);
-  // Callbacks and options change identity every render; the effect must not restart for them.
+  // Callbacks change identity every render; the effect must not restart for them. `options` is a
+  // real input, so a new object restarts the viewer: keep it stable (useMemo) in the host.
   const latest = useRef(props);
   latest.current = props;
 
@@ -26,7 +27,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     const host = hostRef.current;
     if (host === null) return;
     let cancelled = false;
-    const viewer = createViewer(latest.current.options);
+    const viewer = createViewer(options);
     viewer.loadSeries(host, studyInstanceUID, seriesInstanceUID).then(
       (series) => {
         if (!cancelled) latest.current.onReady?.(series);
@@ -41,7 +42,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
       cancelled = true;
       viewer.destroy();
     };
-  }, [studyInstanceUID, seriesInstanceUID]);
+  }, [options, studyInstanceUID, seriesInstanceUID]);
 
   return (
     <div ref={hostRef} className={className} style={{ width: '100%', height: '100%', ...style }} />

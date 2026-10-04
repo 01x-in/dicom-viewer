@@ -4,7 +4,7 @@ import {
   type ViewerOptions,
 } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-react';
-import { StrictMode, useMemo } from 'react';
+import { type JSX, StrictMode, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 
 // The installability matrix drives this page through the query string and reads the result
@@ -16,7 +16,7 @@ declare global {
   }
 }
 
-function App() {
+function App(): JSX.Element {
   const params = new URLSearchParams(location.search);
   const options = useMemo<ViewerOptions>(() => {
     const assets = params.get('assets');

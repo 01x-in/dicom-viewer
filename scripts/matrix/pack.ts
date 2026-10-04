@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -28,15 +28,23 @@ export async function packTarballs(root: string): Promise<Tarballs> {
     await run('pnpm', ['--filter', name, 'pack', '--pack-destination', destination], { cwd: root });
   }
   const files = await readdir(destination);
-  const find = (suffix: string): string => {
-    const file = files.find((candidate) => candidate.endsWith(`${suffix}-0.0.0.tgz`));
-    if (file === undefined) throw new Error(`No tarball for ${suffix} in ${destination}`);
+  const find = async (directory: keyof Tarballs): Promise<string> => {
+    // Changesets bumps the fixed versions, so the tarball name carries the manifest's version.
+    const manifest = JSON.parse(
+      await readFile(join(root, 'packages', directory, 'package.json'), 'utf8'),
+    ) as { version?: unknown };
+    const version = manifest.version;
+    if (typeof version !== 'string') throw new Error(`packages/${directory} has no version`);
+    const file = files.find((candidate) =>
+      candidate.endsWith(`viewer-${directory}-${version}.tgz`),
+    );
+    if (file === undefined) throw new Error(`No tarball for ${directory} in ${destination}`);
     return join(destination, file);
   };
   return {
-    core: find('viewer-core'),
-    elements: find('viewer-elements'),
-    react: find('viewer-react'),
-    vue: find('viewer-vue'),
+    core: await find('core'),
+    elements: await find('elements'),
+    react: await find('react'),
+    vue: await find('vue'),
   };
 }
