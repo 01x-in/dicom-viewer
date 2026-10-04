@@ -91,70 +91,99 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
   const renderingEngineId = `dv-engine-${engineCount.toString()}`;
   const renderingEngine = new RenderingEngine(renderingEngineId);
   let viewportCount = 0;
+  let destroyed = false;
+  // Renders still being set up. destroy() waits for them, so a viewport is never half-built on a disposed engine.
+  const pending = new Set<Promise<unknown>>();
+
+  function assertNotDestroyed(): void {
+    if (destroyed) throw new Error('The engine was destroyed.');
+  }
+
+  async function setUpStack(element: HTMLElement, series: LoadedSeriesData): Promise<StackHandle> {
+    assertNotDestroyed();
+    await Promise.all(
+      series.instances.map((instance) =>
+        metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata),
+      ),
+    );
+
+    assertNotDestroyed();
+    viewportCount += 1;
+    const viewportId = `${renderingEngineId}-vp-${viewportCount.toString()}`;
+    renderingEngine.enableElement({
+      viewportId,
+      type: Enums.ViewportType.STACK,
+      element: element as HTMLDivElement,
+    });
+    const viewport = renderingEngine.getViewport(viewportId);
+    if (!(viewport instanceof StackViewport)) {
+      throw new Error(`Expected a stack viewport for ${viewportId}.`);
+    }
+    const middle = Math.floor(series.imageIds.length / 2);
+    await viewport.setStack([...series.imageIds], middle);
+    if (destroyed) {
+      renderingEngine.disableElement(viewportId);
+      throw new Error('The engine was destroyed while the viewport was being set up.');
+    }
+    viewport.render();
+    const detachTools = attachStackTools(renderingEngineId, viewportId);
+
+    return {
+      imageCount: series.imageIds.length,
+      getImageIndex: () => viewport.getCurrentImageIdIndex(),
+      async setImageIndex(index): Promise<void> {
+        await viewport.setImageIdIndex(index);
+      },
+      async sampleHu(imageIndex, row, column): Promise<number> {
+        const imageId = series.imageIds[imageIndex];
+        if (imageId === undefined)
+          throw new RangeError(`No image at index ${imageIndex.toString()}.`);
+        const image = await imageLoader.loadAndCacheImage(imageId);
+        // Check each axis, not the flattened offset: column -1 or `columns` would otherwise land on a
+        // neighbouring row and return a wrong pixel instead of failing.
+        if (
+          !Number.isInteger(row) ||
+          !Number.isInteger(column) ||
+          row < 0 ||
+          row >= image.rows ||
+          column < 0 ||
+          column >= image.columns
+        ) {
+          throw new RangeError(
+            `Pixel (${row.toString()}, ${column.toString()}) is outside the ${image.rows.toString()}x${image.columns.toString()} image.`,
+          );
+        }
+        const stored = image.voxelManager?.getScalarData()[row * image.columns + column];
+        if (stored === undefined) throw new Error('The image has no scalar data.');
+        // With pre-scaling on (the default) the loader has already applied slope and intercept.
+        return image.preScale?.scaled === true ? stored : stored * image.slope + image.intercept;
+      },
+      destroy(): void {
+        detachTools();
+        renderingEngine.disableElement(viewportId);
+      },
+    };
+  }
 
   return {
-    async renderStack(element, series): Promise<StackHandle> {
-      await Promise.all(
-        series.instances.map((instance) =>
-          metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata),
-        ),
-      );
-
-      viewportCount += 1;
-      const viewportId = `${renderingEngineId}-vp-${viewportCount.toString()}`;
-      renderingEngine.enableElement({
-        viewportId,
-        type: Enums.ViewportType.STACK,
-        element: element as HTMLDivElement,
-      });
-      const viewport = renderingEngine.getViewport(viewportId);
-      if (!(viewport instanceof StackViewport)) {
-        throw new Error(`Expected a stack viewport for ${viewportId}.`);
-      }
-      const middle = Math.floor(series.imageIds.length / 2);
-      await viewport.setStack([...series.imageIds], middle);
-      viewport.render();
-      const detachTools = attachStackTools(renderingEngineId, viewportId);
-
-      return {
-        imageCount: series.imageIds.length,
-        getImageIndex: () => viewport.getCurrentImageIdIndex(),
-        async setImageIndex(index): Promise<void> {
-          await viewport.setImageIdIndex(index);
-        },
-        async sampleHu(imageIndex, row, column): Promise<number> {
-          const imageId = series.imageIds[imageIndex];
-          if (imageId === undefined)
-            throw new RangeError(`No image at index ${imageIndex.toString()}.`);
-          const image = await imageLoader.loadAndCacheImage(imageId);
-          // Check each axis, not the flattened offset: column -1 or `columns` would otherwise land on a
-          // neighbouring row and return a wrong pixel instead of failing.
-          if (
-            !Number.isInteger(row) ||
-            !Number.isInteger(column) ||
-            row < 0 ||
-            row >= image.rows ||
-            column < 0 ||
-            column >= image.columns
-          ) {
-            throw new RangeError(
-              `Pixel (${row.toString()}, ${column.toString()}) is outside the ${image.rows.toString()}x${image.columns.toString()} image.`,
-            );
-          }
-          const stored = image.voxelManager?.getScalarData()[row * image.columns + column];
-          if (stored === undefined) throw new Error('The image has no scalar data.');
-          // With pre-scaling on (the default) the loader has already applied slope and intercept.
-          return image.preScale?.scaled === true ? stored : stored * image.slope + image.intercept;
-        },
-        destroy(): void {
-          detachTools();
-          renderingEngine.disableElement(viewportId);
-        },
+    renderStack(element, series): Promise<StackHandle> {
+      const render = setUpStack(element, series);
+      pending.add(render);
+      const done = (): void => {
+        pending.delete(render);
       };
+      render.then(done, done);
+      return render;
     },
     loadSegmentation: parseSegmentation,
     destroy(): void {
-      renderingEngine.destroy();
+      destroyed = true;
+      Promise.allSettled([...pending]).then(
+        () => {
+          renderingEngine.destroy();
+        },
+        () => undefined,
+      );
     },
   };
 }

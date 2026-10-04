@@ -7,6 +7,7 @@ import {
 } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-react';
 import { type JSX, useEffect, useState } from 'react';
+import { z } from 'zod';
 
 // The installability matrix drives this page through the query string and reads the result
 // back from `data-dv-status` and `window.__dv`.
@@ -23,20 +24,38 @@ interface Config {
   readonly series: string;
 }
 
+// URL state is external data, so it is validated before it reaches the data source.
+const queryState = z.object({
+  wadoRoot: z.url(),
+  study: z.string().min(1),
+  series: z.string().min(1),
+  assets: z.string().min(1).optional(),
+});
+
+function fail(message: string): void {
+  window.__dvError = message;
+  document.documentElement.dataset['dvStatus'] = 'error';
+}
+
 export function Viewer(): JSX.Element {
   const [config, setConfig] = useState<Config | undefined>(undefined);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const assets = params.get('assets');
+    const parsed = queryState.safeParse(Object.fromEntries(params));
+    if (!parsed.success) {
+      fail(`Invalid query string: ${parsed.error.message}`);
+      return;
+    }
+    const { wadoRoot, study, series, assets } = parsed.data;
     setConfig({
       options: {
-        dataSource: createDicomWebDataSource({ wadoRoot: params.get('wadoRoot') ?? '' }),
-        assets: assets === null ? { mode: 'inline' } : { mode: 'url', baseUrl: assets },
+        dataSource: createDicomWebDataSource({ wadoRoot }),
+        assets: assets === undefined ? { mode: 'inline' } : { mode: 'url', baseUrl: assets },
         cpuRendering: params.has('cpu'),
       },
-      study: params.get('study') ?? '',
-      series: params.get('series') ?? '',
+      study,
+      series,
     });
   }, []);
 

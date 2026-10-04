@@ -20,11 +20,11 @@ All JavaScript the production build emits for the browser, including the lazily 
 | Example | Files | Total raw | Total gzip | Total brotli | Largest chunk (raw / brotli) |
 |---|---|---|---|---|---|
 | vanilla | 3 | 7781 KiB | 2210 KiB | 1691 KiB | 4203 KiB / 936 KiB |
-| vite-react | 3 | 7979 KiB | 2270 KiB | 1743 KiB | 4203 KiB / 936 KiB |
+| vite-react | 3 | 7980 KiB | 2270 KiB | 1742 KiB | 4203 KiB / 936 KiB |
 | vite-vue | 3 | 7825 KiB | 2227 KiB | 1706 KiB | 4203 KiB / 936 KiB |
-| next-turbopack | 11 | 8559 KiB | 2427 KiB | 1881 KiB | 4203 KiB / 946 KiB |
-| next-webpack | 20 | 8611 KiB | 2466 KiB | 1909 KiB | 4203 KiB / 936 KiB |
-| nuxt | 7 | 7908 KiB | 2259 KiB | 1734 KiB | 4203 KiB / 936 KiB |
+| next-turbopack | 11 | 8560 KiB | 2427 KiB | 1881 KiB | 4203 KiB / 946 KiB |
+| next-webpack | 20 | 8611 KiB | 2467 KiB | 1909 KiB | 4203 KiB / 936 KiB |
+| nuxt | 7 | 7909 KiB | 2259 KiB | 1734 KiB | 4203 KiB / 936 KiB |
 
 ## `url` mode assets
 

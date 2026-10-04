@@ -202,6 +202,10 @@ export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeR
         `no decode worker started from ${expectedWorker} (saw ${workerUrls.join(', ') || 'none'})`,
       );
     }
+  } catch (error) {
+    // A rejected probe (decode, network, or SEG parse) is a result for this variant, not a reason to
+    // abort the whole matrix.
+    failures.push(`smoke aborted: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     await context.close();
   }

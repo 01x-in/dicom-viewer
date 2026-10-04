@@ -249,6 +249,15 @@ async function runVariant(
   return { rows, measurement };
 }
 
+const selected = VARIANTS.filter((item) => values.only === undefined || item.name === values.only);
+if (selected.length === 0) {
+  // A typo must not look like a pass: nothing would run and the exit code would be 0.
+  console.error(
+    `Unknown --only "${values.only ?? ''}". Choose one of: ${VARIANTS.map((item) => item.name).join(', ')}`,
+  );
+  process.exit(2);
+}
+
 const tarballs = await packTarballs(root);
 const mock = await startMockServer({
   fixturesDir: join(root, 'fixtures/phantom'),
@@ -258,9 +267,7 @@ const mock = await startMockServer({
 const rows: Row[] = [];
 const measurements: Measurement[] = [];
 try {
-  for (const variant of VARIANTS.filter(
-    (item) => values.only === undefined || item.name === values.only,
-  )) {
+  for (const variant of selected) {
     const result = await runVariant(variant, tarballs, mock);
     rows.push(...result.rows);
     measurements.push(result.measurement);
