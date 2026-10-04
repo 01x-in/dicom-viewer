@@ -125,6 +125,8 @@ export interface FakeStackPort extends StackPort {
   readonly element: HTMLElement;
   readonly stack: SeriesStack;
   destroyed: boolean;
+  /** Every pixel sample this stack served, so a test can tell which stack answered. */
+  readonly samples: { imageIndex: number; row: number; column: number }[];
   /** Simulates the image changing without the host asking, as the mouse wheel does. */
   emitImage(index: number): void;
 }
@@ -174,6 +176,7 @@ export function fakePort(): FakePort {
         element,
         stack,
         destroyed: false,
+        samples: [],
         imageCount: stack.imageIds.length,
         getImageIndex: () => index,
         setImageIndex(next): Promise<void> {
@@ -191,8 +194,10 @@ export function fakePort(): FakePort {
             listeners.delete(listener);
           };
         },
-        sampleHu: (imageIndex, row, column) =>
-          Promise.resolve(imageIndex * 1000 + row * 10 + column),
+        sampleHu(imageIndex, row, column): Promise<number> {
+          fake.samples.push({ imageIndex, row, column });
+          return Promise.resolve(imageIndex * 1000 + row * 10 + column);
+        },
         destroy(): void {
           fake.destroyed = true;
           log.push(`destroy ${stack.imageIds[0] ?? '?'}`);

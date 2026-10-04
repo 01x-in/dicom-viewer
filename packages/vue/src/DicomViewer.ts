@@ -69,6 +69,9 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
             if (!cancelled && viewport !== undefined) emit('ready', markRaw(viewport));
           },
           (error: unknown) => {
+            // A viewer that failed to load must not keep its engine, workers, or cache while the
+            // component stays mounted. Destroying twice is safe, so `stop` still works.
+            created.destroy();
             if (!cancelled)
               emit('error', error instanceof Error ? error : new Error(String(error)));
           },

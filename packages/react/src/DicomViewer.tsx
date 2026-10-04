@@ -52,9 +52,10 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
           if (!cancelled && viewport !== undefined) latest.current.onReady?.(viewport);
         },
         (error: unknown) => {
-          if (!cancelled) {
-            latest.current.onError?.(error instanceof Error ? error : new Error(String(error)));
-          }
+          // A viewer that failed to load must not keep its engine, workers, or cache while the
+          // component stays mounted. Destroying twice is safe, so the effect cleanup still runs.
+          viewer.destroy();
+          fail(error);
         },
       );
     return (): void => {

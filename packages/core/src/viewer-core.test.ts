@@ -328,16 +328,19 @@ describe('scrolling', () => {
     expect(api.getImageIndex()).toBe(3);
   });
 
-  it('takes a pixel sample after the calls queued before it', async () => {
+  it('takes a pixel sample after the calls queued before it, from the stack then on screen', async () => {
     const { api, viewer, port } = await shown();
     const hold = port.hold();
     const switching = viewer.setViewportSeries('vp-0', CT_TWO_STACKS);
-    const sampling = api.sampleHu(0, 0, 0);
+    const sampling = api.sampleHu(1, 2, 3);
     hold.release();
     await switching;
-    await sampling;
-    // The sample came from the stack that was showing when it ran, not from the one before the switch.
-    expect(port.stacks.at(-1)?.stack.imageIds[0]).toContain(CT_TWO_STACKS);
+    await expect(sampling).resolves.toBe(1023);
+
+    const [before, after] = port.stacks;
+    expect(before?.samples).toEqual([]);
+    expect(after?.stack.imageIds[0]).toContain(CT_TWO_STACKS);
+    expect(after?.samples).toEqual([{ imageIndex: 1, row: 2, column: 3 }]);
   });
 
   it('says nothing when the slice did not change', async () => {
