@@ -1,11 +1,11 @@
-import { createViewer, type LoadedSeries, type ViewerOptions } from '@scope/viewer-core';
+import { createViewer, type ViewerOptions, type ViewportApi } from '@scope/viewer-core';
 import { type CSSProperties, type JSX, useEffect, useRef } from 'react';
 
 export interface DicomViewerProps {
   readonly options: ViewerOptions;
   readonly studyInstanceUID: string;
   readonly seriesInstanceUID: string;
-  readonly onReady?: (series: LoadedSeries) => void;
+  readonly onReady?: (viewport: ViewportApi) => void;
   readonly onError?: (error: Error) => void;
   readonly className?: string;
   readonly style?: CSSProperties;
@@ -28,16 +28,23 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     if (host === null) return;
     let cancelled = false;
     const viewer = createViewer(options);
-    viewer.loadSeries(host, studyInstanceUID, seriesInstanceUID).then(
-      (series) => {
-        if (!cancelled) latest.current.onReady?.(series);
-      },
-      (error: unknown) => {
-        if (!cancelled) {
-          latest.current.onError?.(error instanceof Error ? error : new Error(String(error)));
-        }
-      },
-    );
+    viewer.viewports.attach('vp-0', host);
+    viewer
+      .setState({
+        studyInstanceUID,
+        viewports: [{ id: 'vp-0', seriesInstanceUID }],
+      })
+      .then(
+        () => {
+          const viewport = viewer.viewports.get('vp-0');
+          if (!cancelled && viewport !== undefined) latest.current.onReady?.(viewport);
+        },
+        (error: unknown) => {
+          if (!cancelled) {
+            latest.current.onError?.(error instanceof Error ? error : new Error(String(error)));
+          }
+        },
+      );
     return (): void => {
       cancelled = true;
       viewer.destroy();

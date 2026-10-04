@@ -3,20 +3,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DvViewerElement } from './viewer-element';
 
 interface FakeViewer {
-  loadSeries: ReturnType<typeof vi.fn>;
+  viewports: { attach: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> };
+  setState: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
 }
 
 const created: FakeViewer[] = [];
-let finishLoad: (value: { imageCount: number }) => void = () => undefined;
+let finishLoad: () => void = () => undefined;
 
 vi.mock('@scope/viewer-core', () => ({
   createDicomWebDataSource: () => ({}),
   createViewer: (): FakeViewer => {
     const viewer: FakeViewer = {
-      loadSeries: vi.fn(
+      viewports: { attach: vi.fn(), get: vi.fn(() => ({ imageCount: 64 })) },
+      setState: vi.fn(
         () =>
-          new Promise((resolve) => {
+          new Promise<void>((resolve) => {
             finishLoad = resolve;
           }),
       ),
@@ -67,7 +69,7 @@ describe('<dv-viewer> lifecycle', () => {
 
     element.studyInstanceUid = undefined;
     await element.updateComplete;
-    finishLoad({ imageCount: 64 });
+    finishLoad();
     await Promise.resolve();
     await Promise.resolve();
 

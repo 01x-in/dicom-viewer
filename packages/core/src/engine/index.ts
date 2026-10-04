@@ -15,6 +15,7 @@ import {
 import { utilities as metadataUtilities } from '@cornerstonejs/metadata';
 import { setOptions as setLoaderOptions } from 'dv-loader-options';
 import type { FrameRequestPolicy, SeriesStack } from '../data/types';
+import type { RenderingPort, RenderStackOptions, StackPort } from '../rendering-port';
 import { type AssetsConfig, prepareWorkers } from './assets';
 import { createFrameRequests } from './frame-policy';
 import {
@@ -23,7 +24,7 @@ import {
   loadLocalFileImage,
   registerLocalFile,
 } from './local-files';
-import { parseSegmentation, type SegmentationHandle } from './segmentation';
+import { parseSegmentation } from './segmentation';
 import { attachStackTools, registerTools } from './tools';
 
 const DECODE_WORKER_NAME = 'dicomImageLoader';
@@ -36,24 +37,6 @@ export interface EngineOptions {
   readonly cpuRendering?: boolean;
   /** Applies the host's headers and token refresh to the frames the loader fetches. */
   readonly frameRequests?: FrameRequestPolicy | undefined;
-}
-
-export interface StackHandle {
-  readonly imageCount: number;
-  getImageIndex(): number;
-  setImageIndex(index: number): Promise<void>;
-  /** Decodes one slice and returns the Hounsfield value of one pixel. */
-  sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
-  destroy(): void;
-}
-
-export type { SegmentationHandle };
-
-export interface Engine {
-  renderStack(element: HTMLElement, stack: SeriesStack): Promise<StackHandle>;
-  /** Parses a SEG against the images it segments (a stack's image ids). */
-  loadSegmentation(imageIds: readonly string[], bytes: ArrayBuffer): Promise<SegmentationHandle>;
-  destroy(): void;
 }
 
 let engineCount = 0;
@@ -108,7 +91,7 @@ function ensureRuntime(options: EngineOptions): Promise<void> {
   return ready;
 }
 
-export async function createEngine(options: EngineOptions): Promise<Engine> {
+export async function createEngine(options: EngineOptions): Promise<RenderingPort> {
   await ensureRuntime(options);
 
   const unregisterFrameRequests =
@@ -125,7 +108,11 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     if (destroyed) throw new Error('The engine was destroyed.');
   }
 
-  async function setUpStack(element: HTMLElement, stack: SeriesStack): Promise<StackHandle> {
+  async function setUpStack(
+    element: HTMLElement,
+    stack: SeriesStack,
+    renderOptions: RenderStackOptions,
+  ): Promise<StackPort> {
     assertNotDestroyed();
     await Promise.all(
       stack.instances.map((instance) =>
@@ -147,8 +134,12 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     if (!(viewport instanceof StackViewport)) {
       throw new Error(`Expected a stack viewport for ${viewportId}.`);
     }
-    const middle = Math.floor(stack.imageIds.length / 2);
-    await viewport.setStack([...stack.imageIds], middle);
+    const last = stack.imageIds.length - 1;
+    const first =
+      renderOptions.imageIndex === undefined
+        ? Math.floor(stack.imageIds.length / 2)
+        : Math.min(Math.max(0, Math.trunc(renderOptions.imageIndex)), last);
+    await viewport.setStack([...stack.imageIds], first);
     if (destroyed) {
       renderingEngine.disableElement(viewportId);
       throw new Error('The engine was destroyed while the viewport was being set up.');
@@ -161,6 +152,18 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
       getImageIndex: () => viewport.getCurrentImageIdIndex(),
       async setImageIndex(index): Promise<void> {
         await viewport.setImageIdIndex(index);
+      },
+      onImageChange(listener): () => void {
+        // The event carries the new index. Ask the viewport instead and you get the old one: it
+        // updates its own index after the event fires.
+        const handler = (event: Event): void => {
+          const index = (event as CustomEvent<{ imageIdIndex: number }>).detail.imageIdIndex;
+          listener(index);
+        };
+        element.addEventListener(Enums.Events.STACK_NEW_IMAGE, handler);
+        return (): void => {
+          element.removeEventListener(Enums.Events.STACK_NEW_IMAGE, handler);
+        };
       },
       async sampleHu(imageIndex, row, column): Promise<number> {
         const imageId = stack.imageIds[imageIndex];
@@ -194,8 +197,8 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
   }
 
   return {
-    renderStack(element, stack): Promise<StackHandle> {
-      const render = setUpStack(element, stack);
+    renderStack(element, stack, renderOptions = {}): Promise<StackPort> {
+      const render = setUpStack(element, stack, renderOptions);
       pending.add(render);
       const done = (): void => {
         pending.delete(render);

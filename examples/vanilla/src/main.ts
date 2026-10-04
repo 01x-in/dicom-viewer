@@ -1,4 +1,4 @@
-import type { LoadedSeries } from '@scope/viewer-core';
+import type { ViewportApi } from '@scope/viewer-core';
 import '@scope/viewer-elements/define';
 import type { DvViewerElement } from '@scope/viewer-elements';
 
@@ -6,7 +6,7 @@ import type { DvViewerElement } from '@scope/viewer-elements';
 // back from `data-dv-status` and `window.__dv`.
 declare global {
   interface Window {
-    __dv?: LoadedSeries;
+    __dv?: ViewportApi;
     __dvError?: string;
   }
 }
@@ -16,7 +16,7 @@ const viewer = document.querySelector<DvViewerElement>('#viewer');
 if (viewer === null) throw new Error('missing <dv-viewer>');
 
 viewer.addEventListener('dv-ready', (event) => {
-  window.__dv = (event as CustomEvent<{ series: LoadedSeries }>).detail.series;
+  window.__dv = (event as CustomEvent<{ viewport: ViewportApi }>).detail.viewport;
   document.documentElement.dataset['dvStatus'] = 'ready';
 });
 viewer.addEventListener('dv-error', (event) => {

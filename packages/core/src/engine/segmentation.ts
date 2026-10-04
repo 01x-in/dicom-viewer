@@ -1,23 +1,7 @@
 import { adaptersSEG } from '@cornerstonejs/adapters';
 import { type Types, metaData } from '@cornerstonejs/core';
 import { z } from 'zod';
-
-export interface SegmentInfo {
-  readonly number: number;
-  readonly label: string;
-}
-
-export interface SegmentationHandle {
-  readonly segments: readonly SegmentInfo[];
-  /** Number of referenced images that received a labelmap frame (one per CT slice). */
-  readonly labelmapFrameCount: number;
-  /** Number of labelmap layers; SEGs with overlapping segments have more than one. */
-  readonly layerCount: number;
-  /** Segment number at one pixel of one CT slice (the lowest layer that has one), or 0. */
-  sample(sliceIndex: number, row: number, column: number): number;
-  /** Every segment number at one pixel, one per layer that has one. More than one means overlap. */
-  sampleAll(sliceIndex: number, row: number, column: number): number[];
-}
+import type { SegmentationHandle, SegmentInfo } from '../rendering-port';
 
 /**
  * The adapters return `any`-typed results, so everything this module relies on is checked here.
