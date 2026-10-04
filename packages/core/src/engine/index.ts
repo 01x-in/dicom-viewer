@@ -17,6 +17,12 @@ import { setOptions as setLoaderOptions } from 'dv-loader-options';
 import type { FrameRequestPolicy, SeriesStack } from '../data/types';
 import { type AssetsConfig, prepareWorkers } from './assets';
 import { createFrameRequests } from './frame-policy';
+import {
+  isLocalFileImageId,
+  LOCAL_FILE_SCHEME,
+  loadLocalFileImage,
+  registerLocalFile,
+} from './local-files';
 import { parseSegmentation, type SegmentationHandle } from './segmentation';
 import { attachStackTools, registerTools } from './tools';
 
@@ -85,6 +91,7 @@ function ensureRuntime(options: EngineOptions): Promise<void> {
     // After registerWadorsLoader, which registers the plain loader: this one retries a frame once
     // after a 401 refresh.
     imageLoader.registerImageLoader('wadors', frameRequests.wrap(loadWadorsImage));
+    imageLoader.registerImageLoader(LOCAL_FILE_SCHEME, loadLocalFileImage);
     registerTools();
     utilities.setWasmBasePath(workers.wasmBasePath);
     const workerManager = getWebWorkerManager();
@@ -122,7 +129,9 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     assertNotDestroyed();
     await Promise.all(
       stack.instances.map((instance) =>
-        metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata),
+        isLocalFileImageId(instance.imageId)
+          ? registerLocalFile(instance.imageId)
+          : metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata),
       ),
     );
 
