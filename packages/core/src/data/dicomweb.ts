@@ -31,23 +31,24 @@ function trimTrailingSlash(root: string): string {
 }
 
 /**
- * The single-frame image id the `wadors` loader understands. An `owner` is appended as a URL
+ * The single-frame image id the `wadors` loader understands. The `owner` is appended as a URL
  * fragment, which is never sent to the server, so the frame loader can tell whose request a frame
- * is when two sources share a root.
+ * is when two sources share a root. Internal: an id made without its source's owner would get no
+ * headers and no token refresh, so only a source builds them.
  */
 export function frameImageId(
   wadoRoot: string,
   studyUid: string,
   seriesUid: string,
   sopUid: string,
-  owner?: string,
+  owner: string,
 ): string {
   assertDicomUid(studyUid, 'StudyInstanceUID');
   assertDicomUid(seriesUid, 'SeriesInstanceUID');
   assertDicomUid(sopUid, 'SOPInstanceUID');
   const root = trimTrailingSlash(wadoRoot);
   const base = `wadors:${root}/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}/frames/1`;
-  return owner === undefined ? base : `${base}#${owner}`;
+  return `${base}#${owner}`;
 }
 
 let sourceCount = 0;

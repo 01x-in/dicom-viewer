@@ -36,9 +36,9 @@ function fetchReturning(status: number, body: unknown): typeof fetch {
 }
 
 describe('frameImageId', () => {
-  it('builds a wadors frame image id', () => {
-    expect(frameImageId('http://pacs/dicom-web', STUDY, SERIES, '9.1')).toBe(
-      `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/1`,
+  it('builds a wadors frame image id that ends in its owner', () => {
+    expect(frameImageId('http://pacs/dicom-web', STUDY, SERIES, '9.1', 'dv-source-7')).toBe(
+      `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/1#dv-source-7`,
     );
   });
 
@@ -47,12 +47,14 @@ describe('frameImageId', () => {
     ['series', STUDY, '1.2?x', '9.1'],
     ['SOP instance', STUDY, SERIES, '9.1/../2'],
   ])('refuses a %s UID that is not a UID', (_name, study, series, sop) => {
-    expect(() => frameImageId('http://pacs', study, series, sop)).toThrow(DataSourceError);
+    expect(() => frameImageId('http://pacs', study, series, sop, 'dv-source-7')).toThrow(
+      DataSourceError,
+    );
   });
 
   it('does not double a trailing slash in the root', () => {
-    expect(frameImageId('http://pacs/dicom-web/', STUDY, SERIES, '9.1')).toBe(
-      `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/1`,
+    expect(frameImageId('http://pacs/dicom-web/', STUDY, SERIES, '9.1', 'dv-source-7')).toBe(
+      `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/1#dv-source-7`,
     );
   });
 });

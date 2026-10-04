@@ -1,4 +1,4 @@
-export { createDicomWebDataSource, frameImageId } from './data/dicomweb';
+export { createDicomWebDataSource } from './data/dicomweb';
 export { DataSourceError } from './data/errors';
 export type { DicomWebDataSourceOptions } from './data/dicomweb';
 export type { DicomWebRequest, RetryOptions } from './data/request';
