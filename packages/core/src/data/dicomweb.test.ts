@@ -18,6 +18,9 @@ function instance(
     '00200013': { vr: 'IS', Value: [number] },
     '00200032': { vr: 'DS', Value: position },
     '00200037': { vr: 'DS', Value: orientation },
+    '00080060': { vr: 'CS', Value: ['CT'] },
+    '00280010': { vr: 'US', Value: [4] },
+    '00280011': { vr: 'US', Value: [4] },
   };
 }
 
@@ -46,52 +49,35 @@ describe('frameImageId', () => {
 });
 
 describe('createDicomWebDataSource', () => {
-  it('sorts slices by position along the slice normal, not by instance number', async () => {
+  // Sorting, splitting, and reconstructability are covered in series.test.ts.
+  it('builds stacks of wadors frame image ids from the series metadata', async () => {
+    const urls: string[] = [];
     const source = createDicomWebDataSource({
-      wadoRoot: 'http://pacs',
-      fetch: fetchReturning(200, [
-        instance('c', [0, 0, 20], 1),
-        instance('a', [0, 0, 0], 3),
-        instance('b', [0, 0, 10], 2),
-      ]),
+      wadoRoot: 'http://pacs/dicom-web/',
+      fetch: (input) => {
+        urls.push(typeof input === 'string' ? input : '');
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              instance('c', [0, 0, 20], 1),
+              instance('a', [0, 0, 0], 3),
+              instance('b', [0, 0, 10], 2),
+            ]),
+          ),
+        );
+      },
     });
-    const series = await source.getSeries(STUDY, SERIES);
-    expect(series.instances.map((item) => item.sopInstanceUID)).toEqual(['a', 'b', 'c']);
-    expect(series.imageIds).toHaveLength(3);
-  });
 
-  it('uses the orientation normal, so a flipped series still sorts head to foot along its normal', async () => {
-    // Rows run along -y, so the normal is -z (cross of [1,0,0] and [0,-1,0]).
-    const flipped = [1, 0, 0, 0, -1, 0];
-    const source = createDicomWebDataSource({
-      wadoRoot: 'http://pacs',
-      fetch: fetchReturning(200, [
-        instance('low', [0, 0, 0], 1, flipped),
-        instance('high', [0, 0, 10], 2, flipped),
-      ]),
-    });
     const series = await source.getSeries(STUDY, SERIES);
-    expect(series.instances.map((item) => item.sopInstanceUID)).toEqual(['high', 'low']);
-  });
 
-  it('sorts correctly when DS values are encoded as strings, as DICOM JSON permits', async () => {
-    const asStrings = (sop: string, z: number, number: number): Record<string, unknown> => ({
-      ...instance(sop, [0, 0, 0], number),
-      '00200032': { vr: 'DS', Value: ['0', '0', String(z)] },
-      '00200037': { vr: 'DS', Value: ['1', '0', '0', '0', '1', '0'] },
-      '00200013': { vr: 'IS', Value: [String(number)] },
-    });
-    const source = createDicomWebDataSource({
-      wadoRoot: 'http://pacs',
-      fetch: fetchReturning(200, [
-        asStrings('c', 20, 1),
-        asStrings('a', 0, 2),
-        asStrings('b', 10, 3),
-      ]),
-    });
-    const series = await source.getSeries(STUDY, SERIES);
-    expect(series.instances.map((entry) => entry.sopInstanceUID)).toEqual(['a', 'b', 'c']);
-    expect(series.instances.map((entry) => entry.instanceNumber)).toEqual([2, 3, 1]);
+    expect(urls).toEqual([`http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/metadata`]);
+    expect(series.modality).toBe('CT');
+    expect(series.stacks[0]?.imageIds).toEqual(
+      ['a', 'b', 'c'].map(
+        (sop) =>
+          `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/${sop}/frames/1`,
+      ),
+    );
   });
 
   it('wraps a network failure in a DataSourceError without an HTTP status', async () => {
@@ -268,6 +254,24 @@ describe('createDicomWebDataSource', () => {
       expect(series.instances).toHaveLength(1);
     });
 
+    it('refreshes after a 401 on the series list as well', async () => {
+      let token = 'old';
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs',
+        getRequestHeaders: () => ({ Authorization: `Bearer ${token}` }),
+        onUnauthorized: () => {
+          token = 'new';
+        },
+        fetch: (_input, init) =>
+          Promise.resolve(
+            new Headers(init?.headers).get('authorization') === 'Bearer new'
+              ? new Response('[]')
+              : new Response('{}', { status: 401 }),
+          ),
+      });
+      await expect(source.getStudy(STUDY)).resolves.toMatchObject({ series: [] });
+    });
+
     it('retries a 5xx on the metadata request', async () => {
       let calls = 0;
       const source = createDicomWebDataSource({
@@ -306,6 +310,86 @@ describe('createDicomWebDataSource', () => {
       await frames?.refresh({ url: 'u', accept: 'a/b' }, 0);
       expect(refresh).toHaveBeenCalledOnce();
       expect(frames?.generation()).toBe(1);
+    });
+  });
+
+  describe('getStudy', () => {
+    const summary = (
+      uid: string,
+      number: number,
+      modality: string,
+      count?: number,
+    ): Record<string, unknown> => ({
+      '0020000D': { vr: 'UI', Value: [STUDY] },
+      '0020000E': { vr: 'UI', Value: [uid] },
+      '00080060': { vr: 'CS', Value: [modality] },
+      '0008103E': { vr: 'LO', Value: [`Series ${uid}`] },
+      '00200011': { vr: 'IS', Value: [number] },
+      ...(count === undefined ? {} : { '00201209': { vr: 'IS', Value: [count] } }),
+    });
+
+    it('lists the series of a study, ordered by series number', async () => {
+      const urls: string[] = [];
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs/wado/',
+        fetch: (input) => {
+          urls.push(typeof input === 'string' ? input : '');
+          return Promise.resolve(
+            new Response(JSON.stringify([summary('b', 2, 'SEG'), summary('a', 1, 'CT', 64)])),
+          );
+        },
+      });
+
+      const study = await source.getStudy(STUDY);
+
+      expect(urls).toEqual([`http://pacs/wado/studies/${STUDY}/series`]);
+      expect(study.studyInstanceUID).toBe(STUDY);
+      expect(study.series).toEqual([
+        {
+          seriesInstanceUID: 'a',
+          modality: 'CT',
+          description: 'Series a',
+          seriesNumber: 1,
+          instanceCount: 64,
+        },
+        {
+          seriesInstanceUID: 'b',
+          modality: 'SEG',
+          description: 'Series b',
+          seriesNumber: 2,
+          instanceCount: undefined,
+        },
+      ]);
+    });
+
+    it('searches at qidoRoot when the host gives one', async () => {
+      const urls: string[] = [];
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs/wado',
+        qidoRoot: 'http://pacs/qido',
+        fetch: (input) => {
+          urls.push(typeof input === 'string' ? input : '');
+          return Promise.resolve(new Response('[]'));
+        },
+      });
+      await source.getStudy(STUDY);
+      expect(urls).toEqual([`http://pacs/qido/studies/${STUDY}/series`]);
+    });
+
+    it('rejects a series without a SeriesInstanceUID', async () => {
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs',
+        fetch: fetchReturning(200, [{ '00080060': { vr: 'CS', Value: ['CT'] } }]),
+      });
+      await expect(source.getStudy(STUDY)).rejects.toBeInstanceOf(DataSourceError);
+    });
+
+    it('reports a 404 for an unknown study with its status', async () => {
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs',
+        fetch: fetchReturning(404, {}),
+      });
+      await expect(source.getStudy(STUDY)).rejects.toMatchObject({ status: 404 });
     });
   });
 });

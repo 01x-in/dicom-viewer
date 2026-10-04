@@ -14,7 +14,7 @@ import {
 } from '@cornerstonejs/dicom-image-loader/wadors';
 import { utilities as metadataUtilities } from '@cornerstonejs/metadata';
 import { setOptions as setLoaderOptions } from 'dv-loader-options';
-import type { FrameRequestPolicy, LoadedSeriesData } from '../data/types';
+import type { FrameRequestPolicy, SeriesStack } from '../data/types';
 import { type AssetsConfig, prepareWorkers } from './assets';
 import { createFrameRequests } from './frame-policy';
 import { parseSegmentation, type SegmentationHandle } from './segmentation';
@@ -44,8 +44,9 @@ export interface StackHandle {
 export type { SegmentationHandle };
 
 export interface Engine {
-  renderStack(element: HTMLElement, series: LoadedSeriesData): Promise<StackHandle>;
-  loadSegmentation(series: LoadedSeriesData, bytes: ArrayBuffer): Promise<SegmentationHandle>;
+  renderStack(element: HTMLElement, stack: SeriesStack): Promise<StackHandle>;
+  /** Parses a SEG against the images it segments (a stack's image ids). */
+  loadSegmentation(imageIds: readonly string[], bytes: ArrayBuffer): Promise<SegmentationHandle>;
   destroy(): void;
 }
 
@@ -117,10 +118,10 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     if (destroyed) throw new Error('The engine was destroyed.');
   }
 
-  async function setUpStack(element: HTMLElement, series: LoadedSeriesData): Promise<StackHandle> {
+  async function setUpStack(element: HTMLElement, stack: SeriesStack): Promise<StackHandle> {
     assertNotDestroyed();
     await Promise.all(
-      series.instances.map((instance) =>
+      stack.instances.map((instance) =>
         metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata),
       ),
     );
@@ -137,8 +138,8 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     if (!(viewport instanceof StackViewport)) {
       throw new Error(`Expected a stack viewport for ${viewportId}.`);
     }
-    const middle = Math.floor(series.imageIds.length / 2);
-    await viewport.setStack([...series.imageIds], middle);
+    const middle = Math.floor(stack.imageIds.length / 2);
+    await viewport.setStack([...stack.imageIds], middle);
     if (destroyed) {
       renderingEngine.disableElement(viewportId);
       throw new Error('The engine was destroyed while the viewport was being set up.');
@@ -147,13 +148,13 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
     const detachTools = attachStackTools(renderingEngineId, viewportId);
 
     return {
-      imageCount: series.imageIds.length,
+      imageCount: stack.imageIds.length,
       getImageIndex: () => viewport.getCurrentImageIdIndex(),
       async setImageIndex(index): Promise<void> {
         await viewport.setImageIdIndex(index);
       },
       async sampleHu(imageIndex, row, column): Promise<number> {
-        const imageId = series.imageIds[imageIndex];
+        const imageId = stack.imageIds[imageIndex];
         if (imageId === undefined)
           throw new RangeError(`No image at index ${imageIndex.toString()}.`);
         const image = await imageLoader.loadAndCacheImage(imageId);
@@ -184,8 +185,8 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
   }
 
   return {
-    renderStack(element, series): Promise<StackHandle> {
-      const render = setUpStack(element, series);
+    renderStack(element, stack): Promise<StackHandle> {
+      const render = setUpStack(element, stack);
       pending.add(render);
       const done = (): void => {
         pending.delete(render);

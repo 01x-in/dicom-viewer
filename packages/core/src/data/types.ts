@@ -11,12 +11,52 @@ export interface SeriesInstance {
   readonly metadata: DicomJsonInstance;
 }
 
-export interface LoadedSeriesData {
-  readonly studyInstanceUID: string;
-  readonly seriesInstanceUID: string;
+/** Why a stack cannot be shown as a volume (MPR). It is still shown as a stack of slices. */
+export type NotReconstructable =
+  | 'missing-geometry'
+  | 'too-few-slices'
+  | 'inconsistent-image-size'
+  | 'tilted'
+  | 'non-uniform-spacing';
+
+export type Reconstructability =
+  | { readonly ok: true; readonly spacingMm: number }
+  | { readonly ok: false; readonly reason: NotReconstructable };
+
+/** Slices that belong together on screen: one orientation, one slice per position. */
+export interface SeriesStack {
+  /** Position in `LoadedSeriesData.stacks`. Stack 0 is the largest. */
+  readonly index: number;
   /** In display order (along the slice normal). */
   readonly instances: readonly SeriesInstance[];
   readonly imageIds: readonly string[];
+  readonly reconstructable: Reconstructability;
+}
+
+export interface LoadedSeriesData {
+  readonly studyInstanceUID: string;
+  readonly seriesInstanceUID: string;
+  readonly modality: string;
+  readonly description: string | undefined;
+  /** Every instance of the series, in instance-number order, whether or not it can be displayed. */
+  readonly instances: readonly SeriesInstance[];
+  /** What can be displayed. A series splits into several stacks when its orientation or its slice positions differ. Empty for SEG and SR. */
+  readonly stacks: readonly SeriesStack[];
+}
+
+/** One row of a study's series list. */
+export interface SeriesSummary {
+  readonly seriesInstanceUID: string;
+  readonly modality: string;
+  readonly description: string | undefined;
+  readonly seriesNumber: number | undefined;
+  /** `undefined` when the server does not say. */
+  readonly instanceCount: number | undefined;
+}
+
+export interface StudyData {
+  readonly studyInstanceUID: string;
+  readonly series: readonly SeriesSummary[];
 }
 
 /**
@@ -38,6 +78,8 @@ export interface FrameRequestPolicy {
 }
 
 export interface DataSource {
+  /** Lists the series of one study. */
+  getStudy(studyInstanceUID: string): Promise<StudyData>;
   getSeries(studyInstanceUID: string, seriesInstanceUID: string): Promise<LoadedSeriesData>;
   /**
    * Retrieves one whole Part 10 instance. Servers differ in what they allow (the OncoTrace proxy

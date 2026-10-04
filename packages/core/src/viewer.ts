@@ -68,7 +68,13 @@ export function createViewer(options: ViewerOptions): Viewer {
       assertAlive();
       const series = await options.dataSource.getSeries(studyInstanceUID, seriesInstanceUID);
       assertAlive();
-      const handle = await engine.renderStack(element, series);
+      const [stack] = series.stacks;
+      if (stack === undefined) {
+        throw new Error(
+          `Series ${seriesInstanceUID} (${series.modality}) has no images to display.`,
+        );
+      }
+      const handle = await engine.renderStack(element, stack);
       handles.push(handle);
       return {
         imageCount: handle.imageCount,
@@ -87,10 +93,10 @@ export function createViewer(options: ViewerOptions): Viewer {
             studyInstanceUID,
             segSeriesInstanceUID,
             sop,
-            'SEG',
+            segSeries.modality,
           );
           assertAlive();
-          return engine.loadSegmentation(series, bytes);
+          return engine.loadSegmentation(stack.imageIds, bytes);
         },
       };
     },

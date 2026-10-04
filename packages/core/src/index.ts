@@ -8,7 +8,12 @@ export type {
   DicomJsonInstance,
   FrameRequestPolicy,
   LoadedSeriesData,
+  NotReconstructable,
+  Reconstructability,
   SeriesInstance,
+  SeriesStack,
+  SeriesSummary,
+  StudyData,
 } from './data/types';
 export type { AssetsConfig } from './engine/assets';
 export {

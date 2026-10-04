@@ -1,7 +1,6 @@
 import { adaptersSEG } from '@cornerstonejs/adapters';
 import { type Types, metaData } from '@cornerstonejs/core';
 import { z } from 'zod';
-import type { LoadedSeriesData } from '../data/types';
 
 export interface SegmentInfo {
   readonly number: number;
@@ -40,13 +39,13 @@ function isLabelmapImage(value: unknown): value is Types.IImage {
   );
 }
 
-/** Parses a DICOM SEG against the series it segments, through the Cornerstone adapters. */
+/** Parses a DICOM SEG against the images it segments, through the Cornerstone adapters. */
 export async function parseSegmentation(
-  series: LoadedSeriesData,
+  imageIds: readonly string[],
   bytes: ArrayBuffer,
 ): Promise<SegmentationHandle> {
   const result: unknown = await adaptersSEG.Cornerstone3D.Segmentation.createFromDICOMSegBuffer(
-    [...series.imageIds],
+    [...imageIds],
     bytes,
     { metadataProvider: metaData },
   );
