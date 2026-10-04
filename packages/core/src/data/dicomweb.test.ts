@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDicomWebDataSource, frameImageId } from './dicomweb';
 import { DataSourceError } from './errors';
+import type { DataSource } from './types';
 
 const STUDY = '1.2.3';
 const SERIES = '1.2.3.4';
@@ -36,14 +37,14 @@ function fetchReturning(status: number, body: unknown): typeof fetch {
 
 describe('frameImageId', () => {
   it('builds a wadors frame image id', () => {
-    expect(frameImageId('http://pacs/dicom-web', STUDY, SERIES, 'sop1')).toBe(
-      `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/sop1/frames/1`,
+    expect(frameImageId('http://pacs/dicom-web', STUDY, SERIES, '9.1')).toBe(
+      `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/1`,
     );
   });
 
   it('does not double a trailing slash in the root', () => {
-    expect(frameImageId('http://pacs/dicom-web/', STUDY, SERIES, 'sop1')).toBe(
-      `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/sop1/frames/1`,
+    expect(frameImageId('http://pacs/dicom-web/', STUDY, SERIES, '9.1')).toBe(
+      `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/1`,
     );
   });
 });
@@ -59,9 +60,9 @@ describe('createDicomWebDataSource', () => {
         return Promise.resolve(
           new Response(
             JSON.stringify([
-              instance('c', [0, 0, 20], 1),
-              instance('a', [0, 0, 0], 3),
-              instance('b', [0, 0, 10], 2),
+              instance('9.4', [0, 0, 20], 1),
+              instance('9.2', [0, 0, 0], 3),
+              instance('9.3', [0, 0, 10], 2),
             ]),
           ),
         );
@@ -73,7 +74,7 @@ describe('createDicomWebDataSource', () => {
     expect(urls).toEqual([`http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/metadata`]);
     expect(series.modality).toBe('CT');
     expect(series.stacks[0]?.imageIds).toEqual(
-      ['a', 'b', 'c'].map(
+      ['9.2', '9.3', '9.4'].map(
         (sop) =>
           `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/${sop}/frames/1`,
       ),
@@ -139,11 +140,11 @@ describe('createDicomWebDataSource', () => {
         },
       });
 
-      const bytes = await source.getInstanceBytes(STUDY, SERIES, 'sop1', 'SEG');
+      const bytes = await source.getInstanceBytes(STUDY, SERIES, '9.1', 'SEG');
 
       expect(Array.from(new Uint8Array(bytes))).toEqual([9, 8, 7]);
       expect(requests).toHaveLength(1);
-      expect(requests[0]?.url).toBe(`http://pacs/studies/${STUDY}/series/${SERIES}/instances/sop1`);
+      expect(requests[0]?.url).toBe(`http://pacs/studies/${STUDY}/series/${SERIES}/instances/9.1`);
       expect(requests[0]?.accept).toContain('application/dicom');
     });
 
@@ -152,7 +153,7 @@ describe('createDicomWebDataSource', () => {
         wadoRoot: 'http://pacs',
         fetch: () => Promise.reject(new TypeError('Failed to fetch')),
       });
-      await expect(source.getInstanceBytes(STUDY, SERIES, 'sop1', 'SEG')).rejects.toBeInstanceOf(
+      await expect(source.getInstanceBytes(STUDY, SERIES, '9.1', 'SEG')).rejects.toBeInstanceOf(
         DataSourceError,
       );
     });
@@ -181,7 +182,7 @@ describe('createDicomWebDataSource', () => {
             );
           },
         });
-        const result = source.getInstanceBytes(STUDY, SERIES, 'sop1', modality);
+        const result = source.getInstanceBytes(STUDY, SERIES, '9.1', modality);
         if (allowed) {
           await expect(result).resolves.toBeInstanceOf(ArrayBuffer);
         } else {
@@ -201,7 +202,7 @@ describe('createDicomWebDataSource', () => {
         wadoRoot: 'http://pacs',
         fetch: () => Promise.resolve(new Response('{}', { status: 403 })),
       });
-      await expect(source.getInstanceBytes(STUDY, SERIES, 'sop1', 'SEG')).rejects.toMatchObject({
+      await expect(source.getInstanceBytes(STUDY, SERIES, '9.1', 'SEG')).rejects.toMatchObject({
         status: 403,
       });
     });
@@ -218,7 +219,7 @@ describe('createDicomWebDataSource', () => {
           const url = typeof input === 'string' ? input : '';
           return Promise.resolve(
             url.endsWith('/metadata')
-              ? new Response(JSON.stringify([instance('a', [0, 0, 0], 1)]))
+              ? new Response(JSON.stringify([instance('9.2', [0, 0, 0], 1)]))
               : new Response(
                   Uint8Array.from([
                     ...new TextEncoder().encode('--xyz\r\nContent-Type: application/dicom\r\n\r\n'),
@@ -231,7 +232,7 @@ describe('createDicomWebDataSource', () => {
         },
       });
       await source.getSeries(STUDY, SERIES);
-      await source.getInstanceBytes(STUDY, SERIES, 'a', 'SEG');
+      await source.getInstanceBytes(STUDY, SERIES, '9.2', 'SEG');
       expect(seen).toEqual(['Bearer t', 'Bearer t']);
     });
 
@@ -246,7 +247,7 @@ describe('createDicomWebDataSource', () => {
         fetch: (_input, init) =>
           Promise.resolve(
             new Headers(init?.headers).get('authorization') === 'Bearer new'
-              ? new Response(JSON.stringify([instance('a', [0, 0, 0], 1)]))
+              ? new Response(JSON.stringify([instance('9.2', [0, 0, 0], 1)]))
               : new Response('{}', { status: 401 }),
           ),
       });
@@ -282,7 +283,7 @@ describe('createDicomWebDataSource', () => {
           return Promise.resolve(
             calls === 1
               ? new Response('{}', { status: 503 })
-              : new Response(JSON.stringify([instance('a', [0, 0, 0], 1)])),
+              : new Response(JSON.stringify([instance('9.2', [0, 0, 0], 1)])),
           );
         },
       });
@@ -335,7 +336,7 @@ describe('createDicomWebDataSource', () => {
         fetch: (input) => {
           urls.push(typeof input === 'string' ? input : '');
           return Promise.resolve(
-            new Response(JSON.stringify([summary('b', 2, 'SEG'), summary('a', 1, 'CT', 64)])),
+            new Response(JSON.stringify([summary('9.6', 2, 'SEG'), summary('9.5', 1, 'CT', 64)])),
           );
         },
       });
@@ -346,16 +347,16 @@ describe('createDicomWebDataSource', () => {
       expect(study.studyInstanceUID).toBe(STUDY);
       expect(study.series).toEqual([
         {
-          seriesInstanceUID: 'a',
+          seriesInstanceUID: '9.5',
           modality: 'CT',
-          description: 'Series a',
+          description: 'Series 9.5',
           seriesNumber: 1,
           instanceCount: 64,
         },
         {
-          seriesInstanceUID: 'b',
+          seriesInstanceUID: '9.6',
           modality: 'SEG',
-          description: 'Series b',
+          description: 'Series 9.6',
           seriesNumber: 2,
           instanceCount: undefined,
         },
@@ -391,5 +392,48 @@ describe('createDicomWebDataSource', () => {
       });
       await expect(source.getStudy(STUDY)).rejects.toMatchObject({ status: 404 });
     });
+  });
+});
+
+describe('UIDs from the host or a link', () => {
+  const hostile = ['../../admin', '1.2/../3', '1.2?x=y', 'abc', ''];
+
+  function neverFetches(): { source: DataSource; calls: () => number } {
+    let calls = 0;
+    const source = createDicomWebDataSource({
+      wadoRoot: 'http://pacs',
+      fetch: () => {
+        calls += 1;
+        return Promise.resolve(new Response('[]'));
+      },
+    });
+    return { source, calls: () => calls };
+  }
+
+  it.each(hostile)('refuses %j before it can reach a request path', async (uid) => {
+    const { source, calls } = neverFetches();
+    await expect(source.getStudy(uid)).rejects.toBeInstanceOf(DataSourceError);
+    await expect(source.getSeries(STUDY, uid)).rejects.toBeInstanceOf(DataSourceError);
+    await expect(source.getSeries(uid, SERIES)).rejects.toBeInstanceOf(DataSourceError);
+    await expect(source.getInstanceBytes(STUDY, SERIES, uid, 'SEG')).rejects.toBeInstanceOf(
+      DataSourceError,
+    );
+    expect(calls()).toBe(0);
+  });
+
+  it('refuses a series list entry whose UID is not a UID', async () => {
+    const source = createDicomWebDataSource({
+      wadoRoot: 'http://pacs',
+      fetch: fetchReturning(200, [{ '0020000E': { vr: 'UI', Value: ['../x'] } }]),
+    });
+    await expect(source.getStudy(STUDY)).rejects.toBeInstanceOf(DataSourceError);
+  });
+
+  it('refuses an instance whose SOPInstanceUID is not a UID', async () => {
+    const source = createDicomWebDataSource({
+      wadoRoot: 'http://pacs',
+      fetch: fetchReturning(200, [instance('../x', [0, 0, 0], 1)]),
+    });
+    await expect(source.getSeries(STUDY, SERIES)).rejects.toBeInstanceOf(DataSourceError);
   });
 });

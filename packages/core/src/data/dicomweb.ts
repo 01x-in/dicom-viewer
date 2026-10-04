@@ -4,6 +4,7 @@ import { DataSourceError } from './errors';
 import { extractFirstPart } from './multipart';
 import { createRequester, type RequesterOptions } from './request';
 import { buildSeries } from './series';
+import { assertDicomUid } from './uid';
 import type {
   DataSource,
   DataSourceCapabilities,
@@ -67,6 +68,7 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
       refresh: (request, sentAt) => requester.refresh(request, sentAt),
     },
     async getStudy(studyInstanceUID): Promise<StudyData> {
+      assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
       // QIDO is used at series level only, and always scoped to one study: the OncoTrace proxy
       // rejects unfiltered searches.
       const response = await requester.get(
@@ -82,6 +84,7 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
         if (seriesInstanceUID === undefined) {
           throw new DataSourceError('A series in the list has no SeriesInstanceUID.');
         }
+        assertDicomUid(seriesInstanceUID, 'SeriesInstanceUID');
         return {
           seriesInstanceUID,
           modality: optionalString(item, '00080060') ?? 'OT',
@@ -99,6 +102,8 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
       return { studyInstanceUID, series };
     },
     async getSeries(studyInstanceUID, seriesInstanceUID): Promise<LoadedSeriesData> {
+      assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
+      assertDicomUid(seriesInstanceUID, 'SeriesInstanceUID');
       const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/metadata`;
       const response = await requester.get(url, 'application/dicom+json');
       const parsed = seriesMetadata.safeParse(await readJson(response));
@@ -109,8 +114,10 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
         studyInstanceUID,
         seriesInstanceUID,
         metadata: parsed.data,
-        imageIdFor: (sopInstanceUID) =>
-          frameImageId(root, studyInstanceUID, seriesInstanceUID, sopInstanceUID),
+        imageIdFor: (sopInstanceUID) => {
+          assertDicomUid(sopInstanceUID, 'SOPInstanceUID');
+          return frameImageId(root, studyInstanceUID, seriesInstanceUID, sopInstanceUID);
+        },
       });
     },
     async getInstanceBytes(
@@ -119,6 +126,9 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
       sopInstanceUID,
       modality,
     ): Promise<ArrayBuffer> {
+      assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
+      assertDicomUid(seriesInstanceUID, 'SeriesInstanceUID');
+      assertDicomUid(sopInstanceUID, 'SOPInstanceUID');
       const allowed =
         capabilities.instanceRetrieve === 'all' ||
         (capabilities.instanceRetrieve === 'seg-sr-only' &&
