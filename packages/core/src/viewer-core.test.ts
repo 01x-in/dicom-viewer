@@ -391,6 +391,20 @@ describe('setState', () => {
     });
   });
 
+  it('attributes a slice change it makes to whoever asked, not to the user', async () => {
+    const { viewer, element, events } = harness();
+    viewer.viewports.attach('vp-0', element);
+    await viewer.setState({
+      studyInstanceUID: STUDY,
+      viewports: [{ id: 'vp-0', seriesInstanceUID: CT }],
+    });
+
+    await viewer.setState({ viewports: [{ id: 'vp-0', imageIndex: 2 }] }, { origin: 'url' });
+
+    expect(events['viewport:image'].at(-1)).toMatchObject({ imageIndex: 2, origin: 'url' });
+    expect(events['state:changed'].at(-1)?.origin).toBe('url');
+  });
+
   it('marks a restored link as a url change', async () => {
     const { viewer, events } = harness();
     await viewer.setState({ studyInstanceUID: STUDY }, { origin: 'url' });

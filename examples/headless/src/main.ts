@@ -161,7 +161,7 @@ async function start(
 }
 
 /** Mounts and unmounts a viewer many times and records what is left behind, for the leak test. */
-async function runCycles(count: number): Promise<void> {
+async function runCycles(count: number, alternateAssets: boolean): Promise<void> {
   const wadoRoot = params.get('wadoRoot');
   const studyUid = params.get('study');
   const seriesUid = params.get('series');
@@ -173,9 +173,18 @@ async function runCycles(count: number): Promise<void> {
     const host = document.createElement('div');
     host.style.cssText = 'width:256px;height:256px';
     document.body.append(host);
+    // With `alternate`, every other cycle runs with the other assets mode, which the runtime only
+    // allows while no viewer is running.
+    const assets =
+      alternateAssets && assetsBaseUrl !== null
+        ? index % 2 === 0
+          ? ({ mode: 'inline' } as const)
+          : ({ mode: 'url', baseUrl: assetsBaseUrl } as const)
+        : undefined;
     const cycleViewer = createViewer({
       dataSource: createDicomWebDataSource({ wadoRoot }),
       ...viewerSettings,
+      ...(assets === undefined ? {} : { assets }),
     });
     cycleViewer.viewports.attach('vp-0', host);
     await cycleViewer.setState({
@@ -197,7 +206,7 @@ async function runCycles(count: number): Promise<void> {
 async function main(): Promise<void> {
   const cycles = Number(params.get('cycles') ?? '0');
   if (cycles > 0) {
-    await runCycles(cycles);
+    await runCycles(cycles, params.has('alternate'));
     return;
   }
   if (params.has('local')) {

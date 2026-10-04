@@ -171,8 +171,8 @@ export function createViewerCore(
   // A host that never reads `ready` must not get an unhandled rejection when the engine fails.
   ready.catch(noop);
 
-  // The slice an API call is moving to, so the engine's change event can be told from the wheel.
-  let pendingApiIndex: number | undefined;
+  // The slice a call is moving to, and who asked, so the engine's change event can be told from the wheel.
+  let pendingMove: { readonly index: number; readonly origin: StateOrigin } | undefined;
   const runtimes = new Map<string, Runtime>();
   const seriesCache = new Map<string, Promise<LoadedSeriesData>>();
   let destroyed = false;
@@ -254,8 +254,25 @@ export function createViewerCore(
     return cached;
   }
 
+  /** Moves the engine to a slice, remembering who asked for it while the engine reports the change. */
+  async function moveTo(
+    runtime: Runtime,
+    shown: Shown,
+    index: number,
+    origin: StateOrigin,
+  ): Promise<void> {
+    pendingMove = { index, origin };
+    try {
+      await shown.port.setImageIndex(index);
+    } finally {
+      // The engine reports the change before the call resolves.
+      pendingMove = undefined;
+    }
+    reportImage(runtime, shown, shown.port.getImageIndex(), origin);
+  }
+
   /** Makes the engine show what the state says this viewport should show. Runs inside the queue. */
-  async function syncViewport(id: string): Promise<void> {
+  async function syncViewport(id: string, origin: StateOrigin = 'api'): Promise<void> {
     const runtime = runtimes.get(id);
     const element = runtime?.element;
     if (runtime === undefined || element === undefined) return;
@@ -281,8 +298,7 @@ export function createViewerCore(
       const wanted = desired.imageIndex;
       if (wanted !== undefined && wanted !== shown.port.getImageIndex()) {
         const index = Math.min(Math.max(0, Math.trunc(wanted)), shown.port.imageCount - 1);
-        await shown.port.setImageIndex(index);
-        reportImage(runtime, shown, shown.port.getImageIndex(), 'api');
+        await moveTo(runtime, shown, index, origin);
       }
       return;
     }
@@ -315,11 +331,16 @@ export function createViewerCore(
         lastIndex: -1,
       };
       next.off = stackPort.onImageChange((index) => {
-        reportImage(runtime, next, index, pendingApiIndex === index ? 'api' : 'user');
+        reportImage(
+          runtime,
+          next,
+          index,
+          pendingMove?.index === index ? pendingMove.origin : 'user',
+        );
       });
       runtime.shown = next;
       // The state describes what is on screen: the stack and the slice that are showing now.
-      reportImage(runtime, next, stackPort.getImageIndex(), 'api', { stackIndex: stack.index });
+      reportImage(runtime, next, stackPort.getImageIndex(), origin, { stackIndex: stack.index });
     } catch (error) {
       // A viewport that failed shows nothing, and the state must not claim otherwise.
       if (!destroyed) {
@@ -341,13 +362,8 @@ export function createViewerCore(
       }
       return runtime.shown;
     };
-    const moveTo = (index: number): Promise<void> =>
-      enqueue(async () => {
-        const shown = requireShown();
-        pendingApiIndex = index;
-        await shown.port.setImageIndex(index);
-        reportImage(runtime, shown, shown.port.getImageIndex(), 'api');
-      });
+    const moveApiTo = (index: number): Promise<void> =>
+      enqueue(() => moveTo(runtime, requireShown(), index, 'api'));
     return {
       id: runtime.id,
       get series(): ViewportSeriesInfo | undefined {
@@ -376,18 +392,16 @@ export function createViewerCore(
             ),
           );
         }
-        return moveTo(index);
+        return moveApiTo(index);
       },
       scrollBy(delta): Promise<void> {
-        return enqueue(async () => {
+        return enqueue(() => {
           const shown = requireShown();
           const target = Math.min(
             Math.max(0, shown.port.getImageIndex() + Math.trunc(delta)),
             shown.stack.imageIds.length - 1,
           );
-          pendingApiIndex = target;
-          await shown.port.setImageIndex(target);
-          reportImage(runtime, shown, shown.port.getImageIndex(), 'api');
+          return moveTo(runtime, shown, target, 'api');
         });
       },
       sampleHu(imageIndex, row, column): Promise<number> {
@@ -506,7 +520,7 @@ export function createViewerCore(
         },
         origin,
       );
-      for (const viewport of candidate.state.viewports) await syncViewport(viewport.id);
+      for (const viewport of candidate.state.viewports) await syncViewport(viewport.id, origin);
     });
   }
 

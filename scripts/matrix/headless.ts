@@ -147,10 +147,11 @@ function query(input: HeadlessInput, extra: Record<string, string>): string {
 }
 
 async function waitForStatus(page: Page, ...statuses: string[]): Promise<string> {
+  // Generous: 20 viewers one after another take a while on a shared CI runner.
   await page.waitForFunction(
     (wanted) => wanted.includes(document.documentElement.dataset['dvStatus'] ?? ''),
     statuses,
-    { timeout: 120_000 },
+    { timeout: 300_000 },
   );
   return page.evaluate(() => document.documentElement.dataset['dvStatus'] ?? '');
 }
@@ -545,6 +546,42 @@ async function scenarioLifecycle(browser: Browser, input: HeadlessInput): Promis
   return failures;
 }
 
+/** Viewers one after another with different assets modes: allowed once the previous one is gone. */
+async function scenarioAssetSwitch(browser: Browser, input: HeadlessInput): Promise<string[]> {
+  const watched = await watch(browser);
+  const { page, failures } = watched;
+  try {
+    // The page switches between `inline` and `url` itself, so this needs the url-mode assets.
+    const params = new URLSearchParams({
+      cycles: '4',
+      alternate: '1',
+      assets: input.assetsPath,
+      wadoRoot: input.mock.url,
+      study: input.studyUid,
+      series: input.j2kSeriesUid,
+    });
+    await page.goto(`${input.pageUrl}?${params.toString()}`, {
+      waitUntil: 'load',
+      timeout: 180_000,
+    });
+    const status = await waitForStatus(page, 'cycles-done', 'error');
+    if (status !== 'cycles-done') {
+      failures.push(`cycles failed: ${await page.evaluate(() => window.__dvError ?? 'unknown')}`);
+      return failures;
+    }
+    const urls = watched.workerUrls;
+    if (!urls.some((url) => url.startsWith('blob:')))
+      failures.push('no inline (blob:) decode worker started');
+    if (!urls.some((url) => url.endsWith('/decode.worker.js')))
+      failures.push('no url-mode decode worker started');
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
+
 export async function smokeHeadless(
   browser: Browser,
   input: HeadlessInput,
@@ -555,6 +592,7 @@ export async function smokeHeadless(
     ['retry', scenarioRetry],
     ['local files', scenarioLocalFiles],
     ['lifecycle', scenarioLifecycle],
+    ['switching assets', scenarioAssetSwitch],
   ];
   const results: ScenarioResult[] = [];
   for (const [scenario, run] of scenarios) {
