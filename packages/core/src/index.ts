@@ -16,6 +16,8 @@ export type {
   StudyData,
 } from './data/types';
 export type { AssetsConfig } from './engine/assets';
+export { getEngineDiagnostics } from './diagnostics';
+export type { EngineDiagnostics } from './diagnostics';
 export {
   ViewerEnvironmentError,
   assertBrowserEnvironment,

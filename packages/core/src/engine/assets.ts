@@ -12,6 +12,8 @@ export interface WorkerSetup {
   readonly createDecodeWorker: () => Worker;
   readonly createComputeWorker: () => Worker;
   readonly wasmBasePath: string;
+  /** Releases what the setup holds (Blob URLs). Stop the workers first. */
+  dispose(): void;
 }
 
 function withTrailingSlash(url: string): string {
@@ -32,6 +34,10 @@ export async function prepareWorkers(assets: AssetsConfig): Promise<WorkerSetup>
       createDecodeWorker: () => new Worker(decodeUrl, { type: 'module' }),
       createComputeWorker: () => new Worker(computeUrl, { type: 'module', name: 'compute' }),
       wasmBasePath: INLINE_WASM_BASE,
+      dispose: () => {
+        URL.revokeObjectURL(decodeUrl);
+        URL.revokeObjectURL(computeUrl);
+      },
     };
   }
   const base = new URL(withTrailingSlash(assets.baseUrl), document.baseURI);
@@ -41,5 +47,6 @@ export async function prepareWorkers(assets: AssetsConfig): Promise<WorkerSetup>
     createDecodeWorker: () => new Worker(decodeUrl, { type: 'module' }),
     createComputeWorker: () => new Worker(computeUrl, { type: 'module', name: 'compute' }),
     wasmBasePath: new URL('wasm/', base).href,
+    dispose: () => undefined,
   };
 }

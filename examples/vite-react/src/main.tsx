@@ -1,8 +1,4 @@
-import {
-  createDicomWebDataSource,
-  type ViewportApi,
-  type ViewerOptions,
-} from '@scope/viewer-core';
+import { createDicomWebDataSource, type ViewportApi, type ViewerOptions } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-react';
 import { type JSX, StrictMode, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';

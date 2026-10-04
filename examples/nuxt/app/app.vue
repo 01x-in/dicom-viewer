@@ -1,9 +1,5 @@
 <script setup lang="ts">
-import {
-  createDicomWebDataSource,
-  type ViewportApi,
-  type ViewerOptions,
-} from '@scope/viewer-core';
+import { createDicomWebDataSource, type ViewportApi, type ViewerOptions } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-vue';
 import { onMounted, shallowRef } from 'vue';
 

@@ -109,8 +109,9 @@ export function createRequester(options: RequesterOptions = {}): Requester {
         const sentAt = generation;
         const response = await send(request);
         if (response.ok) return response;
-        // Free the connection; the body of an error is not used.
-        void response.body?.cancel().catch(() => undefined);
+        // Read the body of an error to the end so the connection can be reused. Cancelling it
+        // instead would abort the request, which browsers report as a failed request.
+        await response.arrayBuffer().catch(() => undefined);
 
         if (response.status === 401 && !refreshed && options.onUnauthorized !== undefined) {
           refreshed = true;

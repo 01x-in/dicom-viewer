@@ -1,8 +1,4 @@
-import {
-  createDicomWebDataSource,
-  type ViewportApi,
-  type ViewerOptions,
-} from '@scope/viewer-core';
+import { createDicomWebDataSource, type ViewportApi, type ViewerOptions } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-vue';
 import { createApp, h } from 'vue';
 

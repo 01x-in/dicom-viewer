@@ -29,7 +29,7 @@ interface SegmentationHandle {
 interface ViewerHandle {
   readonly imageCount: number;
   loadSegmentation(segSeriesInstanceUID: string): Promise<SegmentationHandle>;
-  getImageIndex(): number;
+  getImageIndex(): number | undefined;
   setImageIndex(index: number): Promise<void>;
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
 }
@@ -42,7 +42,7 @@ declare global {
 }
 
 /** Exact Hounsfield values the phantom guarantees at slice 32 (see fixtures/phantom/README.md). */
-const EXPECTED_HU: readonly { name: string; row: number; column: number; hu: number }[] = [
+export const EXPECTED_HU: readonly { name: string; row: number; column: number; hu: number }[] = [
   { name: 'outside the body', row: 0, column: 0, hu: -1000 },
   { name: 'body', row: 64, column: 64, hu: 40 },
   { name: 'left marker', row: 43, column: 103, hu: 200 },
@@ -51,7 +51,7 @@ const EXPECTED_HU: readonly { name: string; row: number; column: number; hu: num
   { name: 'fat insert', row: 64, column: 36, hu: -100 },
   { name: 'bone insert', row: 64, column: 92, hu: 1000 },
 ];
-const MID_SLICE_INDEX = 31;
+export const MID_SLICE_INDEX = 31;
 
 export async function launchBrowser(): Promise<Browser> {
   const executablePath = process.env['DV_CHROMIUM'];
@@ -61,12 +61,12 @@ export async function launchBrowser(): Promise<Browser> {
   });
 }
 
-function isIgnorableRequest(url: string): boolean {
+export function isIgnorableRequest(url: string): boolean {
   return url.endsWith('/favicon.ico');
 }
 
 /** Fraction of pixels in the viewport canvas that are not (near) black. */
-async function litFraction(page: Page): Promise<number> {
+export async function litFraction(page: Page): Promise<number> {
   return page.evaluate(() => {
     const canvas = document.querySelector('canvas');
     if (canvas === null || canvas.width === 0) return 0;
