@@ -106,6 +106,14 @@ function reconstructability(slices: readonly Located[], normal: Vec3): Reconstru
     return { ok: false, reason: 'too-few-slices' };
   }
   const fail = (reason: NotReconstructable): Reconstructability => ({ ok: false, reason });
+  // Two missing attributes compare equal, so absence must be checked on its own: without an
+  // in-plane scale there is nothing to reconstruct a volume from.
+  const [rows, columns, spacing] = ['00280010', '00280011', '00280030'].map((tag) =>
+    numbers(first.instance.metadata, tag),
+  );
+  if (rows?.length === 0 || columns?.length === 0 || spacing?.length !== 2) {
+    return fail('missing-pixel-spacing');
+  }
   if (!slices.every((slice) => sameSize(first.instance.metadata, slice.instance.metadata))) {
     return fail('inconsistent-image-size');
   }

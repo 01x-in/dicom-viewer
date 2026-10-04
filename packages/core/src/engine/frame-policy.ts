@@ -26,8 +26,10 @@ function statusOf(error: unknown): number | undefined {
 }
 
 function urlOf(imageId: string): string {
-  // The loader requests everything after the `wadors:` scheme.
-  return imageId.slice(imageId.indexOf(':') + 1);
+  // The loader requests everything after the `wadors:` scheme, and a fragment is never sent.
+  const url = imageId.slice(imageId.indexOf(':') + 1);
+  const fragment = url.indexOf('#');
+  return fragment === -1 ? url : url.slice(0, fragment);
 }
 
 interface Sent {
@@ -36,19 +38,12 @@ interface Sent {
 }
 
 export function createFrameRequests(): FrameRequests {
-  // Several viewers may share a root, so each registration is its own entry.
+  // Each source owns its own image ids, so credentials never cross between viewers.
   const policies: FrameRequestPolicy[] = [];
   const sent = new Map<string, Sent>();
 
   function find(imageId: string): FrameRequestPolicy | undefined {
-    // The latest registration wins.
-    for (let index = policies.length - 1; index >= 0; index -= 1) {
-      const policy = policies[index];
-      if (policy?.imageIdPrefix !== undefined && imageId.startsWith(policy.imageIdPrefix)) {
-        return policy;
-      }
-    }
-    return undefined;
+    return policies.find((policy) => policy.owns(imageId));
   }
 
   return {
@@ -72,21 +67,41 @@ export function createFrameRequests(): FrameRequests {
     wrap<T>(load: Load<T>): Load<T> {
       return (imageId, options) => {
         const first = load(imageId, options);
+        // Cancelling must reach whichever request is running, and stop a retry that has not started.
+        let active: LoadResult<T> = first;
+        const cancellation = {
+          cancelled: false,
+          // A call, so the check after an await is not narrowed by the one before it.
+          isCancelled(): boolean {
+            return this.cancelled;
+          },
+        };
         const promise = first.promise.catch(async (error: unknown): Promise<T> => {
           const policy = find(imageId);
           const origin = sent.get(imageId);
-          if (statusOf(error) !== 401 || policy === undefined) throw error;
+          if (statusOf(error) !== 401 || policy === undefined || cancellation.cancelled)
+            throw error;
           const request = origin?.request ?? { url: urlOf(imageId), accept: '' };
           if (!(await policy.refresh(request, origin?.generation ?? policy.generation()))) {
             throw error;
           }
-          return load(imageId, options).promise;
+          // Cancelled while the credentials were refreshing.
+          if (cancellation.isCancelled()) throw error;
+          active = load(imageId, options);
+          return active.promise;
         });
         const forget = (): void => {
           sent.delete(imageId);
         };
         promise.then(forget, forget);
-        return { ...first, promise };
+        return {
+          ...first,
+          promise,
+          cancelFn: (): void => {
+            cancellation.cancelled = true;
+            active.cancelFn?.();
+          },
+        };
       };
     },
   };

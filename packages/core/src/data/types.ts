@@ -15,6 +15,7 @@ export interface SeriesInstance {
 export type NotReconstructable =
   | 'missing-geometry'
   | 'too-few-slices'
+  | 'missing-pixel-spacing'
   | 'inconsistent-image-size'
   | 'tilted'
   | 'non-uniform-spacing';
@@ -64,8 +65,11 @@ export interface StudyData {
  * fetches frames itself, so headers and token refresh reach it through here.
  */
 export interface FrameRequestPolicy {
-  /** Image ids that start with this belong to the source (`wadors:<wadoRoot>/`). */
-  readonly imageIdPrefix: string;
+  /**
+   * Whether an image id was handed out by this source. Two sources with the same root and
+   * different credentials must not claim each other's frames, so this is per source, not per root.
+   */
+  owns(imageId: string): boolean;
   headers(request: DicomWebRequest): Record<string, string>;
   /** How many credential refreshes have finished. Read when a request is sent. */
   generation(): number;

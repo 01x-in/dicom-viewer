@@ -73,12 +73,30 @@ describe('createDicomWebDataSource', () => {
 
     expect(urls).toEqual([`http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/metadata`]);
     expect(series.modality).toBe('CT');
-    expect(series.stacks[0]?.imageIds).toEqual(
+    // Each image id ends in a fragment that names the source, which is never sent to the server.
+    expect(series.stacks[0]?.imageIds.map((id) => id.replace(/#dv-source-\d+$/, ''))).toEqual(
       ['9.2', '9.3', '9.4'].map(
         (sop) =>
           `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/${sop}/frames/1`,
       ),
     );
+  });
+
+  it('gives sources with the same root image ids that only their own frame policy owns', async () => {
+    const make = (): DataSource =>
+      createDicomWebDataSource({
+        wadoRoot: 'http://pacs',
+        fetch: fetchReturning(200, [instance('9.2', [0, 0, 0], 1)]),
+      });
+    const first = make();
+    const second = make();
+    const [firstId] = (await first.getSeries(STUDY, SERIES)).stacks[0]?.imageIds ?? [];
+    const [secondId] = (await second.getSeries(STUDY, SERIES)).stacks[0]?.imageIds ?? [];
+    if (firstId === undefined || secondId === undefined) throw new Error('no image ids');
+    expect(firstId).not.toBe(secondId);
+    expect(first.frameRequests?.owns(firstId)).toBe(true);
+    expect(first.frameRequests?.owns(secondId)).toBe(false);
+    expect(second.frameRequests?.owns(secondId)).toBe(true);
   });
 
   it('wraps a network failure in a DataSourceError without an HTTP status', async () => {
@@ -299,7 +317,7 @@ describe('createDicomWebDataSource', () => {
         onUnauthorized: refresh,
       });
       const frames = source.frameRequests;
-      expect(frames?.imageIdPrefix).toBe('wadors:http://pacs/dicom-web/');
+      expect(frames?.owns('wadors:http://pacs/dicom-web/studies/1/x#other')).toBe(false);
       expect(frames?.headers({ url: 'http://pacs/dicom-web/x', accept: 'a/b' })).toEqual({
         Authorization: 'Bearer t',
       });

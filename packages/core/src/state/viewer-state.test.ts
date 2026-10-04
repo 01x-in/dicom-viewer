@@ -48,6 +48,8 @@ describe('parseViewerState', () => {
     ['a negative image index', { ...full, viewports: [{ id: 'vp-0', imageIndex: -1 }] }],
     ['a fractional image index', { ...full, viewports: [{ id: 'vp-0', imageIndex: 1.5 }] }],
     ['a viewport id outside vp-N', { ...full, viewports: [{ id: 'main' }] }],
+    ['no viewports', { ...full, viewports: [] }],
+    ['viewports without vp-0', { ...full, viewports: [{ id: 'vp-1' }] }],
     ['repeated viewport ids', { ...full, viewports: [{ id: 'vp-0' }, { id: 'vp-0' }] }],
     [
       'more than four viewports',

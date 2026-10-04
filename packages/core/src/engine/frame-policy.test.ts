@@ -8,7 +8,7 @@ const IMAGE_ID = `${PREFIX}studies/1/series/2/instances/3/frames/1`;
 
 function policy(overrides: Partial<FrameRequestPolicy> = {}): FrameRequestPolicy {
   return {
-    imageIdPrefix: PREFIX,
+    owns: (imageId) => imageId.startsWith(PREFIX),
     headers: () => ({ Authorization: 'Bearer t' }),
     generation: () => 0,
     refresh: () => Promise.resolve(true),
@@ -44,14 +44,31 @@ describe('createFrameRequests', () => {
     expect(frames.headersFor(IMAGE_ID, { Accept: 'a/b' })).toEqual({});
   });
 
-  it('keeps the policy of an equal prefix that is still registered by another viewer', () => {
+  it('keeps two sources with the same root apart, each with its own credentials', () => {
     const frames = createFrameRequests();
-    const first = frames.register(policy({ headers: () => ({ X: '1' }) }));
-    const second = frames.register(policy({ headers: () => ({ X: '2' }) }));
-    first();
-    expect(frames.headersFor(IMAGE_ID, { Accept: 'a/b' })).toEqual({ X: '2' });
-    second();
-    expect(frames.headersFor(IMAGE_ID, { Accept: 'a/b' })).toEqual({});
+    frames.register(
+      policy({ owns: (id) => id.endsWith('#a'), headers: () => ({ Authorization: 'Bearer a' }) }),
+    );
+    frames.register(
+      policy({ owns: (id) => id.endsWith('#b'), headers: () => ({ Authorization: 'Bearer b' }) }),
+    );
+    expect(frames.headersFor(`${IMAGE_ID}#a`, { Accept: 'a/b' })).toEqual({
+      Authorization: 'Bearer a',
+    });
+    expect(frames.headersFor(`${IMAGE_ID}#b`, { Accept: 'a/b' })).toEqual({
+      Authorization: 'Bearer b',
+    });
+  });
+
+  it('does not send the fragment that marks an owner as part of the request URL', () => {
+    const headers = vi.fn(() => ({}));
+    const frames = createFrameRequests();
+    frames.register(policy({ headers }));
+    frames.headersFor(`${IMAGE_ID}#dv-source-1`, { Accept: 'a/b' });
+    expect(headers).toHaveBeenCalledWith({
+      url: 'http://pacs/dicom-web/studies/1/series/2/instances/3/frames/1',
+      accept: 'a/b',
+    });
   });
 
   describe('wrap', () => {
@@ -108,6 +125,53 @@ describe('createFrameRequests', () => {
       await expect(frames.wrap(load)(IMAGE_ID, {}).promise).rejects.toBe(failure);
       expect(load).toHaveBeenCalledOnce();
       expect(refresh).not.toHaveBeenCalled();
+    });
+
+    it('does not retry a frame that was cancelled while the credentials refreshed', async () => {
+      let finishRefresh: (value: boolean) => void = () => undefined;
+      const frames = createFrameRequests();
+      frames.register(
+        policy({
+          refresh: () =>
+            new Promise<boolean>((resolve) => {
+              finishRefresh = resolve;
+            }),
+        }),
+      );
+      const load = vi.fn(() => ({ promise: Promise.reject(unauthorized) }));
+      const result = frames.wrap(load)(IMAGE_ID, {});
+      const settled = expect(result.promise).rejects.toBe(unauthorized);
+      await Promise.resolve();
+      result.cancelFn?.();
+      finishRefresh(true);
+      await settled;
+      expect(load).toHaveBeenCalledOnce();
+    });
+
+    it('cancels the retry, not the request that already failed', async () => {
+      const cancelFirst = vi.fn();
+      const cancelRetry = vi.fn();
+      let finishRetry: (value: unknown) => void = () => undefined;
+      const frames = createFrameRequests();
+      frames.register(policy());
+      const load = vi
+        .fn<(id: string) => { promise: Promise<unknown>; cancelFn: () => void }>()
+        .mockReturnValueOnce({ promise: Promise.reject(unauthorized), cancelFn: cancelFirst })
+        .mockReturnValueOnce({
+          promise: new Promise((resolve) => {
+            finishRetry = resolve;
+          }),
+          cancelFn: cancelRetry,
+        });
+      const result = frames.wrap(load)(IMAGE_ID, {});
+      await vi.waitFor(() => {
+        expect(load).toHaveBeenCalledTimes(2);
+      });
+      result.cancelFn?.();
+      expect(cancelRetry).toHaveBeenCalledOnce();
+      expect(cancelFirst).not.toHaveBeenCalled();
+      finishRetry(loaded);
+      await result.promise;
     });
 
     it('rethrows the 401 when the host gave no refresh hook', async () => {

@@ -47,6 +47,10 @@ export const viewerStateV1Schema: z.ZodType<ViewerStateV1> = z.object({
         message: 'Viewport ids must be unique',
       },
     )
+    // The viewer attaches vp-0 first, and every layout has it.
+    .refine((viewports) => viewports.some((viewport) => viewport.id === 'vp-0'), {
+      message: 'A state needs the viewport vp-0',
+    })
     .default(() => [{ id: 'vp-0' }]),
 });
 

@@ -15,7 +15,7 @@ interface Spec {
   modality?: string;
   rows?: number;
   columns?: number;
-  pixelSpacing?: [number, number];
+  pixelSpacing?: [number, number] | 'none';
   frames?: number;
 }
 
@@ -25,8 +25,10 @@ function dicom(spec: Spec): DicomJsonInstance {
     '00080060': { vr: 'CS', Value: [spec.modality ?? 'CT'] },
     '00280010': { vr: 'US', Value: [spec.rows ?? 128] },
     '00280011': { vr: 'US', Value: [spec.columns ?? 128] },
-    '00280030': { vr: 'DS', Value: spec.pixelSpacing ?? [1, 1] },
   };
+  if (spec.pixelSpacing !== 'none') {
+    instance['00280030'] = { vr: 'DS', Value: spec.pixelSpacing ?? [1, 1] };
+  }
   if (spec.number !== undefined) instance['00200013'] = { vr: 'IS', Value: [spec.number] };
   if (spec.position !== undefined) instance['00200032'] = { vr: 'DS', Value: spec.position };
   // Geometry is all or nothing in these fixtures: a position brings an orientation (axial unless given).
@@ -208,6 +210,14 @@ describe('buildSeries', () => {
           specs.map((spec, index) => (index === 1 ? { ...spec, pixelSpacing: [1, 0.5] } : spec)),
         ).stacks[0]?.reconstructable,
       ).toEqual({ ok: false, reason: 'inconsistent-image-size' });
+    });
+
+    it('is not when no slice says its pixel spacing, since there is no in-plane scale', () => {
+      const specs = axial(4).map((spec) => ({ ...spec, pixelSpacing: 'none' as const }));
+      expect(build(specs).stacks[0]?.reconstructable).toEqual({
+        ok: false,
+        reason: 'missing-pixel-spacing',
+      });
     });
 
     it('is not for a gantry tilt, where slices are offset along a direction that is not the normal', () => {

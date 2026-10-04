@@ -30,16 +30,24 @@ function trimTrailingSlash(root: string): string {
   return root.endsWith('/') ? root.slice(0, -1) : root;
 }
 
-/** The single-frame image id the `wadors` loader understands. */
+/**
+ * The single-frame image id the `wadors` loader understands. An `owner` is appended as a URL
+ * fragment, which is never sent to the server, so the frame loader can tell whose request a frame
+ * is when two sources share a root.
+ */
 export function frameImageId(
   wadoRoot: string,
   studyUid: string,
   seriesUid: string,
   sopUid: string,
+  owner?: string,
 ): string {
   const root = trimTrailingSlash(wadoRoot);
-  return `wadors:${root}/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}/frames/1`;
+  const base = `wadors:${root}/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}/frames/1`;
+  return owner === undefined ? base : `${base}#${owner}`;
 }
+
+let sourceCount = 0;
 
 async function readJson(response: Response): Promise<unknown> {
   try {
@@ -55,6 +63,8 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
   const requester = createRequester(options);
   const root = trimTrailingSlash(options.wadoRoot);
   const qidoRoot = trimTrailingSlash(options.qidoRoot ?? options.wadoRoot);
+  sourceCount += 1;
+  const owner = `dv-source-${sourceCount.toString()}`;
   const capabilities: ResolvedCapabilities = {
     instanceRetrieve: options.capabilities?.instanceRetrieve ?? 'seg-sr-only',
   };
@@ -62,7 +72,7 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
   return {
     capabilities,
     frameRequests: {
-      imageIdPrefix: `wadors:${root}/`,
+      owns: (imageId) => imageId.startsWith(`wadors:${root}/`) && imageId.endsWith(`#${owner}`),
       headers: (request) => requester.headers(request),
       generation: () => requester.generation(),
       refresh: (request, sentAt) => requester.refresh(request, sentAt),
@@ -116,7 +126,7 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
         metadata: parsed.data,
         imageIdFor: (sopInstanceUID) => {
           assertDicomUid(sopInstanceUID, 'SOPInstanceUID');
-          return frameImageId(root, studyInstanceUID, seriesInstanceUID, sopInstanceUID);
+          return frameImageId(root, studyInstanceUID, seriesInstanceUID, sopInstanceUID, owner);
         },
       });
     },
