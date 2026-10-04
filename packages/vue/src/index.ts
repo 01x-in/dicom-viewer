@@ -1,3 +1,4 @@
-// Vue 3 adapter. The components and composables (DicomViewer, ViewerViewport,
-// provideViewer, useViewer, useViewerState) arrive in M4; see docs/plan.md.
-export {};
+// Vue adapter. M1 ships a spike of <DicomViewer>; provideViewer/useViewer and the plugin arrive in
+// M4, see docs/plan.md.
+export { DicomViewer } from './DicomViewer';
+export type { DicomViewerProps } from './DicomViewer';

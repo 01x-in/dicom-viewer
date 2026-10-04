@@ -4,11 +4,17 @@
   "description": "Styled DICOM viewer UI as framework-neutral web components.",
   "license": "MIT",
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/define.js"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./define": {
+      "types": "./dist/define.d.ts",
+      "default": "./dist/define.js"
     },
     "./package.json": "./package.json"
   },
@@ -20,6 +26,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@scope/viewer-core": "workspace:*"
+    "@scope/viewer-core": "workspace:*",
+    "lit": "3.3.3"
   }
 }

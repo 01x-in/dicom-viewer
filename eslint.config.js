@@ -6,7 +6,18 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/.venv/**', 'fixtures/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/.venv/**',
+      'fixtures/**',
+      // Examples are standalone projects installed from tarballs; the matrix builds and runs them.
+      'examples/**',
+      '.matrix/**',
+      '.tarballs/**',
+      'packages/core/assets/**',
+      'packages/core/src/generated/**',
+    ],
   },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
@@ -57,7 +68,7 @@ export default defineConfig(
   },
   {
     // Tool configuration files must default-export by convention.
-    files: ['*.config.ts', '*.config.js', 'packages/*/*.config.ts'],
+    files: ['*.config.ts', '*.config.js', 'packages/*/*.config.ts', 'tools/*/*.config.ts'],
     rules: { 'import-x/no-default-export': 'off' },
   },
 );

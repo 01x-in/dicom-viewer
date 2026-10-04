@@ -11,7 +11,7 @@
 ## Coding standards
 - TypeScript strict, including `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, and `isolatedDeclarations`.
 - No `any`, and no `as unknown as X` (ESLint enforces both).
-- Named exports only. Default exports are allowed only in tool config files.
+- Named exports only. Default exports are allowed only in tool config files and in framework-mandated entry points (for example Next.js `layout.tsx` and `page.tsx` in `examples/`).
 - Explicit return types on exported functions.
 - Validate external data (DICOM JSON, measurement imports, URL state) with Zod.
 - TDD: write the test first, and never weaken an assertion to make a test pass.
@@ -19,12 +19,13 @@
 ## Architecture rules
 - Only `packages/core/src/engine/**` and `packages/core/workers/**` may import `@cornerstonejs/*`. Everything else goes through `RenderingPort`. ESLint enforces this.
 - The public API never exposes Cornerstone types, except under `viewer.unsafe`.
-- Cornerstone packages are exact-pinned dependencies of `@scope/viewer-core`, not peers.
+- Cornerstone packages are exact-pinned `devDependencies` of `@scope/viewer-core`, bundled into its lazily loaded engine chunk, and never peers (docs/adr/0003-prebundled-engine.md).
 - Vue code must keep Cornerstone and viewer objects out of reactivity (`shallowRef` + `markRaw`).
 
 ## Data
 - Only the synthetic phantom in `fixtures/phantom` may be committed. Never commit real, licensed, or de-identified patient data.
 
 ## Commands
-- `pnpm check` runs everything (format check, lint, typecheck, test, build).
+- `pnpm check` runs everything (build, format check, lint, typecheck, test). Build comes first because packages resolve each other through `dist`.
 - Phantom: `cd tools/phantom && uv run pytest -q`.
+- `pnpm matrix` packs the tarballs, installs each example in `examples/` from them, builds it, and runs the browser smoke test (`--only <name>`, `--dev`). Needs Playwright's Chromium; set `DV_CHROMIUM` to use an existing one.

@@ -7,7 +7,9 @@ import pydicom
 import pytest
 from pydicom.uid import ExplicitVRLittleEndian, JPEG2000Lossless
 
-from phantom import CT_SPEC, INSERTS, LEFT_MARKER_HU, Insert, generate
+import highdicom as hd
+
+from phantom import CT_SPEC, INSERTS, LEFT_MARKER_HU, SEG_SERIES, Insert, generate
 
 
 @pytest.fixture(scope="module")
@@ -97,3 +99,57 @@ def test_output_is_byte_for_byte_deterministic(tmp_path: Path) -> None:
     assert files == sorted(p.relative_to(second) for p in second.rglob("*.dcm"))
     for rel in files:
         assert (first / rel).read_bytes() == (second / rel).read_bytes(), rel
+
+
+def _read_seg(out_dir: Path) -> hd.seg.Segmentation:
+    return hd.seg.segread(str(out_dir / SEG_SERIES / "0001.dcm"))
+
+
+def test_seg_is_a_single_multiframe_instance_in_the_same_study(out_dir: Path) -> None:
+    files = sorted((out_dir / SEG_SERIES).glob("*.dcm"))
+    j2k = _load_series(out_dir / "ct-j2k")
+    seg = pydicom.dcmread(files[0])
+
+    assert len(files) == 1
+    assert seg.Modality == "SEG"
+    assert seg.StudyInstanceUID == j2k[0].StudyInstanceUID
+    assert seg.FrameOfReferenceUID == j2k[0].FrameOfReferenceUID
+    assert seg.SeriesInstanceUID not in {ds.SeriesInstanceUID for ds in j2k}
+    assert seg.SeriesDescription == f"Phantom SEG ({SEG_SERIES})"
+
+
+def test_seg_references_every_slice_of_the_j2k_series(out_dir: Path) -> None:
+    j2k = _load_series(out_dir / "ct-j2k")
+    seg = _read_seg(out_dir)
+
+    assert set(seg.get_source_image_uids()) == {
+        (ds.StudyInstanceUID, ds.SeriesInstanceUID, ds.SOPInstanceUID) for ds in j2k
+    }
+
+
+def test_seg_has_a_body_and_a_bone_segment(out_dir: Path) -> None:
+    seg = _read_seg(out_dir)
+    labels = {int(item.SegmentNumber): str(item.SegmentLabel) for item in seg.SegmentSequence}
+
+    assert labels == {1: "Body", 2: "Bone insert"}
+
+
+def test_seg_segments_follow_the_ct_geometry(out_dir: Path) -> None:
+    j2k = _load_series(out_dir / "ct-j2k")
+    seg = _read_seg(out_dir)
+    sop_uids = [ds.SOPInstanceUID for ds in j2k]
+    pixels = seg.get_pixels_by_source_instance(sop_uids, segment_numbers=[1, 2])
+    body, bone = pixels[..., 0], pixels[..., 1]
+
+    row, col = next(i.center_rc for i in INSERTS if i.name == "bone")
+    middle = CT_SPEC.slices // 2
+    # The bone insert disc is segment 2 and the body segment excludes it, so they never overlap.
+    assert bone[middle, row, col] == 1
+    assert body[middle, row, col] == 0
+    assert not np.any(body & bone)
+    # The body segment follows the 40 HU disc; the corner outside the body is empty.
+    assert body[middle, 64, 40] == 1
+    assert body[middle, 0, 0] == 0
+    # The bone insert exists only on the slices where the CT has inserts.
+    bone_slices = {int(i) for i in np.flatnonzero(bone.any(axis=(1, 2)))}
+    assert bone_slices == set(CT_SPEC.insert_slices)

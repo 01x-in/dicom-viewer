@@ -5,7 +5,15 @@
     "isolatedDeclarations": false,
     "allowJs": true,
     "checkJs": true,
-    "types": ["node"]
+    "types": ["node"],
+    "allowImportingTsExtensions": true
   },
-  "include": ["*.ts", "*.js", "packages/*/*.config.ts"]
+  "include": [
+    "*.ts",
+    "*.js",
+    "packages/*/*.config.ts",
+    "tools/*/*.config.ts",
+    "scripts/**/*.ts",
+    "tools/*/src/*.d.ts"
+  ]
 }
