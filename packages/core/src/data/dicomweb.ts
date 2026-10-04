@@ -1,12 +1,19 @@
 import { z } from 'zod';
 import { DataSourceError } from './errors';
 import { extractFirstPart } from './multipart';
-import type { DataSource, DicomJsonInstance, LoadedSeriesData, SeriesInstance } from './types';
+import { createRequester, type RequesterOptions } from './request';
+import type {
+  DataSource,
+  DataSourceCapabilities,
+  DicomJsonInstance,
+  LoadedSeriesData,
+  ResolvedCapabilities,
+  SeriesInstance,
+} from './types';
 
-export interface DicomWebDataSourceOptions {
+export interface DicomWebDataSourceOptions extends RequesterOptions {
   readonly wadoRoot: string;
-  /** Injected for tests. Defaults to the global `fetch`. */
-  readonly fetch?: typeof fetch;
+  readonly capabilities?: DataSourceCapabilities;
 }
 
 const dicomJsonElement = z.object({ vr: z.string(), Value: z.array(z.unknown()).optional() });
@@ -91,32 +98,25 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+const WHOLE_INSTANCE_MODALITIES: ReadonlySet<string> = new Set(['SEG', 'SR']);
+
 export function createDicomWebDataSource(options: DicomWebDataSourceOptions): DataSource {
-  const rawFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  // Network, CORS, and abort failures reject with native errors; callers only handle DataSourceError.
-  const doFetch: typeof fetch = async (input, init) => {
-    try {
-      return await rawFetch(input, init);
-    } catch (error) {
-      if (error instanceof DataSourceError) throw error;
-      throw new DataSourceError(
-        `The DICOMweb request failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  };
+  const requester = createRequester(options);
   const root = trimTrailingSlash(options.wadoRoot);
+  const capabilities: ResolvedCapabilities = {
+    instanceRetrieve: options.capabilities?.instanceRetrieve ?? 'seg-sr-only',
+  };
 
   return {
+    capabilities,
+    frameRequests: {
+      imageIdPrefix: `wadors:${root}/`,
+      headers: (request) => requester.headers(request),
+      refresh: (request) => requester.refresh(request),
+    },
     async getSeries(studyInstanceUID, seriesInstanceUID): Promise<LoadedSeriesData> {
       const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/metadata`;
-      const response = await doFetch(url, { headers: { Accept: 'application/dicom+json' } });
-      // 403 and 404 are final. Retrying belongs in the real client (M2), and never for these.
-      if (!response.ok) {
-        throw new DataSourceError(
-          `Series metadata request failed with HTTP ${response.status.toString()}.`,
-          response.status,
-        );
-      }
+      const response = await requester.get(url, 'application/dicom+json');
       const parsed = seriesMetadata.safeParse(await readJson(response));
       if (!parsed.success) {
         throw new DataSourceError(`Series metadata is not DICOM JSON: ${parsed.error.message}`);
@@ -143,17 +143,19 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
       studyInstanceUID,
       seriesInstanceUID,
       sopInstanceUID,
+      modality,
     ): Promise<ArrayBuffer> {
-      const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/instances/${sopInstanceUID}`;
-      const response = await doFetch(url, {
-        headers: { Accept: 'multipart/related; type="application/dicom"' },
-      });
-      if (!response.ok) {
+      const allowed =
+        capabilities.instanceRetrieve === 'all' ||
+        (capabilities.instanceRetrieve === 'seg-sr-only' &&
+          WHOLE_INSTANCE_MODALITIES.has(modality));
+      if (!allowed) {
         throw new DataSourceError(
-          `Instance retrieval failed with HTTP ${response.status.toString()}.`,
-          response.status,
+          `Whole-instance retrieval of ${modality} is not allowed by this source (instanceRetrieve: ${capabilities.instanceRetrieve}).`,
         );
       }
+      const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/instances/${sopInstanceUID}`;
+      const response = await requester.get(url, 'multipart/related; type="application/dicom"');
       const body = new Uint8Array(await response.arrayBuffer());
       const part = extractFirstPart(response.headers.get('content-type') ?? '', body);
       return part.buffer.slice(part.byteOffset, part.byteOffset + part.byteLength) as ArrayBuffer;

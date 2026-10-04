@@ -1,9 +1,12 @@
 export { createDicomWebDataSource, frameImageId } from './data/dicomweb';
 export { DataSourceError } from './data/errors';
 export type { DicomWebDataSourceOptions } from './data/dicomweb';
+export type { DicomWebRequest, RetryOptions } from './data/request';
 export type {
   DataSource,
+  DataSourceCapabilities,
   DicomJsonInstance,
+  FrameRequestPolicy,
   LoadedSeriesData,
   SeriesInstance,
 } from './data/types';

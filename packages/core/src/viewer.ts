@@ -86,6 +86,7 @@ export function createViewer(options: ViewerOptions): Viewer {
             studyInstanceUID,
             segSeriesInstanceUID,
             sop,
+            'SEG',
           );
           assertAlive();
           return engine.loadSegmentation(series, bytes);

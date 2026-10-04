@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createDicomWebDataSource, frameImageId } from './dicomweb';
 import { DataSourceError } from './errors';
 
@@ -153,7 +153,7 @@ describe('createDicomWebDataSource', () => {
         },
       });
 
-      const bytes = await source.getInstanceBytes(STUDY, SERIES, 'sop1');
+      const bytes = await source.getInstanceBytes(STUDY, SERIES, 'sop1', 'SEG');
 
       expect(Array.from(new Uint8Array(bytes))).toEqual([9, 8, 7]);
       expect(requests).toHaveLength(1);
@@ -166,9 +166,48 @@ describe('createDicomWebDataSource', () => {
         wadoRoot: 'http://pacs',
         fetch: () => Promise.reject(new TypeError('Failed to fetch')),
       });
-      await expect(source.getInstanceBytes(STUDY, SERIES, 'sop1')).rejects.toBeInstanceOf(
+      await expect(source.getInstanceBytes(STUDY, SERIES, 'sop1', 'SEG')).rejects.toBeInstanceOf(
         DataSourceError,
       );
+    });
+
+    it.each([
+      ['seg-sr-only', 'CT', false],
+      ['seg-sr-only', 'SEG', true],
+      ['seg-sr-only', 'SR', true],
+      ['all', 'CT', true],
+      ['none', 'SEG', false],
+    ] as const)(
+      'with instanceRetrieve %s, a %s instance is allowed: %s',
+      async (mode, modality, allowed) => {
+        let calls = 0;
+        const source = createDicomWebDataSource({
+          wadoRoot: 'http://pacs',
+          capabilities: { instanceRetrieve: mode },
+          fetch: () => {
+            calls += 1;
+            return Promise.resolve(
+              new Response(multipart([1]), {
+                headers: {
+                  'content-type': 'multipart/related; type="application/dicom"; boundary=xyz',
+                },
+              }),
+            );
+          },
+        });
+        const result = source.getInstanceBytes(STUDY, SERIES, 'sop1', modality);
+        if (allowed) {
+          await expect(result).resolves.toBeInstanceOf(ArrayBuffer);
+        } else {
+          await expect(result).rejects.toBeInstanceOf(DataSourceError);
+          expect(calls).toBe(0);
+        }
+      },
+    );
+
+    it('defaults to retrieving whole instances of SEG and SR only', () => {
+      const source = createDicomWebDataSource({ wadoRoot: 'http://pacs' });
+      expect(source.capabilities).toEqual({ instanceRetrieve: 'seg-sr-only' });
     });
 
     it('reports a 403 as a DataSourceError carrying the status', async () => {
@@ -176,9 +215,91 @@ describe('createDicomWebDataSource', () => {
         wadoRoot: 'http://pacs',
         fetch: () => Promise.resolve(new Response('{}', { status: 403 })),
       });
-      await expect(source.getInstanceBytes(STUDY, SERIES, 'sop1')).rejects.toMatchObject({
+      await expect(source.getInstanceBytes(STUDY, SERIES, 'sop1', 'SEG')).rejects.toMatchObject({
         status: 403,
       });
+    });
+  });
+
+  describe('request policy', () => {
+    it('sends the host headers with metadata and instance requests', async () => {
+      const seen: (string | null)[] = [];
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs',
+        getRequestHeaders: () => ({ Authorization: 'Bearer t' }),
+        fetch: (input, init) => {
+          seen.push(new Headers(init?.headers).get('authorization'));
+          const url = typeof input === 'string' ? input : '';
+          return Promise.resolve(
+            url.endsWith('/metadata')
+              ? new Response(JSON.stringify([instance('a', [0, 0, 0], 1)]))
+              : new Response(
+                  Uint8Array.from([
+                    ...new TextEncoder().encode('--xyz\r\nContent-Type: application/dicom\r\n\r\n'),
+                    1,
+                    ...new TextEncoder().encode('\r\n--xyz--\r\n'),
+                  ]),
+                  { headers: { 'content-type': 'multipart/related; boundary=xyz' } },
+                ),
+          );
+        },
+      });
+      await source.getSeries(STUDY, SERIES);
+      await source.getInstanceBytes(STUDY, SERIES, 'a', 'SEG');
+      expect(seen).toEqual(['Bearer t', 'Bearer t']);
+    });
+
+    it('refreshes after a 401 and retries the metadata request once', async () => {
+      let token = 'old';
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs',
+        getRequestHeaders: () => ({ Authorization: `Bearer ${token}` }),
+        onUnauthorized: () => {
+          token = 'new';
+        },
+        fetch: (_input, init) =>
+          Promise.resolve(
+            new Headers(init?.headers).get('authorization') === 'Bearer new'
+              ? new Response(JSON.stringify([instance('a', [0, 0, 0], 1)]))
+              : new Response('{}', { status: 401 }),
+          ),
+      });
+      const series = await source.getSeries(STUDY, SERIES);
+      expect(series.instances).toHaveLength(1);
+    });
+
+    it('retries a 5xx on the metadata request', async () => {
+      let calls = 0;
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs',
+        retry: { retries: 1, baseDelayMs: 0 },
+        fetch: () => {
+          calls += 1;
+          return Promise.resolve(
+            calls === 1
+              ? new Response('{}', { status: 503 })
+              : new Response(JSON.stringify([instance('a', [0, 0, 0], 1)])),
+          );
+        },
+      });
+      await source.getSeries(STUDY, SERIES);
+      expect(calls).toBe(2);
+    });
+
+    it('hands the frame loader the same policy, keyed by the image id prefix', async () => {
+      const refresh = vi.fn();
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs/dicom-web/',
+        getRequestHeaders: () => ({ Authorization: 'Bearer t' }),
+        onUnauthorized: refresh,
+      });
+      const frames = source.frameRequests;
+      expect(frames?.imageIdPrefix).toBe('wadors:http://pacs/dicom-web/');
+      expect(frames?.headers({ url: 'http://pacs/dicom-web/x', accept: 'a/b' })).toEqual({
+        Authorization: 'Bearer t',
+      });
+      await expect(frames?.refresh({ url: 'u', accept: 'a/b' })).resolves.toBe(true);
+      expect(refresh).toHaveBeenCalledOnce();
     });
   });
 });
