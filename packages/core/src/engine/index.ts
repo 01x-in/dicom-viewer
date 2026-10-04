@@ -8,10 +8,15 @@ import {
   StackViewport,
   utilities,
 } from '@cornerstonejs/core';
-import { register as registerWadorsLoader } from '@cornerstonejs/dicom-image-loader/wadors';
+import {
+  loadImage as loadWadorsImage,
+  register as registerWadorsLoader,
+} from '@cornerstonejs/dicom-image-loader/wadors';
 import { utilities as metadataUtilities } from '@cornerstonejs/metadata';
-import type { LoadedSeriesData } from '../data/types';
+import { setOptions as setLoaderOptions } from 'dv-loader-options';
+import type { FrameRequestPolicy, LoadedSeriesData } from '../data/types';
 import { type AssetsConfig, prepareWorkers } from './assets';
+import { createFrameRequests } from './frame-policy';
 import { parseSegmentation, type SegmentationHandle } from './segmentation';
 import { attachStackTools, registerTools } from './tools';
 
@@ -23,6 +28,8 @@ export interface EngineOptions {
   readonly assets: AssetsConfig;
   /** Render without WebGL. Slower, but deterministic and works where no GPU is available. */
   readonly cpuRendering?: boolean;
+  /** Applies the host's headers and token refresh to the frames the loader fetches. */
+  readonly frameRequests?: FrameRequestPolicy | undefined;
 }
 
 export interface StackHandle {
@@ -43,6 +50,8 @@ export interface Engine {
 }
 
 let engineCount = 0;
+
+const frameRequests = createFrameRequests();
 
 /**
  * Cornerstone, the loader, and the worker pool are process-wide singletons, so they are set up once
@@ -68,6 +77,13 @@ function ensureRuntime(options: EngineOptions): Promise<void> {
       ...(options.cpuRendering === true ? { rendering: { useCPURendering: true } } : {}),
     });
     registerWadorsLoader({});
+    setLoaderOptions({
+      beforeSend: (_xhr, imageId, defaultHeaders) =>
+        frameRequests.headersFor(imageId, defaultHeaders),
+    });
+    // After registerWadorsLoader, which registers the plain loader: this one retries a frame once
+    // after a 401 refresh.
+    imageLoader.registerImageLoader('wadors', frameRequests.wrap(loadWadorsImage));
     registerTools();
     utilities.setWasmBasePath(workers.wasmBasePath);
     const workerManager = getWebWorkerManager();
@@ -87,6 +103,8 @@ function ensureRuntime(options: EngineOptions): Promise<void> {
 export async function createEngine(options: EngineOptions): Promise<Engine> {
   await ensureRuntime(options);
 
+  const unregisterFrameRequests =
+    options.frameRequests === undefined ? undefined : frameRequests.register(options.frameRequests);
   engineCount += 1;
   const renderingEngineId = `dv-engine-${engineCount.toString()}`;
   const renderingEngine = new RenderingEngine(renderingEngineId);
@@ -180,6 +198,7 @@ export async function createEngine(options: EngineOptions): Promise<Engine> {
       destroyed = true;
       Promise.allSettled([...pending]).then(
         () => {
+          unregisterFrameRequests?.();
           renderingEngine.destroy();
         },
         () => undefined,

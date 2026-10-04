@@ -244,7 +244,10 @@ describe('createRequester', () => {
     const info = { url: 'http://pacs/a', accept: 'x/y' };
     await Promise.all([requester.refresh(info), requester.refresh(info)]);
     expect(hook).toHaveBeenCalledOnce();
-    await requester.refresh(info);
+    expect(requester.generation()).toBe(1);
+    await requester.refresh(info, 0); // sent before the refresh above: nothing to do
+    expect(hook).toHaveBeenCalledOnce();
+    await requester.refresh(info, 1);
     expect(hook).toHaveBeenCalledTimes(2);
 
     const plain = createRequester({ retry: NO_DELAY });

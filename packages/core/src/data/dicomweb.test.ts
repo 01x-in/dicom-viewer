@@ -298,8 +298,14 @@ describe('createDicomWebDataSource', () => {
       expect(frames?.headers({ url: 'http://pacs/dicom-web/x', accept: 'a/b' })).toEqual({
         Authorization: 'Bearer t',
       });
-      await expect(frames?.refresh({ url: 'u', accept: 'a/b' })).resolves.toBe(true);
+      await expect(frames?.refresh({ url: 'u', accept: 'a/b' }, frames.generation())).resolves.toBe(
+        true,
+      );
       expect(refresh).toHaveBeenCalledOnce();
+      // A request sent before that refresh finished does not trigger another one.
+      await frames?.refresh({ url: 'u', accept: 'a/b' }, 0);
+      expect(refresh).toHaveBeenCalledOnce();
+      expect(frames?.generation()).toBe(1);
     });
   });
 });

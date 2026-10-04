@@ -112,7 +112,8 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
     frameRequests: {
       imageIdPrefix: `wadors:${root}/`,
       headers: (request) => requester.headers(request),
-      refresh: (request) => requester.refresh(request),
+      generation: () => requester.generation(),
+      refresh: (request, sentAt) => requester.refresh(request, sentAt),
     },
     async getSeries(studyInstanceUID, seriesInstanceUID): Promise<LoadedSeriesData> {
       const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/metadata`;

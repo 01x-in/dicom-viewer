@@ -28,11 +28,15 @@ export interface RequesterOptions {
 export interface Requester {
   /** GET with the host's headers, one refresh on 401, and backoff on 5xx. Never retries 403 or 404. */
   get(url: string, accept: string): Promise<Response>;
+  /** How many refreshes have finished. A request notes this when it is sent. */
+  generation(): number;
   /**
-   * Runs the host's refresh hook, sharing one run between callers that ask while it is in flight.
-   * Resolves to `false` when the host gave no hook.
+   * Runs the host's refresh hook after a 401, sharing one run between callers that ask while it is
+   * in flight. When `sentAt` (the `generation()` when the request was sent) is behind, a refresh
+   * already finished since, so the hook does not run again. Resolves to `false` when the host gave
+   * no hook.
    */
-  refresh(request: DicomWebRequest): Promise<boolean>;
+  refresh(request: DicomWebRequest, sentAt?: number): Promise<boolean>;
   /** The host's headers for one request, for the frame loader, which does its own fetching. */
   headers(request: DicomWebRequest): Record<string, string>;
 }
@@ -61,9 +65,10 @@ export function createRequester(options: RequesterOptions = {}): Requester {
     return options.getRequestHeaders?.(request) ?? {};
   }
 
-  async function refresh(request: DicomWebRequest): Promise<boolean> {
+  async function refresh(request: DicomWebRequest, sentAt?: number): Promise<boolean> {
     const hook = options.onUnauthorized;
     if (hook === undefined) return false;
+    if (sentAt !== undefined && sentAt !== generation) return true;
     refreshing ??= (async (): Promise<void> => {
       try {
         await hook(request);
@@ -95,6 +100,7 @@ export function createRequester(options: RequesterOptions = {}): Requester {
   return {
     headers,
     refresh,
+    generation: () => generation,
     async get(url, accept): Promise<Response> {
       const request: DicomWebRequest = { url, accept };
       let retried = 0;
@@ -108,7 +114,7 @@ export function createRequester(options: RequesterOptions = {}): Requester {
 
         if (response.status === 401 && !refreshed && options.onUnauthorized !== undefined) {
           refreshed = true;
-          if (sentAt === generation) await refresh(request);
+          await refresh(request, sentAt);
           continue;
         }
         if (response.status >= 500 && retried < retries) {

@@ -44,6 +44,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const enginePromise: Promise<Engine> = import('./engine/index').then(({ createEngine }) =>
     createEngine({
       assets,
+      frameRequests: options.dataSource.frameRequests,
       ...(options.cpuRendering === undefined ? {} : { cpuRendering: options.cpuRendering }),
     }),
   );

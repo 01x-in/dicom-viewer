@@ -202,3 +202,57 @@ describe('dicomweb-mock (oncotrace-proxy mode)', () => {
     ]);
   });
 });
+
+describe('dicomweb-mock (auth and faults)', () => {
+  let server: MockServer;
+  let study: string;
+
+  beforeAll(async () => {
+    server = await startMockServer({
+      fixturesDir: FIXTURES,
+      mode: 'oncotrace-proxy',
+      port: 0,
+      auth: true,
+    });
+    const [first] = server.fixtures.studyUids;
+    if (first === undefined) throw new Error('no study in fixtures');
+    study = first;
+  });
+  afterAll(async () => {
+    await server.close();
+  });
+
+  const seriesUrl = (): string => `${server.url}/studies/${study}/series`;
+
+  it('answers 401 without a token, and with one that was not accepted', async () => {
+    expect((await fetch(seriesUrl())).status).toBe(401);
+    const bad = await fetch(seriesUrl(), { headers: { Authorization: 'Bearer nope' } });
+    expect(bad.status).toBe(401);
+    expect(bad.headers.get('content-type')).toMatch(/^application\/problem\+json/);
+  });
+
+  it('accepts a token until it is revoked, which is how an expiry looks to the client', async () => {
+    server.auth.accept('t1');
+    const headers = { Authorization: 'Bearer t1' };
+    expect((await fetch(seriesUrl(), { headers })).status).toBe(200);
+    server.auth.revoke('t1');
+    expect((await fetch(seriesUrl(), { headers })).status).toBe(401);
+  });
+
+  it('still answers CORS preflights without a token', async () => {
+    const response = await fetch(seriesUrl(), {
+      method: 'OPTIONS',
+      headers: { Origin: 'http://localhost:5173', 'Access-Control-Request-Method': 'GET' },
+    });
+    expect(response.status).toBe(204);
+  });
+
+  it('fails the next requests with an injected status, then recovers', async () => {
+    server.auth.accept('t2');
+    const headers = { Authorization: 'Bearer t2' };
+    server.failNext(503, 2);
+    expect((await fetch(seriesUrl(), { headers })).status).toBe(503);
+    expect((await fetch(seriesUrl(), { headers })).status).toBe(503);
+    expect((await fetch(seriesUrl(), { headers })).status).toBe(200);
+  });
+});

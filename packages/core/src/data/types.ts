@@ -27,8 +27,14 @@ export interface FrameRequestPolicy {
   /** Image ids that start with this belong to the source (`wadors:<wadoRoot>/`). */
   readonly imageIdPrefix: string;
   headers(request: DicomWebRequest): Record<string, string>;
-  /** Runs the host's refresh hook. Resolves to `false` when the host gave none. */
-  refresh(request: DicomWebRequest): Promise<boolean>;
+  /** How many credential refreshes have finished. Read when a request is sent. */
+  generation(): number;
+  /**
+   * Runs the host's refresh hook after a 401, unless a refresh already finished since the request
+   * was sent (`sentAt` is the `generation()` at that moment). Resolves to `false` when the host
+   * gave no hook.
+   */
+  refresh(request: DicomWebRequest, sentAt: number): Promise<boolean>;
 }
 
 export interface DataSource {
