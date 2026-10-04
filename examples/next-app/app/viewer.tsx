@@ -42,7 +42,13 @@ export function Viewer(): JSX.Element {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const parsed = queryState.safeParse(Object.fromEntries(params));
+    // params.get keeps the first value of a repeated parameter; Object.fromEntries would keep the last.
+    const parsed = queryState.safeParse({
+      wadoRoot: params.get('wadoRoot') ?? undefined,
+      study: params.get('study') ?? undefined,
+      series: params.get('series') ?? undefined,
+      assets: params.get('assets') ?? undefined,
+    });
     if (!parsed.success) {
       fail(`Invalid query string: ${parsed.error.message}`);
       return;
