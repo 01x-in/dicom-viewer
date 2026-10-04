@@ -320,6 +320,26 @@ describe('scrolling', () => {
     expect(events['state:changed'].at(-1)?.origin).toBe('user');
   });
 
+  it('keeps the slice when the series on screen is asked for again without one', async () => {
+    const { api, viewer } = await shown();
+    await api.setImageIndex(3);
+    await viewer.setViewportSeries('vp-0', CT);
+    expect(vp0(viewer)?.imageIndex).toBe(3);
+    expect(api.getImageIndex()).toBe(3);
+  });
+
+  it('takes a pixel sample after the calls queued before it', async () => {
+    const { api, viewer, port } = await shown();
+    const hold = port.hold();
+    const switching = viewer.setViewportSeries('vp-0', CT_TWO_STACKS);
+    const sampling = api.sampleHu(0, 0, 0);
+    hold.release();
+    await switching;
+    await sampling;
+    // The sample came from the stack that was showing when it ran, not from the one before the switch.
+    expect(port.stacks.at(-1)?.stack.imageIds[0]).toContain(CT_TWO_STACKS);
+  });
+
   it('says nothing when the slice did not change', async () => {
     const { api, events } = await shown();
     const before = events['viewport:image'].length;
@@ -429,6 +449,21 @@ describe('setState', () => {
     });
     await viewer.setState({ viewports: [{ id: 'vp-0', imageIndex: 1 }] });
     expect(vp0(viewer)).toMatchObject({ seriesInstanceUID: CT, imageIndex: 1 });
+  });
+});
+
+describe('a failed restore', () => {
+  it('empties the viewport with the origin of the call that failed', async () => {
+    const { viewer, element, events } = harness();
+    viewer.viewports.attach('vp-0', element);
+    await expect(
+      viewer.setState(
+        { studyInstanceUID: STUDY, viewports: [{ id: 'vp-0', seriesInstanceUID: '1.2.3.77' }] },
+        { origin: 'url' },
+      ),
+    ).rejects.toThrow(/no such series/);
+    expect(events['state:changed'].map((event) => event.origin)).toEqual(['url', 'url']);
+    expect(vp0(viewer)).toEqual({ id: 'vp-0' });
   });
 });
 

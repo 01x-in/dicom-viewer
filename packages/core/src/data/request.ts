@@ -75,11 +75,17 @@ export function createRequester(options: RequesterOptions = {}): Requester {
       } catch (error) {
         throw new DataSourceError(`Refreshing credentials failed: ${message(error)}`, 401);
       }
-    })().finally(() => {
-      // Runs after `refreshing` is assigned, even when the hook throws synchronously.
-      generation += 1;
-      refreshing = undefined;
-    });
+    })().then(
+      () => {
+        // Only a refresh that worked counts: after a failed one, requests still have stale credentials.
+        generation += 1;
+        refreshing = undefined;
+      },
+      (error: unknown) => {
+        refreshing = undefined;
+        throw error;
+      },
+    );
     await refreshing;
     return true;
   }

@@ -313,6 +313,10 @@ const authMock = await startMockServer({
   mode: 'oncotrace-proxy',
   port: 8043,
   auth: true,
+}).catch(async (error: unknown) => {
+  // A busy port must not leave the first server open, or the command never exits.
+  await mock.close();
+  throw error;
 });
 const rows: Row[] = [];
 const measurements: Measurement[] = [];

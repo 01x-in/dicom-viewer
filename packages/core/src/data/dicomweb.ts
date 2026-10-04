@@ -42,6 +42,9 @@ export function frameImageId(
   sopUid: string,
   owner?: string,
 ): string {
+  assertDicomUid(studyUid, 'StudyInstanceUID');
+  assertDicomUid(seriesUid, 'SeriesInstanceUID');
+  assertDicomUid(sopUid, 'SOPInstanceUID');
   const root = trimTrailingSlash(wadoRoot);
   const base = `wadors:${root}/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}/frames/1`;
   return owner === undefined ? base : `${base}#${owner}`;

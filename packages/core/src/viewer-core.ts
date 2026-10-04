@@ -118,6 +118,8 @@ interface Shown {
 
 interface Runtime {
   readonly id: string;
+  /** The slice a call is moving this viewport to, and who asked, so the engine's change event can be told from the wheel. */
+  pendingMove: { readonly index: number; readonly origin: StateOrigin } | undefined;
   element: HTMLElement | undefined;
   shown: Shown | undefined;
   api: ViewportApi | undefined;
@@ -171,8 +173,6 @@ export function createViewerCore(
   // A host that never reads `ready` must not get an unhandled rejection when the engine fails.
   ready.catch(noop);
 
-  // The slice a call is moving to, and who asked, so the engine's change event can be told from the wheel.
-  let pendingMove: { readonly index: number; readonly origin: StateOrigin } | undefined;
   const runtimes = new Map<string, Runtime>();
   const seriesCache = new Map<string, Promise<LoadedSeriesData>>();
   let destroyed = false;
@@ -261,12 +261,12 @@ export function createViewerCore(
     index: number,
     origin: StateOrigin,
   ): Promise<void> {
-    pendingMove = { index, origin };
+    runtime.pendingMove = { index, origin };
     try {
       await shown.port.setImageIndex(index);
     } finally {
       // The engine reports the change before the call resolves.
-      pendingMove = undefined;
+      runtime.pendingMove = undefined;
     }
     reportImage(runtime, shown, shown.port.getImageIndex(), origin);
   }
@@ -335,7 +335,7 @@ export function createViewerCore(
           runtime,
           next,
           index,
-          pendingMove?.index === index ? pendingMove.origin : 'user',
+          runtime.pendingMove?.index === index ? runtime.pendingMove.origin : 'user',
         );
       });
       runtime.shown = next;
@@ -347,7 +347,7 @@ export function createViewerCore(
         updateViewport(
           id,
           { seriesInstanceUID: undefined, stackIndex: undefined, imageIndex: undefined },
-          'api',
+          origin,
         );
       }
       throw error;
@@ -405,15 +405,13 @@ export function createViewerCore(
         });
       },
       sampleHu(imageIndex, row, column): Promise<number> {
-        try {
-          return requireShown().port.sampleHu(imageIndex, row, column);
-        } catch (error) {
-          return Promise.reject(toError(error));
-        }
+        // Queued like every engine call, so a sample asked for after a series switch is taken from the new series.
+        return enqueue(() => requireShown().port.sampleHu(imageIndex, row, column));
       },
       loadSegmentation(segSeriesInstanceUID): Promise<SegmentationHandle> {
         return enqueue(async () => {
           const shown = requireShown();
+          assertDicomUid(segSeriesInstanceUID, 'SeriesInstanceUID');
           const { studyInstanceUID } = store.getState();
           if (studyInstanceUID === undefined) throw new Error('No study is loaded.');
           const segSeries = await dataSource.getSeries(studyInstanceUID, segSeriesInstanceUID);
@@ -472,12 +470,18 @@ export function createViewerCore(
       if (store.getState().studyInstanceUID === undefined) {
         throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
       }
+      // Asking for what is already on screen, without a slice, must not forget the slice.
+      const shown = runtimes.get(viewportId)?.shown;
+      const sameStack =
+        shown?.seriesInstanceUID === seriesInstanceUID &&
+        shown.stack.index === (seriesOptions.stackIndex ?? 0);
       updateViewport(
         viewportId,
         {
           seriesInstanceUID,
           stackIndex: seriesOptions.stackIndex,
-          imageIndex: seriesOptions.imageIndex,
+          imageIndex:
+            seriesOptions.imageIndex ?? (sameStack ? shown.port.getImageIndex() : undefined),
         },
         'api',
       );
@@ -530,7 +534,13 @@ export function createViewerCore(
       requireViewport(viewportId);
       let runtime = runtimes.get(viewportId);
       if (runtime === undefined) {
-        runtime = { id: viewportId, element: undefined, shown: undefined, api: undefined };
+        runtime = {
+          id: viewportId,
+          pendingMove: undefined,
+          element: undefined,
+          shown: undefined,
+          api: undefined,
+        };
         runtimes.set(viewportId, runtime);
       }
       if (runtime.element === element) return;

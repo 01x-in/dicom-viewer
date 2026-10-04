@@ -28,7 +28,19 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     if (host === null) return;
     let cancelled = false;
     const viewer = createViewer(options);
-    viewer.viewports.attach('vp-0', host);
+    const fail = (error: unknown): void => {
+      if (!cancelled) {
+        latest.current.onError?.(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    try {
+      viewer.viewports.attach('vp-0', host);
+    } catch (error) {
+      // A failure before the load starts: the viewer must not be left running.
+      viewer.destroy();
+      fail(error);
+      return;
+    }
     viewer
       .setState({
         studyInstanceUID,

@@ -129,6 +129,17 @@ async function start(
   });
   viewer = created;
   window.__dvViewer = created;
+  try {
+    await show(created, studyUid, seriesUid);
+  } catch (error) {
+    // A viewer that did not come up must not keep its engine, worker threads, or cache.
+    created.destroy();
+    if (viewer === created) viewer = undefined;
+    throw error;
+  }
+}
+
+async function show(created: Viewer, studyUid: string, seriesUid: string | null): Promise<void> {
   created.viewports.attach('vp-0', mount);
 
   created.on('error', (event) => {
@@ -186,15 +197,18 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
       ...viewerSettings,
       ...(assets === undefined ? {} : { assets }),
     });
-    cycleViewer.viewports.attach('vp-0', host);
-    await cycleViewer.setState({
-      studyInstanceUID: studyUid,
-      viewports: [{ id: 'vp-0', seriesInstanceUID: seriesUid, imageIndex: index % 16 }],
-    });
-    const viewport = cycleViewer.viewports.get('vp-0');
-    await viewport?.setImageIndex((index * 7) % 64);
-    cycleViewer.destroy();
-    host.remove();
+    try {
+      cycleViewer.viewports.attach('vp-0', host);
+      await cycleViewer.setState({
+        studyInstanceUID: studyUid,
+        viewports: [{ id: 'vp-0', seriesInstanceUID: seriesUid, imageIndex: index % 16 }],
+      });
+      const viewport = cycleViewer.viewports.get('vp-0');
+      await viewport?.setImageIndex((index * 7) % 64);
+    } finally {
+      cycleViewer.destroy();
+      host.remove();
+    }
     // Let teardown finish before the next cycle.
     await new Promise((done) => setTimeout(done, 50));
     results.push({ cycle: index + 1, diagnostics: getEngineDiagnostics() });
@@ -212,18 +226,30 @@ async function main(): Promise<void> {
   if (params.has('local')) {
     // Waits for the user to pick files (the test does it with setInputFiles).
     status('waiting-for-files');
+    // Only the latest selection may take over: an older one that finishes late is discarded.
+    let selection = 0;
     filePicker.addEventListener('change', () => {
+      selection += 1;
+      const mine = selection;
+      // The viewer goes before the source it reads from, or it could ask for a file that is gone.
+      viewer?.destroy();
+      viewer = undefined;
+      localSource?.dispose();
+      localSource = undefined;
       void (async (): Promise<void> => {
+        const source = createLocalFileDataSource([...(filePicker.files ?? [])]);
         try {
-          localSource?.dispose();
-          const source = createLocalFileDataSource([...(filePicker.files ?? [])]);
-          localSource = source;
-          window.__dvSkipped = await source.skipped();
+          const skipped = await source.skipped();
           const [study] = await source.studyInstanceUIDs();
+          if (mine !== selection) return;
+          window.__dvSkipped = skipped;
           if (study === undefined) throw new Error('No DICOM study in those files.');
+          localSource = source;
           await start(source, study, params.get('series'));
         } catch (error) {
-          fail(error);
+          if (mine === selection) fail(error);
+        } finally {
+          if (mine !== selection || localSource !== source) source.dispose();
         }
       })();
     });

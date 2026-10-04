@@ -46,6 +46,8 @@ export const frameRequests: FrameRequests = createFrameRequests();
 let initialized = false;
 let configured: { readonly key: string; readonly workers: Promise<WorkerSetup> } | undefined;
 let active = 0;
+// Acquiring changes shared state across awaits, so acquisitions are set up one after another.
+let setupQueue: Promise<void> = Promise.resolve();
 
 export function activeViewers(): number {
   return active;
@@ -105,8 +107,14 @@ function stopWorkers(): void {
 }
 
 /** Counts the caller as a viewer, and has the runtime ready. Pair with `releaseRuntime`. */
-export async function acquireRuntime(options: RuntimeOptions): Promise<void> {
+export function acquireRuntime(options: RuntimeOptions): Promise<void> {
   active += 1;
+  const setup = setupQueue.then(() => setUp(options));
+  setupQueue = setup.catch(() => undefined);
+  return setup;
+}
+
+async function setUp(options: RuntimeOptions): Promise<void> {
   try {
     const key = JSON.stringify([options.assets, options.cpuRendering === true]);
     if (configured !== undefined && configured.key !== key) {

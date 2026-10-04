@@ -102,6 +102,7 @@ export class DvViewerElement extends LitElement {
         cpuRendering: this.cpuRendering,
       });
       this.#viewer = viewer;
+      // A throw here (and any later one) lands in the catch below, which reports it.
       viewer.viewports.attach('vp-0', target);
       await viewer.setState({
         studyInstanceUID: studyInstanceUid,
@@ -119,6 +120,9 @@ export class DvViewerElement extends LitElement {
       );
     } catch (error) {
       if (generation !== this.#generation) return;
+      // A viewer that did not come up must not keep its engine, worker threads, or cache.
+      this.#viewer?.destroy();
+      this.#viewer = undefined;
       this.status = 'error';
       this.dispatchEvent(
         new CustomEvent<{ error: Error }>('dv-error', {

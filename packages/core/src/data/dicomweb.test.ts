@@ -42,6 +42,14 @@ describe('frameImageId', () => {
     );
   });
 
+  it.each([
+    ['study', '../x', SERIES, '9.1'],
+    ['series', STUDY, '1.2?x', '9.1'],
+    ['SOP instance', STUDY, SERIES, '9.1/../2'],
+  ])('refuses a %s UID that is not a UID', (_name, study, series, sop) => {
+    expect(() => frameImageId('http://pacs', study, series, sop)).toThrow(DataSourceError);
+  });
+
   it('does not double a trailing slash in the root', () => {
     expect(frameImageId('http://pacs/dicom-web/', STUDY, SERIES, '9.1')).toBe(
       `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/1`,

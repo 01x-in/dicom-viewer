@@ -28,7 +28,7 @@ const MAX_VIEWPORTS = 4;
 const uid = z.string().refine(isDicomUid, 'Not a DICOM UID');
 
 const viewportSchema: z.ZodType<ViewportStateV1> = z.object({
-  id: z.string().regex(/^vp-\d+$/, 'Viewport ids look like vp-0'),
+  id: z.string().regex(/^vp-[0-3]$/, 'Viewport ids are vp-0 to vp-3'),
   seriesInstanceUID: uid.optional(),
   stackIndex: z.number().int().min(0).optional(),
   imageIndex: z.number().int().min(0).optional(),

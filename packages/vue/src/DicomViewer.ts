@@ -49,7 +49,15 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       let cancelled = false;
       const created = markRaw(createViewer(props.options));
       viewer.value = created;
-      created.viewports.attach('vp-0', element);
+      try {
+        created.viewports.attach('vp-0', element);
+      } catch (error) {
+        // A failure before the load starts: the viewer must not be left running.
+        created.destroy();
+        viewer.value = undefined;
+        emit('error', error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
       created
         .setState({
           studyInstanceUID: props.studyInstanceUid,

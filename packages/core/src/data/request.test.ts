@@ -163,6 +163,23 @@ describe('createRequester', () => {
     expect(onUnauthorized).toHaveBeenCalledOnce();
   });
 
+  it('does not count a failed refresh: a request sent before it still has stale credentials and refreshes again', async () => {
+    let attempts = 0;
+    const onUnauthorized = vi.fn(() => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('offline');
+    });
+    const requester = createRequester({ retry: NO_DELAY, onUnauthorized });
+    const info = { url: 'http://pacs/a', accept: 'x/y' };
+
+    await expect(requester.refresh(info, 0)).rejects.toThrow('offline');
+    expect(requester.generation()).toBe(0);
+    // Sent at generation 0, which is still current, so the hook runs again and this time works.
+    await expect(requester.refresh(info, 0)).resolves.toBe(true);
+    expect(onUnauthorized).toHaveBeenCalledTimes(2);
+    expect(requester.generation()).toBe(1);
+  });
+
   it('wraps a failing refresh hook in a DataSourceError that keeps the 401', async () => {
     const requester = createRequester({
       fetch: scripted([401]).fetch,
