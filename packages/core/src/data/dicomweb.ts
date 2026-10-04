@@ -30,9 +30,18 @@ export function frameImageId(
 
 type Vec3 = readonly [number, number, number];
 
+/** DS and IS values may arrive as numbers or as numeric strings in DICOM JSON; blanks are dropped. */
 function numbers(metadata: DicomJsonInstance, tag: string): number[] {
   const values = metadata[tag]?.Value ?? [];
-  return values.filter((value): value is number => typeof value === 'number');
+  return values.flatMap((value) => {
+    const parsed =
+      typeof value === 'number'
+        ? value
+        : typeof value === 'string' && value.trim() !== ''
+          ? Number(value)
+          : Number.NaN;
+    return Number.isFinite(parsed) ? [parsed] : [];
+  });
 }
 
 function requiredString(metadata: DicomJsonInstance, tag: string): string {
@@ -83,7 +92,18 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 export function createDicomWebDataSource(options: DicomWebDataSourceOptions): DataSource {
-  const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
+  const rawFetch = options.fetch ?? ((input, init) => fetch(input, init));
+  // Network, CORS, and abort failures reject with native errors; callers only handle DataSourceError.
+  const doFetch: typeof fetch = async (input, init) => {
+    try {
+      return await rawFetch(input, init);
+    } catch (error) {
+      if (error instanceof DataSourceError) throw error;
+      throw new DataSourceError(
+        `The DICOMweb request failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
   const root = trimTrailingSlash(options.wadoRoot);
 
   return {
@@ -103,10 +123,10 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
       }
       const instances = parsed.data.map((metadata): SeriesInstance => {
         const sopInstanceUID = requiredString(metadata, '00080018');
-        const rawNumber = metadata['00200013']?.Value?.[0];
+        const instanceNumber = numbers(metadata, '00200013')[0];
         return {
           sopInstanceUID,
-          instanceNumber: typeof rawNumber === 'number' ? rawNumber : undefined,
+          instanceNumber,
           imageId: frameImageId(root, studyInstanceUID, seriesInstanceUID, sopInstanceUID),
           metadata,
         };

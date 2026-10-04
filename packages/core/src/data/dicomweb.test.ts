@@ -74,6 +74,37 @@ describe('createDicomWebDataSource', () => {
     expect(series.instances.map((item) => item.sopInstanceUID)).toEqual(['high', 'low']);
   });
 
+  it('sorts correctly when DS values are encoded as strings, as DICOM JSON permits', async () => {
+    const asStrings = (sop: string, z: number, number: number): Record<string, unknown> => ({
+      ...instance(sop, [0, 0, 0], number),
+      '00200032': { vr: 'DS', Value: ['0', '0', String(z)] },
+      '00200037': { vr: 'DS', Value: ['1', '0', '0', '0', '1', '0'] },
+      '00200013': { vr: 'IS', Value: [String(number)] },
+    });
+    const source = createDicomWebDataSource({
+      wadoRoot: 'http://pacs',
+      fetch: fetchReturning(200, [
+        asStrings('c', 20, 1),
+        asStrings('a', 0, 2),
+        asStrings('b', 10, 3),
+      ]),
+    });
+    const series = await source.getSeries(STUDY, SERIES);
+    expect(series.instances.map((entry) => entry.sopInstanceUID)).toEqual(['a', 'b', 'c']);
+    expect(series.instances.map((entry) => entry.instanceNumber)).toEqual([2, 3, 1]);
+  });
+
+  it('wraps a network failure in a DataSourceError without an HTTP status', async () => {
+    const source = createDicomWebDataSource({
+      wadoRoot: 'http://pacs',
+      fetch: () => Promise.reject(new TypeError('Failed to fetch')),
+    });
+    const failure: unknown = await source.getSeries(STUDY, SERIES).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(DataSourceError);
+    expect(failure).toMatchObject({ status: undefined });
+    expect(String(Reflect.get(failure as object, 'message'))).toContain('Failed to fetch');
+  });
+
   it('rejects metadata that is not DICOM JSON', async () => {
     const source = createDicomWebDataSource({
       wadoRoot: 'http://pacs',
@@ -128,6 +159,16 @@ describe('createDicomWebDataSource', () => {
       expect(requests).toHaveLength(1);
       expect(requests[0]?.url).toBe(`http://pacs/studies/${STUDY}/series/${SERIES}/instances/sop1`);
       expect(requests[0]?.accept).toContain('application/dicom');
+    });
+
+    it('wraps a network failure in a DataSourceError', async () => {
+      const source = createDicomWebDataSource({
+        wadoRoot: 'http://pacs',
+        fetch: () => Promise.reject(new TypeError('Failed to fetch')),
+      });
+      await expect(source.getInstanceBytes(STUDY, SERIES, 'sop1')).rejects.toBeInstanceOf(
+        DataSourceError,
+      );
     });
 
     it('reports a 403 as a DataSourceError carrying the status', async () => {

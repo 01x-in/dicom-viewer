@@ -42,4 +42,29 @@ describe('extractFirstPart', () => {
       /boundary/i,
     );
   });
+
+  it('skips a preamble, even one that contains a blank line', () => {
+    const encoder = new TextEncoder();
+    const preamble = encoder.encode('ignored text\r\n\r\nmore ignored\r\n');
+    const part = body('abc', Uint8Array.from([5, 6]));
+    const joined = Uint8Array.from([...preamble, ...part]);
+    expect(Array.from(extractFirstPart('multipart/related; boundary=abc', joined))).toEqual([5, 6]);
+  });
+
+  it('does not end the part at a payload line that merely starts with the boundary text', () => {
+    const encoder = new TextEncoder();
+    const payload = Uint8Array.from([1, ...encoder.encode('\r\n--abcX'), 2]);
+    const part = extractFirstPart('multipart/related; boundary=abc', body('abc', payload));
+    expect(Array.from(part)).toEqual(Array.from(payload));
+  });
+
+  it('accepts transport padding after the opening delimiter', () => {
+    const encoder = new TextEncoder();
+    const raw = Uint8Array.from([
+      ...encoder.encode('--abc  \r\nContent-Type: x\r\n\r\n'),
+      7,
+      ...encoder.encode('\r\n--abc--'),
+    ]);
+    expect(Array.from(extractFirstPart('multipart/related; boundary=abc', raw))).toEqual([7]);
+  });
 });
