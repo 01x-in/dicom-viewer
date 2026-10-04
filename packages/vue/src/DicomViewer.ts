@@ -1,8 +1,8 @@
 import {
   createViewer,
-  type LoadedSeries,
   type Viewer,
   type ViewerOptions,
+  type ViewportApi,
 } from '@scope/viewer-core';
 import {
   type Component,
@@ -36,7 +36,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     seriesInstanceUid: { type: String, required: true },
   },
   emits: {
-    ready: (series: LoadedSeries): boolean => series.imageCount > 0,
+    ready: (viewport: ViewportApi): boolean => viewport.imageCount > 0,
     error: (error: Error): boolean => error instanceof Error,
   },
   setup(props, { emit }) {
@@ -49,14 +49,33 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       let cancelled = false;
       const created = markRaw(createViewer(props.options));
       viewer.value = created;
-      created.loadSeries(element, props.studyInstanceUid, props.seriesInstanceUid).then(
-        (series) => {
-          if (!cancelled) emit('ready', series);
-        },
-        (error: unknown) => {
-          if (!cancelled) emit('error', error instanceof Error ? error : new Error(String(error)));
-        },
-      );
+      try {
+        created.viewports.attach('vp-0', element);
+      } catch (error) {
+        // A failure before the load starts: the viewer must not be left running.
+        created.destroy();
+        viewer.value = undefined;
+        emit('error', error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      created
+        .setState({
+          studyInstanceUID: props.studyInstanceUid,
+          viewports: [{ id: 'vp-0', seriesInstanceUID: props.seriesInstanceUid }],
+        })
+        .then(
+          () => {
+            const viewport = created.viewports.get('vp-0');
+            if (!cancelled && viewport !== undefined) emit('ready', markRaw(viewport));
+          },
+          (error: unknown) => {
+            // A viewer that failed to load must not keep its engine, workers, or cache while the
+            // component stays mounted. Destroying twice is safe, so `stop` still works.
+            created.destroy();
+            if (!cancelled)
+              emit('error', error instanceof Error ? error : new Error(String(error)));
+          },
+        );
       cancel = (): void => {
         cancelled = true;
       };

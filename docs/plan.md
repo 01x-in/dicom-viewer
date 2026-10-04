@@ -221,3 +221,14 @@ Reference files:
 - The phantom gained a binary SEG (`seg-body-bone`) earlier than M6, to test the adapters against real data.
 - Still open: Safari and Firefox, React 18, the package name, and the `compute` worker size (2.8 MB).
 
+
+## M2 outcome
+
+**Done.** The report is [m2-report.md](m2-report.md); the decisions are in [ADR 0004](adr/0004-viewer-state-and-ordering.md) and [ADR 0005](adr/0005-engine-runtime-lifecycle.md). Changes to this plan that came out of the milestone:
+- **`Viewer` so far** has `loadStudy`, `viewports` (`attach`, `detach`, `get`, `list`), `setViewportSeries`, `getState`, `setState`, `subscribe`, `on`, and `destroy`, plus `initialState` in the options. `setLayout`, `navigateTo`, `tools`, `measurements`, `segmentations`, and `ui` arrive with the milestones that own them. `ViewerStateV1.layout` is `'1x1'` until M7.
+- **A series is a list of stacks.** `getSeries` splits by orientation and by repeated positions, and each stack carries its own `reconstructable` reason (the plan said per series). SEG and SR series have no stacks.
+- **Capabilities** is `{ instanceRetrieve }` only. `studySearch` and `maxFramesPerRequest` return when something can act on them.
+- **Local files:** `createLocalFileDataSource(files)` lives at `@scope/viewer-core/local` and adds `studyInstanceUIDs()`, `skipped()`, and `dispose()`. The host disposes it.
+- **WebGL:** still ContextPool mode, with a pool of one context instead of Cornerstone's seven (ADR 0005). M7 revisits it for MPR.
+- **Multi-frame image series** are refused with an error until a fixture and per-frame geometry exist.
+- Still open: Safari and Firefox, React 18, the package name, the `compute` worker size, cancellation of superseded loads, and `<dv-viewer>` request headers (M4).

@@ -72,6 +72,9 @@ importers:
       '@cornerstonejs/tools':
         specifier: 5.11.4
         version: 5.11.4(@cornerstonejs/core@5.11.4(@cornerstonejs/metadata@5.11.4)(@cornerstonejs/utils@5.11.4)(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@kitware/vtk.js@36.4.1(autoprefixer@10.6.1(postcss@8.5.28))(wslink@2.5.0))(@types/d3-array@3.2.1)(@types/d3-interpolate@3.0.4)(d3-array@3.2.4)(d3-interpolate@3.0.1)(gl-matrix@3.4.3)
+      dicom-parser:
+        specifier: 1.8.21
+        version: 1.8.21
       events:
         specifier: 3.3.0
         version: 3.3.0

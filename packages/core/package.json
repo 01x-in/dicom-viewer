@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./local": {
+      "types": "./dist/local.d.ts",
+      "default": "./dist/local.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -31,6 +35,7 @@
     "@cornerstonejs/dicom-image-loader": "5.11.4",
     "@cornerstonejs/metadata": "5.11.4",
     "@cornerstonejs/tools": "5.11.4",
+    "dicom-parser": "1.8.21",
     "events": "3.3.0",
     "rolldown": "1.2.12"
   },

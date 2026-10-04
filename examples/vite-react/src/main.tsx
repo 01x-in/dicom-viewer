@@ -1,8 +1,4 @@
-import {
-  createDicomWebDataSource,
-  type LoadedSeries,
-  type ViewerOptions,
-} from '@scope/viewer-core';
+import { createDicomWebDataSource, type ViewportApi, type ViewerOptions } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-react';
 import { type JSX, StrictMode, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -11,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 // back from `data-dv-status` and `window.__dv`.
 declare global {
   interface Window {
-    __dv?: LoadedSeries;
+    __dv?: ViewportApi;
     __dvError?: string;
   }
 }

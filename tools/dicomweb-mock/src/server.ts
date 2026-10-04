@@ -20,6 +20,11 @@ export interface MockServerOptions {
   readonly mode: MockMode;
   /** 0 picks a free port. */
   readonly port?: number;
+  /**
+   * Require `Authorization: Bearer <token>` on every request, with a token the test has accepted
+   * through `server.auth`. Anything else is a 401, which is how a real token expires.
+   */
+  readonly auth?: boolean;
 }
 
 export interface RequestLogEntry {
@@ -34,6 +39,13 @@ export interface MockServer {
   readonly fixtures: FixtureStore;
   /** Every request served, newest last. Tests may clear it with `length = 0`. */
   readonly requestLog: RequestLogEntry[];
+  /** Which bearer tokens a server started with `auth: true` accepts. */
+  readonly auth: {
+    accept(token: string): void;
+    revoke(token: string): void;
+  };
+  /** Makes the next `count` requests that pass authentication answer `status`, to exercise retries. */
+  failNext(status: number, count?: number): void;
   close(): Promise<void>;
 }
 
@@ -303,6 +315,14 @@ export async function startMockServer(options: MockServerOptions): Promise<MockS
   const fixtures = await loadFixtures(options.fixturesDir);
   const router = createRouter(fixtures, options.mode);
   const requestLog: RequestLogEntry[] = [];
+  const acceptedTokens = new Set<string>();
+  const faults: { status: number; remaining: number }[] = [];
+
+  function authenticated(request: IncomingMessage): boolean {
+    if (options.auth !== true) return true;
+    const match = /^Bearer (.+)$/.exec(request.headers.authorization ?? '');
+    return match?.[1] !== undefined && acceptedTokens.has(match[1]);
+  }
 
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     const method = request.method ?? 'GET';
@@ -318,6 +338,17 @@ export async function startMockServer(options: MockServerOptions): Promise<MockS
     } else if (method !== 'GET') {
       reply = problemReply(
         new HttpProblem(405, 'Method not allowed', `${method} is not supported.`),
+      );
+    } else if (!authenticated(request)) {
+      reply = problemReply(
+        new HttpProblem(401, 'Unauthorized', 'A valid bearer token is required.'),
+      );
+    } else if (faults[0] !== undefined) {
+      const fault = faults[0];
+      fault.remaining -= 1;
+      if (fault.remaining <= 0) faults.shift();
+      reply = problemReply(
+        new HttpProblem(fault.status, 'Injected fault', 'Injected by the test.'),
       );
     } else {
       try {
@@ -337,6 +368,17 @@ export async function startMockServer(options: MockServerOptions): Promise<MockS
     mode: options.mode,
     fixtures,
     requestLog,
+    auth: {
+      accept: (token) => {
+        acceptedTokens.add(token);
+      },
+      revoke: (token) => {
+        acceptedTokens.delete(token);
+      },
+    },
+    failNext: (status, count = 1) => {
+      faults.push({ status, remaining: count });
+    },
     close: () =>
       new Promise((resolve, reject) => {
         server.close((error) => {

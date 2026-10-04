@@ -1,8 +1,4 @@
-import {
-  createDicomWebDataSource,
-  type LoadedSeries,
-  type ViewerOptions,
-} from '@scope/viewer-core';
+import { createDicomWebDataSource, type ViewportApi, type ViewerOptions } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-vue';
 import { createApp, h } from 'vue';
 
@@ -10,7 +6,7 @@ import { createApp, h } from 'vue';
 // back from `data-dv-status` and `window.__dv`.
 declare global {
   interface Window {
-    __dv?: LoadedSeries;
+    __dv?: ViewportApi;
     __dvError?: string;
   }
 }
@@ -30,7 +26,7 @@ createApp({
         options,
         studyInstanceUid: params.get('study') ?? '',
         seriesInstanceUid: params.get('series') ?? '',
-        onReady: (series: LoadedSeries) => {
+        onReady: (series: ViewportApi) => {
           window.__dv = series;
           document.documentElement.dataset['dvStatus'] = 'ready';
         },

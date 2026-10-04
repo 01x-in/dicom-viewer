@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'tsdown';
 
@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 
 export default defineConfig([
   {
-    entry: { index: 'src/index.ts' },
+    entry: { index: 'src/index.ts', local: 'src/local.ts' },
     format: 'esm',
     platform: 'browser',
     target: 'es2022',
@@ -39,6 +39,12 @@ export default defineConfig([
       // @cornerstonejs/adapters imports Babel helpers without declaring @babel/runtime.
       '@babel/runtime': dirname(require.resolve('@babel/runtime/package.json')),
       url: fileURLToPath(new URL('./src/engine/shims/url.ts', import.meta.url)),
+      // The loader's `setOptions` is not exported. Resolving to the file its own request code imports
+      // gives one shared module, so the options we set are the ones it reads.
+      'dv-loader-options': join(
+        dirname(require.resolve('@cornerstonejs/dicom-image-loader/package.json')),
+        'dist/esm/imageLoader/internal/options.js',
+      ),
     },
   },
   {

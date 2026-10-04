@@ -1,8 +1,8 @@
 import {
   createDicomWebDataSource,
   createViewer,
-  type LoadedSeries,
   type Viewer,
+  type ViewportApi,
 } from '@scope/viewer-core';
 import {
   html,
@@ -102,17 +102,27 @@ export class DvViewerElement extends LitElement {
         cpuRendering: this.cpuRendering,
       });
       this.#viewer = viewer;
-      const series = await viewer.loadSeries(target, studyInstanceUid, seriesInstanceUid);
+      // A throw here (and any later one) lands in the catch below, which reports it.
+      viewer.viewports.attach('vp-0', target);
+      await viewer.setState({
+        studyInstanceUID: studyInstanceUid,
+        viewports: [{ id: 'vp-0', seriesInstanceUID: seriesInstanceUid }],
+      });
+      const viewport = viewer.viewports.get('vp-0');
       if (generation !== this.#generation) return;
+      if (viewport === undefined) throw new Error('The viewport was detached while loading.');
       this.status = 'ready';
       this.dispatchEvent(
-        new CustomEvent<{ series: LoadedSeries }>('dv-ready', {
-          detail: { series },
+        new CustomEvent<{ viewport: ViewportApi }>('dv-ready', {
+          detail: { viewport },
           bubbles: true,
         }),
       );
     } catch (error) {
       if (generation !== this.#generation) return;
+      // A viewer that did not come up must not keep its engine, worker threads, or cache.
+      this.#viewer?.destroy();
+      this.#viewer = undefined;
       this.status = 'error';
       this.dispatchEvent(
         new CustomEvent<{ error: Error }>('dv-error', {

@@ -1,9 +1,5 @@
 <script setup lang="ts">
-import {
-  createDicomWebDataSource,
-  type LoadedSeries,
-  type ViewerOptions,
-} from '@scope/viewer-core';
+import { createDicomWebDataSource, type ViewportApi, type ViewerOptions } from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-vue';
 import { onMounted, shallowRef } from 'vue';
 
@@ -30,7 +26,7 @@ onMounted(() => {
   };
 });
 
-function onReady(series: LoadedSeries): void {
+function onReady(series: ViewportApi): void {
   window.__dv = series;
   document.documentElement.dataset['dvStatus'] = 'ready';
 }

@@ -1,87 +1,57 @@
 import { z } from 'zod';
+import { firstNumber, optionalString } from './dicom-json';
 import { DataSourceError } from './errors';
 import { extractFirstPart } from './multipart';
-import type { DataSource, DicomJsonInstance, LoadedSeriesData, SeriesInstance } from './types';
+import { createRequester, type RequesterOptions } from './request';
+import { buildSeries } from './series';
+import { assertDicomUid } from './uid';
+import type {
+  DataSource,
+  DataSourceCapabilities,
+  LoadedSeriesData,
+  ResolvedCapabilities,
+  SeriesSummary,
+  StudyData,
+} from './types';
 
-export interface DicomWebDataSourceOptions {
+export interface DicomWebDataSourceOptions extends RequesterOptions {
   readonly wadoRoot: string;
-  /** Injected for tests. Defaults to the global `fetch`. */
-  readonly fetch?: typeof fetch;
+  /** Where series are listed (QIDO-RS). Defaults to `wadoRoot`. */
+  readonly qidoRoot?: string;
+  readonly capabilities?: DataSourceCapabilities;
 }
 
 const dicomJsonElement = z.object({ vr: z.string(), Value: z.array(z.unknown()).optional() });
 const dicomJsonInstance = z.record(z.string(), dicomJsonElement);
 const seriesMetadata = z.array(dicomJsonInstance).min(1);
+const seriesList = z.array(dicomJsonInstance);
 
 function trimTrailingSlash(root: string): string {
   return root.endsWith('/') ? root.slice(0, -1) : root;
 }
 
-/** The single-frame image id the `wadors` loader understands. */
+/**
+ * The single-frame image id the `wadors` loader understands. The `owner` is appended as a URL
+ * fragment, which is never sent to the server, so the frame loader can tell whose request a frame
+ * is when two sources share a root. Internal: an id made without its source's owner would get no
+ * headers and no token refresh, so only a source builds them.
+ */
 export function frameImageId(
   wadoRoot: string,
   studyUid: string,
   seriesUid: string,
   sopUid: string,
+  owner: string,
 ): string {
+  assertDicomUid(studyUid, 'StudyInstanceUID');
+  assertDicomUid(seriesUid, 'SeriesInstanceUID');
+  assertDicomUid(sopUid, 'SOPInstanceUID');
   const root = trimTrailingSlash(wadoRoot);
-  return `wadors:${root}/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}/frames/1`;
+  const base = `wadors:${root}/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}/frames/1`;
+  return `${base}#${owner}`;
 }
 
-type Vec3 = readonly [number, number, number];
-
-/** DS and IS values may arrive as numbers or as numeric strings in DICOM JSON; blanks are dropped. */
-function numbers(metadata: DicomJsonInstance, tag: string): number[] {
-  const values = metadata[tag]?.Value ?? [];
-  return values.flatMap((value) => {
-    const parsed =
-      typeof value === 'number'
-        ? value
-        : typeof value === 'string' && value.trim() !== ''
-          ? Number(value)
-          : Number.NaN;
-    return Number.isFinite(parsed) ? [parsed] : [];
-  });
-}
-
-function requiredString(metadata: DicomJsonInstance, tag: string): string {
-  const value = metadata[tag]?.Value?.[0];
-  if (typeof value !== 'string') {
-    throw new DataSourceError(`Instance metadata is missing ${tag}.`);
-  }
-  return value;
-}
-
-function triple(values: number[], offset: number): Vec3 | undefined {
-  const [x, y, z] = values.slice(offset, offset + 3);
-  return x === undefined || y === undefined || z === undefined ? undefined : [x, y, z];
-}
-
-function cross(a: Vec3, b: Vec3): Vec3 {
-  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-}
-
-function dot(a: Vec3, b: Vec3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-/**
- * Orders slices by their position projected on the slice normal (row x column direction).
- * Instance numbers are not trusted: they are frequently wrong or missing.
- */
-function sortAlongNormal(instances: SeriesInstance[]): SeriesInstance[] {
-  const first = instances[0];
-  const orientation = first === undefined ? [] : numbers(first.metadata, '00200037');
-  const row = triple(orientation, 0);
-  const column = triple(orientation, 3);
-  if (row === undefined || column === undefined) return instances;
-  const normal = cross(row, column);
-  const keyed = instances.map((instance) => {
-    const position = triple(numbers(instance.metadata, '00200032'), 0);
-    return { instance, key: position === undefined ? 0 : dot(position, normal) };
-  });
-  return keyed.sort((a, b) => a.key - b.key).map((entry) => entry.instance);
-}
+let sourceCount = 0;
 
 async function readJson(response: Response): Promise<unknown> {
   try {
@@ -91,69 +61,99 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+const WHOLE_INSTANCE_MODALITIES: ReadonlySet<string> = new Set(['SEG', 'SR']);
+
 export function createDicomWebDataSource(options: DicomWebDataSourceOptions): DataSource {
-  const rawFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  // Network, CORS, and abort failures reject with native errors; callers only handle DataSourceError.
-  const doFetch: typeof fetch = async (input, init) => {
-    try {
-      return await rawFetch(input, init);
-    } catch (error) {
-      if (error instanceof DataSourceError) throw error;
-      throw new DataSourceError(
-        `The DICOMweb request failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  };
+  const requester = createRequester(options);
   const root = trimTrailingSlash(options.wadoRoot);
+  const qidoRoot = trimTrailingSlash(options.qidoRoot ?? options.wadoRoot);
+  sourceCount += 1;
+  const owner = `dv-source-${sourceCount.toString()}`;
+  const capabilities: ResolvedCapabilities = {
+    instanceRetrieve: options.capabilities?.instanceRetrieve ?? 'seg-sr-only',
+  };
 
   return {
-    async getSeries(studyInstanceUID, seriesInstanceUID): Promise<LoadedSeriesData> {
-      const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/metadata`;
-      const response = await doFetch(url, { headers: { Accept: 'application/dicom+json' } });
-      // 403 and 404 are final. Retrying belongs in the real client (M2), and never for these.
-      if (!response.ok) {
-        throw new DataSourceError(
-          `Series metadata request failed with HTTP ${response.status.toString()}.`,
-          response.status,
-        );
+    capabilities,
+    frameRequests: {
+      owns: (imageId) => imageId.startsWith(`wadors:${root}/`) && imageId.endsWith(`#${owner}`),
+      headers: (request) => requester.headers(request),
+      generation: () => requester.generation(),
+      refresh: (request, sentAt) => requester.refresh(request, sentAt),
+    },
+    async getStudy(studyInstanceUID): Promise<StudyData> {
+      assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
+      // QIDO is used at series level only, and always scoped to one study: the OncoTrace proxy
+      // rejects unfiltered searches.
+      const response = await requester.get(
+        `${qidoRoot}/studies/${studyInstanceUID}/series`,
+        'application/dicom+json',
+      );
+      const parsed = seriesList.safeParse(await readJson(response));
+      if (!parsed.success) {
+        throw new DataSourceError(`The series list is not DICOM JSON: ${parsed.error.message}`);
       }
+      const series = parsed.data.map((item): SeriesSummary => {
+        const seriesInstanceUID = optionalString(item, '0020000E');
+        if (seriesInstanceUID === undefined) {
+          throw new DataSourceError('A series in the list has no SeriesInstanceUID.');
+        }
+        assertDicomUid(seriesInstanceUID, 'SeriesInstanceUID');
+        return {
+          seriesInstanceUID,
+          modality: optionalString(item, '00080060') ?? 'OT',
+          description: optionalString(item, '0008103E'),
+          seriesNumber: firstNumber(item, '00200011'),
+          instanceCount: firstNumber(item, '00201209'),
+        };
+      });
+      series.sort(
+        (a, b) =>
+          (a.seriesNumber ?? Number.MAX_SAFE_INTEGER) -
+            (b.seriesNumber ?? Number.MAX_SAFE_INTEGER) ||
+          a.seriesInstanceUID.localeCompare(b.seriesInstanceUID),
+      );
+      return { studyInstanceUID, series };
+    },
+    async getSeries(studyInstanceUID, seriesInstanceUID): Promise<LoadedSeriesData> {
+      assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
+      assertDicomUid(seriesInstanceUID, 'SeriesInstanceUID');
+      const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/metadata`;
+      const response = await requester.get(url, 'application/dicom+json');
       const parsed = seriesMetadata.safeParse(await readJson(response));
       if (!parsed.success) {
         throw new DataSourceError(`Series metadata is not DICOM JSON: ${parsed.error.message}`);
       }
-      const instances = parsed.data.map((metadata): SeriesInstance => {
-        const sopInstanceUID = requiredString(metadata, '00080018');
-        const instanceNumber = numbers(metadata, '00200013')[0];
-        return {
-          sopInstanceUID,
-          instanceNumber,
-          imageId: frameImageId(root, studyInstanceUID, seriesInstanceUID, sopInstanceUID),
-          metadata,
-        };
-      });
-      const sorted = sortAlongNormal(instances);
-      return {
+      return buildSeries({
         studyInstanceUID,
         seriesInstanceUID,
-        instances: sorted,
-        imageIds: sorted.map((instance) => instance.imageId),
-      };
+        metadata: parsed.data,
+        imageIdFor: (sopInstanceUID) => {
+          assertDicomUid(sopInstanceUID, 'SOPInstanceUID');
+          return frameImageId(root, studyInstanceUID, seriesInstanceUID, sopInstanceUID, owner);
+        },
+      });
     },
     async getInstanceBytes(
       studyInstanceUID,
       seriesInstanceUID,
       sopInstanceUID,
+      modality,
     ): Promise<ArrayBuffer> {
-      const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/instances/${sopInstanceUID}`;
-      const response = await doFetch(url, {
-        headers: { Accept: 'multipart/related; type="application/dicom"' },
-      });
-      if (!response.ok) {
+      assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
+      assertDicomUid(seriesInstanceUID, 'SeriesInstanceUID');
+      assertDicomUid(sopInstanceUID, 'SOPInstanceUID');
+      const allowed =
+        capabilities.instanceRetrieve === 'all' ||
+        (capabilities.instanceRetrieve === 'seg-sr-only' &&
+          WHOLE_INSTANCE_MODALITIES.has(modality));
+      if (!allowed) {
         throw new DataSourceError(
-          `Instance retrieval failed with HTTP ${response.status.toString()}.`,
-          response.status,
+          `Whole-instance retrieval of ${modality} is not allowed by this source (instanceRetrieve: ${capabilities.instanceRetrieve}).`,
         );
       }
+      const url = `${root}/studies/${studyInstanceUID}/series/${seriesInstanceUID}/instances/${sopInstanceUID}`;
+      const response = await requester.get(url, 'multipart/related; type="application/dicom"');
       const body = new Uint8Array(await response.arrayBuffer());
       const part = extractFirstPart(response.headers.get('content-type') ?? '', body);
       return part.buffer.slice(part.byteOffset, part.byteOffset + part.byteLength) as ArrayBuffer;
