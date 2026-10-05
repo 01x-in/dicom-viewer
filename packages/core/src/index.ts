@@ -45,6 +45,45 @@ export { DEFAULT_KEYBINDINGS } from './keyboard';
 export type { KeyAction, KeybindingOverrides } from './keyboard';
 export { DEFAULT_CINE_FPS, MAX_CINE_FPS } from './cine';
 export type { CineApi, CineOptions } from './cine';
+export {
+  MEASUREMENT_NAMES,
+  measurementLines,
+  measurementTitle,
+  measurementValues,
+} from './measurements/describe';
+export type { MeasurementValues } from './measurements/describe';
+export type {
+  AngleMeasurement,
+  BidirectionalMeasurement,
+  EllipseMeasurement,
+  LengthMeasurement,
+  Measurement,
+  MeasurementReference,
+  MeasurementsDocumentV1,
+  MeasurementType,
+  Point3,
+  ProbeMeasurement,
+  RectangleMeasurement,
+  RoiStats,
+} from './measurements/model';
+export {
+  MAX_LABEL_LENGTH,
+  MEASUREMENT_TYPES,
+  MEASUREMENTS_FORMAT,
+  parseMeasurementsDocument,
+} from './measurements/model';
+export type {
+  ImportOptions,
+  ImportResult,
+  JumpOptions,
+  MeasurementChanges,
+  MeasurementEvents,
+  MeasurementFilter,
+  MeasurementOrigin,
+  MeasurementsApi,
+  MeasurementsExportV1,
+  NewMeasurement,
+} from './measurements/registry';
 export { PRIMARY_TOOLS } from './tools';
 export type { PrimaryTool, ToolInfo } from './tools';
 export { DEFAULT_WINDOW_PRESETS } from './window-presets';

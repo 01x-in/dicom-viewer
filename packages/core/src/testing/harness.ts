@@ -41,6 +41,10 @@ export function harness(
     'tool:active': [],
     'viewport:cine': [],
     'ui:panels': [],
+    'measurement:added': [],
+    'measurement:updated': [],
+    'measurement:removed': [],
+    'measurement:selected': [],
     'state:changed': [],
     error: [],
   };
@@ -51,6 +55,10 @@ export function harness(
   viewer.on('viewport:cine', (event) => events['viewport:cine'].push(event));
   viewer.on('tool:active', (event) => events['tool:active'].push(event));
   viewer.on('ui:panels', (event) => events['ui:panels'].push(event));
+  viewer.on('measurement:added', (event) => events['measurement:added'].push(event));
+  viewer.on('measurement:updated', (event) => events['measurement:updated'].push(event));
+  viewer.on('measurement:removed', (event) => events['measurement:removed'].push(event));
+  viewer.on('measurement:selected', (event) => events['measurement:selected'].push(event));
   viewer.on('state:changed', (event) => events['state:changed'].push(event));
   viewer.on('error', (event) => events.error.push(event));
   return { viewer, port, source, element: document.createElement('div'), events };

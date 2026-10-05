@@ -7,7 +7,7 @@ import type {
   ViewSnapshot,
   WindowLevel,
 } from './rendering-port';
-import { createEmitter, type Unsubscribe } from './state/events';
+import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
 import {
   compactViewport,
@@ -42,8 +42,13 @@ import { assertCineFps, type CineApi, type CineController, createCine } from './
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 import { createThumbnails, type ThumbnailsApi } from './thumbnails';
 import { createUiRegistry, type PanelDefinition, type UiApi } from './ui';
+import {
+  createMeasurementsRegistry,
+  type MeasurementEvents,
+  type MeasurementsApi,
+} from './measurements/registry';
 
-export interface ViewerEvents {
+export interface ViewerEvents extends MeasurementEvents {
   'study:loaded': { readonly study: StudyData };
   'viewport:image': {
     readonly viewportId: string;
@@ -78,7 +83,10 @@ export interface ViewerEvents {
     readonly origin: StateOrigin;
   };
   /** A failure that no call is waiting for, such as restoring `initialState` once an element is attached. */
-  error: { readonly error: Error; readonly context: 'attach' | 'cine' | 'keyboard' };
+  error: {
+    readonly error: Error;
+    readonly context: 'attach' | 'cine' | 'keyboard' | 'measurement';
+  };
 }
 
 /** Fields to change. Viewports are matched by id; a field you leave out stays as it is. */
@@ -181,6 +189,8 @@ export interface Viewer {
   readonly thumbnails: ThumbnailsApi;
   /** Side panels for the styled shell, and for a host that draws its own. */
   readonly ui: UiApi;
+  /** What people measure: length, bidirectional, ellipse, rectangle, probe, and angle. */
+  readonly measurements: MeasurementsApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
   setViewportSeries(
     viewportId: string,
@@ -358,6 +368,21 @@ export function createViewerCore(
   function assertAlive(): void {
     if (destroyed) throw new Error('The viewer was destroyed.');
   }
+
+  const measurements = createMeasurementsRegistry({
+    enqueue: (task) => enqueue(task),
+    assertAlive,
+    // The viewer's emitter, seen as the one that carries only the measurement events.
+    emit: (event, payload) => {
+      const measurementEvents: Emitter<MeasurementEvents> = events;
+      measurementEvents.emit(event, payload);
+    },
+    study: () => store.getState().studyInstanceUID,
+    navigateTo: (target) => navigateTo(target),
+    fail: (error) => {
+      events.emit('error', { error, context: 'measurement' });
+    },
+  });
 
   /** Runs one change at a time, in call order. A failure reaches its caller and no one else. */
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -604,11 +629,17 @@ export function createViewerCore(
       const offView = stackPort.onViewChange((view) => {
         reportView(runtime, next, view, runtime.viewOrigin ?? 'user');
       });
+      runtime.shown = next;
+      const detachMeasurements = measurements.attach({
+        seriesInstanceUID,
+        stack,
+        port: stackPort,
+      });
       next.off = (): void => {
         offImage();
         offView();
+        detachMeasurements();
       };
-      runtime.shown = next;
       stackPort.setPrimaryTool(activeTool);
       // The state describes what is on screen: the stack and the slice that are showing now.
       reportImage(runtime, next, stackPort.getImageIndex(), origin, { stackIndex: stack.index });
@@ -1047,6 +1078,12 @@ export function createViewerCore(
         return tools.setActive(action.tool);
       case 'preset':
         return api.applyWindowPreset(action.id);
+      case 'delete-measurement': {
+        const id = measurements.api.getSelected();
+        return id === undefined
+          ? Promise.resolve()
+          : measurements.api.remove(id).then(() => undefined);
+      }
     }
   }
 
@@ -1065,6 +1102,10 @@ export function createViewerCore(
       const { api } = runtime;
       // With nothing on screen there is nothing to act on, and the key is not ours to swallow.
       if (action === undefined || api === undefined || runtime.shown === undefined) return;
+      // Delete and Backspace are only ours when there is a measurement picked to remove.
+      if (action.type === 'delete-measurement' && measurements.api.getSelected() === undefined) {
+        return;
+      }
       event.preventDefault();
       if (event.repeat && !repeatable.has(action.type)) return;
       perform(api, action).catch((error: unknown) => {
@@ -1141,6 +1182,7 @@ export function createViewerCore(
     viewports,
     tools,
     thumbnails: thumbnails.api,
+    measurements: measurements.api,
     ui: {
       registerPanel(panel): Unsubscribe {
         assertAlive();
@@ -1165,6 +1207,7 @@ export function createViewerCore(
       runtimes.clear();
       seriesCache.clear();
       ui.clear();
+      measurements.destroy();
       // Whoever shows the panels is told they are gone, before the listeners are dropped.
       events.emit('ui:panels', { panels: [] });
       thumbnails.dispose();
