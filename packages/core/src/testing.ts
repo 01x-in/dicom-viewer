@@ -2,6 +2,7 @@ import type { DataSource } from './data/types';
 import {
   CT,
   CT_TWO_STACKS,
+  FRAME_OF_REFERENCE,
   type FakePort,
   type FakeSource,
   type FakeStackPort,
@@ -26,6 +27,8 @@ export const FAKE_IDS: {
   readonly noPixels: string;
   /** A study whose only series is the SEG: nothing in it can be shown. */
   readonly onlySegStudy: string;
+  /** The frame of reference of every instance. */
+  readonly frameOfReference: string;
 } = {
   study: STUDY,
   ct: CT,
@@ -33,6 +36,7 @@ export const FAKE_IDS: {
   seg: SEG,
   noPixels: NO_PIXELS,
   onlySegStudy: ONLY_SEG_STUDY,
+  frameOfReference: FRAME_OF_REFERENCE,
 };
 
 export interface FakeViewer {

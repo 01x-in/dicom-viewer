@@ -13,14 +13,21 @@ async function show(h: Harness, series = CT): Promise<void> {
 }
 
 describe('the tools of a viewer', () => {
-  it('lists the tools the left button can drive, with window / level first', () => {
+  it('lists the tools the left button can drive, with window / level first and the measurements after', () => {
     const { viewer } = harness();
     expect(viewer.tools.list().map((tool) => tool.id)).toEqual([
       'window-level',
       'pan',
       'zoom',
       'stack-scroll',
+      'length',
+      'bidirectional',
+      'ellipse',
+      'rectangle',
+      'probe',
+      'angle',
     ]);
+    expect(viewer.tools.list().filter((tool) => tool.kind === 'measure')).toHaveLength(6);
     expect(viewer.tools.list()).toEqual(PRIMARY_TOOLS);
     expect(viewer.tools.getActive()).toBe('window-level');
   });
@@ -32,6 +39,16 @@ describe('the tools of a viewer', () => {
     await h.viewer.tools.setActive('zoom');
     await h.viewer.setViewportSeries('vp-0', CT_TWO_STACKS);
     expect(h.port.stacks[1]?.primaryTool).toBe('zoom');
+  });
+
+  it('lets the left button draw a measurement, and gives the tool to the next stack too', async () => {
+    const h = harness();
+    await show(h);
+    await h.viewer.tools.setActive('ellipse');
+    expect(h.port.stacks[0]?.primaryTool).toBe('ellipse');
+    await h.viewer.setViewportSeries('vp-0', CT_TWO_STACKS);
+    expect(h.port.stacks[1]?.primaryTool).toBe('ellipse');
+    expect(h.events['tool:active']).toEqual([{ tool: 'ellipse', previous: 'window-level' }]);
   });
 
   it('starts with the tool the options ask for', async () => {

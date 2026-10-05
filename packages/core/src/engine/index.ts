@@ -19,6 +19,7 @@ import {
 import type { FrameRequestPolicy, SeriesInstance, SeriesStack } from '../data/types';
 import { provideEngineDiagnostics } from '../diagnostics';
 import type {
+  PixelSlice,
   RenderingPort,
   RenderStackOptions,
   StackPort,
@@ -30,6 +31,7 @@ import { utilities as toolsUtilities } from '@cornerstonejs/tools';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';
 import type { RuntimeOptions } from './runtime';
 import { parseSegmentation } from './segmentation';
+import { trackMeasurements, type StackMeasurements } from './measurements';
 import { attachStackTools, type StackTools } from './tools';
 
 export interface EngineOptions extends RuntimeOptions {
@@ -155,6 +157,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     claimImages(stack.imageIds);
     let viewportId: string | undefined;
     let tools: StackTools | undefined;
+    let measurements: StackMeasurements | undefined;
     let stopContextMenu: (() => void) | undefined;
     let stopPrefetch: (() => void) | undefined;
     try {
@@ -181,6 +184,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       assertNotDestroyed();
       viewport.render();
       tools = attachStackTools(renderingEngineId, viewportId);
+      measurements = trackMeasurements({ viewportId, imageIds: stack.imageIds });
       // The right button zooms, so the browser's menu must not open over the drag.
       const blockMenu = (event: Event): void => {
         event.preventDefault();
@@ -234,6 +238,28 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
           },
         });
         viewport.render();
+      };
+
+      const readSlice = async (imageIndex: number): Promise<PixelSlice> => {
+        const imageId = stack.imageIds[imageIndex];
+        if (imageId === undefined) {
+          throw new RangeError(`No image at index ${imageIndex.toString()}.`);
+        }
+        const image = await imageLoader.loadAndCacheImage(imageId);
+        const scalars = image.voxelManager?.getScalarData();
+        if (scalars === undefined) throw new Error('The image has no scalar data.');
+        // With pre-scaling on (the default) the loader has already applied slope and intercept.
+        const scaled = image.preScale?.scaled === true;
+        const { rows, columns, slope, intercept } = image;
+        return {
+          rows,
+          columns,
+          at(row, column): number {
+            const stored = scalars[row * columns + column];
+            if (stored === undefined) throw new RangeError('The pixel is outside the image.');
+            return scaled ? stored : stored * slope + intercept;
+          },
+        };
       };
 
       const enabledViewportId = viewportId;
@@ -294,35 +320,45 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
           };
         },
         async sampleHu(imageIndex, row, column): Promise<number> {
-          const imageId = stack.imageIds[imageIndex];
-          if (imageId === undefined)
-            throw new RangeError(`No image at index ${imageIndex.toString()}.`);
-          const image = await imageLoader.loadAndCacheImage(imageId);
+          const slice = await readSlice(imageIndex);
           // Check each axis, not the flattened offset: column -1 or `columns` would otherwise land on a
           // neighbouring row and return a wrong pixel instead of failing.
           if (
             !Number.isInteger(row) ||
             !Number.isInteger(column) ||
             row < 0 ||
-            row >= image.rows ||
+            row >= slice.rows ||
             column < 0 ||
-            column >= image.columns
+            column >= slice.columns
           ) {
             throw new RangeError(
-              `Pixel (${row.toString()}, ${column.toString()}) is outside the ${image.rows.toString()}x${image.columns.toString()} image.`,
+              `Pixel (${row.toString()}, ${column.toString()}) is outside the ${slice.rows.toString()}x${slice.columns.toString()} image.`,
             );
           }
-          const stored = image.voxelManager?.getScalarData()[row * image.columns + column];
-          if (stored === undefined) throw new Error('The image has no scalar data.');
-          // With pre-scaling on (the default) the loader has already applied slope and intercept.
-          return image.preScale?.scaled === true ? stored : stored * image.slope + image.intercept;
+          return slice.at(row, column);
         },
+        readSlice,
+        addMeasurement: (measurement) => {
+          measurements?.add(measurement);
+        },
+        updateMeasurement: (measurement) => {
+          measurements?.update(measurement);
+        },
+        removeMeasurement: (id) => {
+          measurements?.remove(id);
+        },
+        selectMeasurement: (id) => {
+          measurements?.select(id);
+        },
+        onMeasurementChange: (listener) =>
+          measurements?.onChange(listener) ?? ((): void => undefined),
         destroy(): void {
           if (stackDestroyed) return;
           stackDestroyed = true;
           stopContextMenu?.();
           // While the element is still enabled: Cornerstone looks the viewport up from it.
           stopPrefetch?.();
+          measurements?.destroy();
           tools?.detach();
           renderingEngine.disableElement(enabledViewportId);
           releaseImages(stack.imageIds);
@@ -332,6 +368,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       // A stack that failed to come up must not keep what it claimed.
       stopContextMenu?.();
       stopPrefetch?.();
+      measurements?.destroy();
       tools?.detach();
       if (viewportId !== undefined) renderingEngine.disableElement(viewportId);
       releaseImages(stack.imageIds);

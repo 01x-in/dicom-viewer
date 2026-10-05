@@ -15,12 +15,13 @@ import {
   WindowLevelTool,
   ZoomTool,
 } from '@cornerstonejs/tools';
-import { DEFAULT_PRIMARY_TOOL, PRIMARY_TOOLS, type PrimaryTool } from '../tools';
+import type { MeasurementType } from '../measurements/model';
+import { DEFAULT_PRIMARY_TOOL, isMeasureTool, PRIMARY_TOOLS, type PrimaryTool } from '../tools';
 
 /**
- * The tool classes the v1 viewer will use. Referencing them all, even though only scrolling is
- * wired up in this spike, keeps the recorded bundle size honest (tree-shaking would otherwise
- * drop everything that is never named).
+ * The tool classes the v1 viewer will use. Referencing them all keeps the recorded bundle size
+ * honest (tree-shaking would otherwise drop everything that is never named). Crosshairs wait for
+ * M7.
  */
 const V1_TOOLS = [
   StackScrollTool,
@@ -52,7 +53,22 @@ const TOOL_NAMES: Readonly<Record<PrimaryTool, string>> = {
   pan: nameOf(PanTool),
   zoom: nameOf(ZoomTool),
   'stack-scroll': nameOf(StackScrollTool),
+  length: nameOf(LengthTool),
+  bidirectional: nameOf(BidirectionalTool),
+  ellipse: nameOf(EllipticalROITool),
+  rectangle: nameOf(RectangleROITool),
+  probe: nameOf(ProbeTool),
+  angle: nameOf(AngleTool),
 };
+
+/** The measurement a Cornerstone tool draws, by the tool's name. */
+export const MEASUREMENT_OF_TOOL: ReadonlyMap<string, MeasurementType> = new Map(
+  PRIMARY_TOOLS.flatMap(({ id }) => (isMeasureTool(id) ? [[TOOL_NAMES[id], id] as const] : [])),
+);
+
+export function toolNameOf(type: MeasurementType): string {
+  return TOOL_NAMES[type];
+}
 
 /** What each tool answers to whatever the left button drives: middle pans, right zooms, the wheel scrolls. */
 const FIXED_BUTTONS: Readonly<Record<PrimaryTool, readonly Enums.MouseBindings[]>> = {
@@ -60,6 +76,13 @@ const FIXED_BUTTONS: Readonly<Record<PrimaryTool, readonly Enums.MouseBindings[]
   pan: [Enums.MouseBindings.Auxiliary],
   zoom: [Enums.MouseBindings.Secondary],
   'stack-scroll': [Enums.MouseBindings.Wheel],
+  // A measurement tool has the left button when it is chosen, and nothing else.
+  length: [],
+  bidirectional: [],
+  ellipse: [],
+  rectangle: [],
+  probe: [],
+  angle: [],
 };
 
 export interface StackTools {
