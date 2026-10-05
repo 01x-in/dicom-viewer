@@ -63,33 +63,33 @@ export class DvSeriesBrowserElement extends LitElement {
       :host {
         display: block;
         overflow-y: auto;
-        background: var(--dv-color-surface);
+        background: var(--dv-color-surface, #171b21);
       }
       [role='listbox'] {
         list-style: none;
         margin: 0;
-        padding: calc(var(--dv-space) * 2);
+        padding: calc(var(--dv-space, 0.25rem) * 2);
         display: flex;
         flex-direction: column;
-        gap: calc(var(--dv-space) * 2);
+        gap: calc(var(--dv-space, 0.25rem) * 2);
       }
       [role='option'] {
         display: flex;
-        gap: calc(var(--dv-space) * 3);
+        gap: calc(var(--dv-space, 0.25rem) * 3);
         align-items: center;
-        padding: calc(var(--dv-space) * 2);
-        border: 1px solid var(--dv-color-border);
-        border-radius: var(--dv-radius);
-        background: var(--dv-color-surface-raised);
+        padding: calc(var(--dv-space, 0.25rem) * 2);
+        border: 1px solid var(--dv-color-border, #667284);
+        border-radius: var(--dv-radius, 6px);
+        background: var(--dv-color-surface-raised, #212731);
         cursor: pointer;
       }
       [role='option'][aria-selected='true'] {
-        border-color: var(--dv-color-accent);
-        box-shadow: inset 0 0 0 1px var(--dv-color-accent);
+        border-color: var(--dv-color-accent, #5aa9ff);
+        box-shadow: inset 0 0 0 1px var(--dv-color-accent, #5aa9ff);
       }
       [role='option'][aria-disabled='true'] {
         cursor: not-allowed;
-        color: var(--dv-color-text-muted);
+        color: var(--dv-color-text-muted, #a7b0be);
       }
       .thumb {
         flex: none;
@@ -98,7 +98,7 @@ export class DvSeriesBrowserElement extends LitElement {
         display: grid;
         place-items: center;
         background: #000;
-        border-radius: calc(var(--dv-radius) / 2);
+        border-radius: calc(var(--dv-radius, 6px) / 2);
         overflow: hidden;
         color: #fff;
         font-size: 0.7rem;
@@ -113,12 +113,12 @@ export class DvSeriesBrowserElement extends LitElement {
         overflow-wrap: anywhere;
       }
       .detail {
-        color: var(--dv-color-text-muted);
+        color: var(--dv-color-text-muted, #a7b0be);
         font-size: 0.8em;
       }
       .empty {
-        padding: calc(var(--dv-space) * 3);
-        color: var(--dv-color-text-muted);
+        padding: calc(var(--dv-space, 0.25rem) * 3);
+        color: var(--dv-color-text-muted, #a7b0be);
       }
     `,
   ];

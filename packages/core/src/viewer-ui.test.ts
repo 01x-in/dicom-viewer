@@ -34,6 +34,15 @@ describe('viewer.ui', () => {
   });
 });
 
+describe('viewer.ui on destroy', () => {
+  it('says the panels are gone, so whoever shows them lets go', () => {
+    const { viewer, events } = harness();
+    viewer.ui.registerPanel(panel('notes'));
+    viewer.destroy();
+    expect(events['ui:panels'].at(-1)?.panels).toEqual([]);
+  });
+});
+
 describe('viewer.getStudy', () => {
   it('is undefined until a study is loaded, then lists its series', async () => {
     const { viewer } = harness();

@@ -276,6 +276,26 @@ describe('the presets menu', () => {
   });
 });
 
+describe('a menu with an awkward id', () => {
+  it('opens, and gives the focus back to its button, whatever characters the id has', async () => {
+    const menu: ToolbarItem = {
+      type: 'menu',
+      id: 'a"b\\c]',
+      label: 'Odd',
+      items: [{ id: 'one', label: 'One', enabled: () => true, run: () => undefined }],
+    };
+    const { toolbar } = await mount({ items: [menu] });
+    const opener = nth(buttons(toolbar), 0);
+    opener.click();
+    await toolbar.updateComplete;
+    const entry = nth(menuItems(toolbar), 0);
+    entry.focus();
+    entry.click();
+    await toolbar.updateComplete;
+    expect(toolbar.shadowRoot?.activeElement).toBe(opener);
+  });
+});
+
 describe('the toolbar and its viewer', () => {
   it('shows what changed while it was removed once it is put back', async () => {
     const { toolbar, fake } = await mount();

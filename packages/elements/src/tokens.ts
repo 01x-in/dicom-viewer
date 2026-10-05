@@ -85,10 +85,15 @@ export function tokenCss(host: string, lightHost: string): string {
   ].join('\n\n');
 }
 
+/** Only the light set, for an element that is told its theme but does not inherit one. */
+export function lightTokenCss(lightHost: string): string {
+  return `${lightHost} {\n${declarations(THEME_TOKENS.light)}\n}`;
+}
+
 /** The file shipped as `@scope/viewer-elements/styles.css`: the same tokens for a host's own page. */
 export function stylesheet(): string {
   return `/* Design tokens of @scope/viewer-elements. Generated from src/tokens.ts. */\n${tokenCss(
     'dv-viewer',
-    "dv-viewer[data-theme='light']",
+    "[data-theme='light'] dv-viewer, dv-viewer[data-theme='light']",
   )}\n`;
 }

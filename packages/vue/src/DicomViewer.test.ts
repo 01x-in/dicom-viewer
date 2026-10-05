@@ -65,6 +65,14 @@ const element = (): HTMLElement => {
 };
 
 async function settle(): Promise<void> {
+  // The first mount in a file loads the element and its dependencies, which is slow on a cold
+  // machine: wait for the element to say it is done, then give the rest a few turns.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const status = host.querySelector('dv-viewer')?.getAttribute('status');
+    if (status === 'ready' || status === 'error') break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   for (let turn = 0; turn < 8; turn += 1) {
     await nextTick();
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -162,6 +170,22 @@ describe('<DicomViewer>', () => {
     ] as const) {
       expect(element().querySelector(`[slot="${name}"]`)?.textContent).toBe(text);
     }
+  });
+
+  it('goes back to the built-in toolbar when custom items are removed', async () => {
+    const props = await mount({ toolbar: [{ type: 'separator' }] });
+    const toolbar = (): Element | null | undefined =>
+      element().shadowRoot?.querySelector('dv-toolbar');
+    expect(toolbar()?.shadowRoot?.querySelectorAll('[data-roving]')).toHaveLength(0);
+    props.toolbar = undefined;
+    await settle();
+    expect(toolbar()?.shadowRoot?.querySelectorAll('[data-roving]').length).toBeGreaterThan(5);
+  });
+
+  it('puts plain panel content beside the tabbed panels', async () => {
+    await mount({}, { 'panel-left': () => h('b', 'Left'), 'panel-right': () => h('b', 'Right') });
+    expect(element().querySelector('[slot="panel-left"]')?.textContent).toBe('Left');
+    expect(element().querySelector('[slot="panel-right"]')?.textContent).toBe('Right');
   });
 
   it('follows the theme, and can hide the toolbar', async () => {

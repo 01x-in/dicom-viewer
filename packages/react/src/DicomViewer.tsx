@@ -55,8 +55,10 @@ export interface DicomViewerProps {
   readonly panels?: Readonly<Record<string, ReactPanel>> | undefined;
   readonly hideSeriesPanel?: boolean | undefined;
   readonly theme?: ThemeName | undefined;
-  /** Slots of the shell. */
+  /** Slots of the shell. `panelLeft` and `panelRight` are plain content beside the tabbed panels. */
   readonly banner?: ReactNode;
+  readonly panelLeft?: ReactNode;
+  readonly panelRight?: ReactNode;
   readonly toolbarStart?: ReactNode;
   readonly toolbarEnd?: ReactNode;
   readonly viewportOverlay?: ReactNode;
@@ -133,7 +135,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     if (!defined || element === null) return;
     element.theme = theme ?? 'dark';
     element.hideToolbar = toolbar === false;
-    if (toolbar !== undefined && toolbar !== false) element.toolbarItems = toolbar;
+    element.toolbarItems = toolbar === undefined || toolbar === false ? undefined : toolbar;
     element.hideSeriesPanel = hideSeriesPanel === true;
   }, [defined, theme, toolbar, hideSeriesPanel]);
 
@@ -143,12 +145,10 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     const onReady = (event: Event): void => {
       const { viewer: ready, viewport } = (event as CustomEvent<ViewerReadyDetail>).detail;
       setViewer(ready);
-      assignRef(latest.current.viewerRef, ready);
       latest.current.onReady?.(ready, viewport);
     };
     const onTeardown = (): void => {
       setViewer(undefined);
-      assignRef(latest.current.viewerRef, null);
     };
     const onError = (event: Event): void => {
       latest.current.onError?.((event as CustomEvent<ViewerErrorDetail>).detail.error);
@@ -162,6 +162,16 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
       element.removeEventListener('dv-error', onError);
     };
   }, [defined]);
+
+  // The ref holds the viewer while there is one. A different ref gets it, and the old one lets go.
+  const { viewerRef } = props;
+  useEffect(() => {
+    if (viewer === undefined) return;
+    assignRef(viewerRef, viewer);
+    return (): void => {
+      assignRef(viewerRef, null);
+    };
+  }, [viewer, viewerRef]);
 
   useEffect(() => {
     if (viewer === undefined) return;
@@ -227,6 +237,8 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
         },
         slot('banner', props.banner),
         slot('toolbar-start', props.toolbarStart),
+        slot('panel-left', props.panelLeft),
+        slot('panel-right', props.panelRight),
         slot('toolbar-end', props.toolbarEnd),
         slot('viewport-overlay', props.viewportOverlay),
         slot('empty-state', props.emptyState),

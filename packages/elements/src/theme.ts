@@ -1,15 +1,27 @@
 import { css, type CSSResult, unsafeCSS } from 'lit';
-import { tokenCss } from './tokens';
+import { lightTokenCss, tokenCss } from './tokens';
 
-/** The tokens, for the root of a shadow tree. The element's `data-theme` picks the set. */
-export const themeStyles: CSSResult = unsafeCSS(tokenCss(':host', ":host([data-theme='light'])"));
+/**
+ * The tokens, for the shell: dark by default, light with `data-theme="light"`. Everything inside
+ * inherits them.
+ */
+export const shellThemeStyles: CSSResult = unsafeCSS(
+  tokenCss(':host', ":host([data-theme='light'])"),
+);
+
+/**
+ * For the pieces inside the shell. They declare no tokens of their own, because that would override
+ * what they inherit from the shell: every `var()` carries the dark value as its fallback, so a piece
+ * used alone is dark, and `data-theme="light"` on it alone makes it light.
+ */
+export const themeStyles: CSSResult = unsafeCSS(lightTokenCss(":host([data-theme='light'])"));
 
 /** Shared by every piece of chrome: the reset, the focus ring, and the visually-hidden helper. */
 export const baseStyles: CSSResult = css`
   :host {
-    font-family: var(--dv-font-family);
-    font-size: var(--dv-font-size);
-    color: var(--dv-color-text);
+    font-family: var(--dv-font-family, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif);
+    font-size: var(--dv-font-size, 0.875rem);
+    color: var(--dv-color-text, #e8ebf0);
     box-sizing: border-box;
   }
   *,
@@ -18,7 +30,7 @@ export const baseStyles: CSSResult = css`
     box-sizing: inherit;
   }
   :focus-visible {
-    outline: 2px solid var(--dv-color-focus);
+    outline: 2px solid var(--dv-color-focus, #9ccbff);
     outline-offset: 2px;
   }
   .dv-visually-hidden {

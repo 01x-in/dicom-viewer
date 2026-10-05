@@ -1172,6 +1172,8 @@ export function createViewerCore(
       runtimes.clear();
       seriesCache.clear();
       ui.clear();
+      // Whoever shows the panels is told they are gone, before the listeners are dropped.
+      events.emit('ui:panels', { panels: [] });
       thumbnails.dispose();
       events.clear();
       // If the engine never started there is nothing to destroy; the failure reached `ready`.

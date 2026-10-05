@@ -52,16 +52,16 @@ export class DvToolbarElement extends LitElement {
     css`
       :host {
         display: block;
-        background: var(--dv-color-surface);
-        border-bottom: 1px solid var(--dv-color-border);
+        background: var(--dv-color-surface, #171b21);
+        border-bottom: 1px solid var(--dv-color-border, #667284);
       }
       .bar {
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: calc(var(--dv-space) * 2);
-        min-height: var(--dv-toolbar-height);
-        padding: var(--dv-space) calc(var(--dv-space) * 2);
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        min-height: var(--dv-toolbar-height, 2.75rem);
+        padding: var(--dv-space, 0.25rem) calc(var(--dv-space, 0.25rem) * 2);
       }
       .spacer {
         flex: 1;
@@ -69,23 +69,23 @@ export class DvToolbarElement extends LitElement {
       .separator {
         align-self: stretch;
         width: 1px;
-        margin: var(--dv-space) calc(var(--dv-space) * 1);
-        background: var(--dv-color-border);
+        margin: var(--dv-space, 0.25rem) calc(var(--dv-space, 0.25rem) * 1);
+        background: var(--dv-color-border, #667284);
       }
       button {
         font: inherit;
-        color: var(--dv-color-text);
-        background: var(--dv-color-surface-raised);
-        border: 1px solid var(--dv-color-border);
-        border-radius: var(--dv-radius);
-        padding: calc(var(--dv-space) * 1.5) calc(var(--dv-space) * 3);
+        color: var(--dv-color-text, #e8ebf0);
+        background: var(--dv-color-surface-raised, #212731);
+        border: 1px solid var(--dv-color-border, #667284);
+        border-radius: var(--dv-radius, 6px);
+        padding: calc(var(--dv-space, 0.25rem) * 1.5) calc(var(--dv-space, 0.25rem) * 3);
         min-height: 2rem;
         cursor: pointer;
       }
       button[aria-pressed='true'] {
-        background: var(--dv-color-accent);
-        border-color: var(--dv-color-accent);
-        color: var(--dv-color-accent-text);
+        background: var(--dv-color-accent, #5aa9ff);
+        border-color: var(--dv-color-accent, #5aa9ff);
+        color: var(--dv-color-accent-text, #06121f);
       }
       button[aria-disabled='true'] {
         opacity: 0.6;
@@ -99,14 +99,14 @@ export class DvToolbarElement extends LitElement {
         z-index: 10;
         top: 100%;
         left: 0;
-        margin-top: var(--dv-space);
+        margin-top: var(--dv-space, 0.25rem);
         min-width: 10rem;
         display: flex;
         flex-direction: column;
-        padding: var(--dv-space);
-        background: var(--dv-color-surface);
-        border: 1px solid var(--dv-color-border);
-        border-radius: var(--dv-radius);
+        padding: var(--dv-space, 0.25rem);
+        background: var(--dv-color-surface, #171b21);
+        border: 1px solid var(--dv-color-border, #667284);
+        border-radius: var(--dv-radius, 6px);
       }
       [role='menu'] button {
         text-align: left;
@@ -114,7 +114,7 @@ export class DvToolbarElement extends LitElement {
         border-color: transparent;
       }
       [role='menu'] button:hover {
-        background: var(--dv-color-surface-raised);
+        background: var(--dv-color-surface-raised, #212731);
       }
     `,
   ];
@@ -183,6 +183,13 @@ export class DvToolbarElement extends LitElement {
     return [...this.renderRoot.querySelectorAll<HTMLElement>('[data-roving]')];
   }
 
+  /** The button that opens a menu. Found by comparing, not by a selector, so any id works. */
+  #opener(id: string | undefined): HTMLElement | undefined {
+    return [...this.renderRoot.querySelectorAll<HTMLElement>('[data-menu-id]')].find(
+      (button) => button.dataset['menuId'] === id,
+    );
+  }
+
   #fail(error: unknown): void {
     this.dispatchEvent(
       new CustomEvent<ToolbarErrorDetail>('dv-error', {
@@ -241,9 +248,7 @@ export class DvToolbarElement extends LitElement {
     ];
     const current = items.indexOf(event.target as HTMLElement);
     if (event.key === 'Escape' || event.key === 'Tab') {
-      const opener = this.renderRoot.querySelector<HTMLElement>(
-        `[data-menu-id="${this.openMenu ?? ''}"]`,
-      );
+      const opener = this.#opener(this.openMenu);
       this.openMenu = undefined;
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -386,9 +391,7 @@ export class DvToolbarElement extends LitElement {
                 @click=${(): void => {
                   this.openMenu = undefined;
                   void this.#run(entry, context);
-                  this.renderRoot
-                    .querySelector<HTMLElement>(`[data-menu-id="${item.id}"]`)
-                    ?.focus();
+                  this.#opener(item.id)?.focus();
                 }}
               >
                 ${entry.label}

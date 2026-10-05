@@ -53,6 +53,13 @@ describe('the panel registry', () => {
     expect(() => api.registerPanel(panel({ id }))).toThrow(RangeError);
   });
 
+  it('refuses an id that is not a string, which a regular expression would turn into text', () => {
+    const { api } = createUiRegistry(() => undefined);
+    for (const id of [undefined, null, true, 7]) {
+      expect(() => api.registerPanel(panel({ id: id as never }))).toThrow(RangeError);
+    }
+  });
+
   it('refuses a duplicate id, a blank title, an unknown side, and a missing mount', () => {
     const { api } = createUiRegistry(() => undefined);
     api.registerPanel(panel());

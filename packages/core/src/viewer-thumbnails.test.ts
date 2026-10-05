@@ -114,4 +114,22 @@ describe('viewer.thumbnails', () => {
     expect(results.every((result) => result.status === 'rejected')).toBe(true);
     await expect(viewer.thumbnails.get(CT)).rejects.toThrow(/destroyed/);
   });
+
+  it('rejects a long queue of waiting pictures when the viewer is destroyed', async () => {
+    const { viewer, port } = harness();
+    await viewer.loadStudy(STUDY);
+    const held = port.holdThumbnails();
+    const sizes = Array.from({ length: 497 }, (_, at) => 16 + at);
+    const asked = sizes.flatMap((size) => [
+      viewer.thumbnails.get(CT, { size }),
+      viewer.thumbnails.get(CT_TWO_STACKS, { size }),
+    ]);
+    const settled = Promise.allSettled(asked);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    viewer.destroy();
+    held.release();
+    const results = await settled;
+    expect(results).toHaveLength(994);
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+  });
 });

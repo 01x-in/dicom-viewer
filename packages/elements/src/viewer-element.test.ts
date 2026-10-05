@@ -153,6 +153,20 @@ describe('<dv-viewer> structure', () => {
   });
 });
 
+describe('<dv-viewer> theme', () => {
+  it("lets the pieces inside inherit the shell's tokens, instead of declaring dark ones of their own", async () => {
+    const { element } = await ready();
+    // Every piece's styles must declare the light tokens only for its own data-theme, and no dark ones.
+    const toolbar = shadow(element, 'dv-toolbar');
+    const sheets =
+      (toolbar?.constructor as { elementStyles?: { cssText: string }[] }).elementStyles ?? [];
+    const css = sheets.map((sheet) => sheet.cssText).join('\n');
+    expect(css).not.toMatch(/:host\s*\{[^}]*--dv-color-bg:/);
+    expect(css).toMatch(/:host\(\[data-theme='light'\]\)\s*\{[^}]*--dv-color-bg:/);
+    expect(css).toMatch(/var\(--dv-color-bg, #0f1216\)|var\(--dv-color-surface, #171b21\)/);
+  });
+});
+
 describe('<dv-viewer> and assistive technology', () => {
   it('names each viewport for what it shows, as a picture', async () => {
     const { element } = await ready();

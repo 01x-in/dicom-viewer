@@ -39,35 +39,34 @@ export interface Thumbnails {
 
 export function createThumbnails(deps: ThumbnailsDeps): Thumbnails {
   const pictures = new Map<string, Promise<string | undefined>>();
-  const waiting: (() => void)[] = [];
+  const waiting: { start(): void; cancel(): void }[] = [];
   let running = 0;
   let disposed = false;
 
   function next(): void {
     while (running < CONCURRENCY) {
-      const start = waiting.shift();
-      if (start === undefined) return;
+      const entry = waiting.shift();
+      if (entry === undefined) return;
       running += 1;
-      start();
+      entry.start();
     }
   }
 
   /** Runs a task when one of the places is free. */
   function limited<T>(task: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      waiting.push(() => {
-        if (disposed) {
-          running -= 1;
+      waiting.push({
+        start: () => {
+          task()
+            .then(resolve, reject)
+            .finally(() => {
+              running -= 1;
+              next();
+            });
+        },
+        cancel: () => {
           reject(new Error('The viewer was destroyed.'));
-          next();
-          return;
-        }
-        task()
-          .then(resolve, reject)
-          .finally(() => {
-            running -= 1;
-            next();
-          });
+        },
       });
       next();
     });
@@ -112,8 +111,8 @@ export function createThumbnails(deps: ThumbnailsDeps): Thumbnails {
     dispose(): void {
       disposed = true;
       pictures.clear();
-      // Waiting tasks reject themselves when their turn comes.
-      next();
+      // Every waiting task is rejected here, one after another, so a long queue cannot grow the stack.
+      for (const entry of waiting.splice(0)) entry.cancel();
     },
   };
 }

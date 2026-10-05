@@ -109,6 +109,11 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
     if (message.type() === 'error') failures.push(`console error: ${message.text()}`);
   });
   page.on('pageerror', (error) => failures.push(`uncaught: ${error.message}`));
+  page.on('requestfailed', (request) => {
+    if (!isIgnorableRequest(request.url())) {
+      failures.push(`request failed: ${request.url()} (${request.failure()?.errorText ?? '?'})`);
+    }
+  });
   page.on('response', (response) => {
     if (response.status() >= 400 && !isIgnorableRequest(response.url())) {
       failures.push(`HTTP ${response.status().toString()}: ${response.url()}`);
@@ -294,6 +299,23 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
       if (element !== null) element.setAttribute('theme', 'light');
     });
     await page.waitForTimeout(300);
+    // The pieces inside follow: the toolbar and the series list are light too, not dark in a light shell.
+    const surfaces = await page.evaluate(() => {
+      const shell = document.querySelector('dv-viewer')?.shadowRoot;
+      const toolbar = shell?.querySelector('dv-toolbar');
+      const browser = shell
+        ?.querySelector('dv-panel-dock')
+        ?.shadowRoot?.querySelector('dv-series-browser');
+      return [toolbar, browser].map((element) =>
+        element === null || element === undefined
+          ? 'missing'
+          : getComputedStyle(element).backgroundColor,
+      );
+    });
+    if (surfaces.some((colour) => colour !== 'rgb(255, 255, 255)'))
+      failures.push(
+        `in the light theme the toolbar and the series list are ${surfaces.join(' and ')}, not white`,
+      );
     await runAxe(page, 'light theme', failures);
   } catch (error) {
     failures.push(

@@ -45,7 +45,7 @@ export function createUiRegistry(
   return {
     api: {
       registerPanel(panel): Unsubscribe {
-        if (!PANEL_ID.test(panel.id)) {
+        if (typeof panel.id !== 'string' || !PANEL_ID.test(panel.id)) {
           throw new RangeError(
             `A panel id uses lower-case letters, digits and single hyphens, and starts with a letter, not "${panel.id}".`,
           );

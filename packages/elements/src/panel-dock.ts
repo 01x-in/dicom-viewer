@@ -43,31 +43,31 @@ export class DvPanelDockElement extends LitElement {
         display: flex;
         flex-direction: column;
         min-height: 0;
-        background: var(--dv-color-surface);
+        background: var(--dv-color-surface, #171b21);
       }
       :host([hidden]) {
         display: none;
       }
       [role='tablist'] {
         display: flex;
-        gap: var(--dv-space);
-        padding: var(--dv-space) calc(var(--dv-space) * 2) 0;
-        border-bottom: 1px solid var(--dv-color-border);
+        gap: var(--dv-space, 0.25rem);
+        padding: var(--dv-space, 0.25rem) calc(var(--dv-space, 0.25rem) * 2) 0;
+        border-bottom: 1px solid var(--dv-color-border, #667284);
       }
       [role='tab'] {
         font: inherit;
-        color: var(--dv-color-text-muted);
+        color: var(--dv-color-text-muted, #a7b0be);
         background: transparent;
         border: 1px solid transparent;
         border-bottom: 0;
-        border-radius: var(--dv-radius) var(--dv-radius) 0 0;
-        padding: calc(var(--dv-space) * 1.5) calc(var(--dv-space) * 3);
+        border-radius: var(--dv-radius, 6px) var(--dv-radius, 6px) 0 0;
+        padding: calc(var(--dv-space, 0.25rem) * 1.5) calc(var(--dv-space, 0.25rem) * 3);
         cursor: pointer;
       }
       [role='tab'][aria-selected='true'] {
-        color: var(--dv-color-text);
-        background: var(--dv-color-surface-raised);
-        border-color: var(--dv-color-border);
+        color: var(--dv-color-text, #e8ebf0);
+        background: var(--dv-color-surface-raised, #212731);
+        border-color: var(--dv-color-border, #667284);
       }
       [role='tabpanel'] {
         flex: 1;

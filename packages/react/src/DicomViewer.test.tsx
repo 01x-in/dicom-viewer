@@ -53,7 +53,16 @@ const element = (): HTMLElement => {
 };
 
 async function settle(): Promise<void> {
-  // The element, the dynamic import, and the fake viewer each take a few turns.
+  // The first render in a file loads the element and its dependencies, which is slow on a cold
+  // machine: wait for the element to say it is done, then give the rest a few turns.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const status = host.querySelector('dv-viewer')?.getAttribute('status');
+    if (status === 'ready' || status === 'error') break;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
   for (let turn = 0; turn < 8; turn += 1) {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -136,6 +145,22 @@ describe('<DicomViewer>', () => {
     }
   });
 
+  it('goes back to the built-in toolbar when custom items are removed', async () => {
+    const items = [{ type: 'separator' as const }];
+    await render({ toolbar: items });
+    const toolbar = (): Element | null | undefined =>
+      element().shadowRoot?.querySelector('dv-toolbar');
+    expect(toolbar()?.shadowRoot?.querySelectorAll('[data-roving]')).toHaveLength(0);
+    await render({ toolbar: undefined });
+    expect(toolbar()?.shadowRoot?.querySelectorAll('[data-roving]').length).toBeGreaterThan(5);
+  });
+
+  it('puts plain panel content beside the tabbed panels', async () => {
+    await render({ panelLeft: <b>Left</b>, panelRight: <b>Right</b> });
+    expect(element().querySelector('[slot="panel-left"]')?.textContent).toBe('Left');
+    expect(element().querySelector('[slot="panel-right"]')?.textContent).toBe('Right');
+  });
+
   it('follows the theme, and can hide the toolbar', async () => {
     await render({ theme: 'light', toolbar: false });
     expect(element().getAttribute('data-theme')).toBe('light');
@@ -156,6 +181,17 @@ describe('<DicomViewer>', () => {
     });
     expect(viewerRef.current).toBeNull();
     root = createRoot(host);
+  });
+
+  it('moves the viewer to a new ref, and lets go of the old one', async () => {
+    const first: RefObject<Viewer | null> = createRef<Viewer | null>();
+    const second: RefObject<Viewer | null> = createRef<Viewer | null>();
+    await render({ viewerRef: first });
+    expect(first.current).toBe(made[0]?.viewer);
+    await render({ viewerRef: second });
+    expect(made).toHaveLength(1);
+    expect(first.current).toBeNull();
+    expect(second.current).toBe(made[0]?.viewer);
   });
 
   it('calls a callback ref too', async () => {

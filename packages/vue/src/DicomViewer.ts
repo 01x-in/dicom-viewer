@@ -67,6 +67,8 @@ const SLOTS = [
   ['banner', 'banner'],
   ['toolbar-start', 'toolbar-start'],
   ['toolbar-end', 'toolbar-end'],
+  ['panel-left', 'panel-left'],
+  ['panel-right', 'panel-right'],
   ['viewport-overlay', 'viewport-overlay'],
   ['empty-state', 'empty-state'],
 ] as const;
@@ -76,7 +78,8 @@ const SLOTS = [
  * the engine load in `onMounted`, so server rendering never runs them. The viewer is held in a
  * `shallowRef` and marked raw, so Vue never wraps it, or anything Cornerstone-related, in a Proxy.
  *
- * Slots: `banner`, `toolbar-start`, `toolbar-end`, `viewport-overlay`, `empty-state`, and
+ * Slots: `banner`, `toolbar-start`, `toolbar-end`, `panel-left`, `panel-right` (plain content beside the
+ * tabbed panels), `viewport-overlay`, `empty-state`, and
  * `panel-<id>` for each entry of `panels`.
  */
 export const DicomViewer: Component<DicomViewerProps> = defineComponent({
@@ -123,9 +126,8 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       if (!defined.value || target === null) return;
       target.theme = props.theme ?? 'dark';
       target.hideToolbar = props.toolbar === false;
-      if (props.toolbar !== undefined && props.toolbar !== false) {
-        target.toolbarItems = toRaw(props.toolbar);
-      }
+      target.toolbarItems =
+        props.toolbar === undefined || props.toolbar === false ? undefined : toRaw(props.toolbar);
       target.hideSeriesPanel = props.hideSeriesPanel === true;
     }
 

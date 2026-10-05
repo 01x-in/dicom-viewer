@@ -20,9 +20,11 @@ export function describeViewport(viewport: ViewportDescription): string {
   if (name === undefined || imageIndex === undefined || imageCount <= 0) {
     return 'No image shown';
   }
+  // A state a host patched may name a slice past the end for a moment, until the core clamps it.
+  const shown = Math.min(Math.max(imageIndex, 0), imageCount - 1);
   const parts = [
     name,
-    `image ${(imageIndex + 1).toString()} of ${imageCount.toString()}`,
+    `image ${(shown + 1).toString()} of ${imageCount.toString()}`,
     ...(viewport.window === undefined
       ? []
       : [`window ${round(viewport.window.width)}, level ${round(viewport.window.center)}`]),

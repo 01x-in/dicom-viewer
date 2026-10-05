@@ -18,7 +18,7 @@ import {
 import { layoutCells } from './layout';
 import { createThrottledAnnouncer, describeViewport, type ThrottledAnnouncer } from './live-label';
 import { type DvSeriesBrowserElement, isDisplayableModality } from './series-browser';
-import { baseStyles, themeStyles } from './theme';
+import { baseStyles, shellThemeStyles } from './theme';
 import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
 import type { ThemeName } from './tokens';
 
@@ -86,7 +86,7 @@ export class DvViewerElement extends LitElement {
   };
 
   static override styles: CSSResultGroup = [
-    themeStyles,
+    shellThemeStyles,
     baseStyles,
     css`
       :host {
@@ -179,8 +179,8 @@ export class DvViewerElement extends LitElement {
   declare assetsBaseUrl: string | undefined;
   declare cpuRendering: boolean;
   declare theme: ThemeName;
-  /** What the toolbar shows. Default: `DEFAULT_TOOLBAR`. */
-  declare toolbarItems: readonly ToolbarItem[];
+  /** What the toolbar shows. `undefined`: `DEFAULT_TOOLBAR`. */
+  declare toolbarItems: readonly ToolbarItem[] | undefined;
   declare hideToolbar: boolean;
   declare hideSeriesPanel: boolean;
   /** The accessible name of the viewer as a whole, a landmark. Default `DICOM viewer`. */
@@ -200,7 +200,7 @@ export class DvViewerElement extends LitElement {
     super();
     this.cpuRendering = false;
     this.theme = 'dark';
-    this.toolbarItems = DEFAULT_TOOLBAR;
+    this.toolbarItems = undefined;
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
     this.label = 'DICOM viewer';
@@ -405,7 +405,7 @@ export class DvViewerElement extends LitElement {
       this.status = 'ready';
       this.dispatchEvent(
         new CustomEvent<ViewerReadyDetail>('dv-ready', {
-          detail: { viewer, viewport: viewer.viewports.get('vp-0') },
+          detail: { viewer, viewport: this.#shownViewport(viewer) },
           bubbles: true,
           composed: true,
         }),
@@ -417,6 +417,12 @@ export class DvViewerElement extends LitElement {
       this.status = 'error';
       this.#fail(error, 'load');
     }
+  }
+
+  /** The viewport `vp-0`, but only while it shows a series: an empty study has nothing to hand over. */
+  #shownViewport(viewer: Viewer): ViewportApi | undefined {
+    const viewport = viewer.viewports.get('vp-0');
+    return viewport?.series === undefined ? undefined : viewport;
   }
 
   /** What to show when no series was asked for and none was restored. */
@@ -435,7 +441,7 @@ export class DvViewerElement extends LitElement {
       ${
         this.hideToolbar
           ? nothing
-          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.toolbarItems}>
+          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.toolbarItems ?? DEFAULT_TOOLBAR}>
             <slot name="toolbar-start" slot="start"></slot>
             <slot name="toolbar-end" slot="end"></slot>
           </dv-toolbar>`

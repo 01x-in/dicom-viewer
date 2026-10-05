@@ -25,6 +25,15 @@ describe('describeViewport', () => {
     );
   });
 
+  it('does not name a slice past the end, which a patched state can for a moment', () => {
+    expect(describeViewport({ name: 'CT', imageIndex: 100, imageCount: 10 })).toBe(
+      'CT, image 10 of 10',
+    );
+    expect(describeViewport({ name: 'CT', imageIndex: -3, imageCount: 10 })).toBe(
+      'CT, image 1 of 10',
+    );
+  });
+
   it('says there is nothing when no series is shown, or the series is empty', () => {
     expect(describeViewport({ name: undefined, imageIndex: undefined, imageCount: 0 })).toBe(
       'No image shown',
