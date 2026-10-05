@@ -174,7 +174,7 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
       failures.push(`${withPicture.toString()} series have a thumbnail, expected 2 or more`);
     if (disabled < 1) failures.push('the SEG row is not marked unavailable');
     // Every thumbnail in every open shadow root under the viewer: all there, all decoded.
-    const pictures = await page.evaluate(() => {
+    const pictures = await page.evaluate(async () => {
       const images: HTMLImageElement[] = [];
       const walk = (root: ParentNode): void => {
         for (const element of root.querySelectorAll('*')) {
@@ -184,10 +184,16 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
       };
       const shell = document.querySelector('dv-viewer')?.shadowRoot;
       if (shell !== null && shell !== undefined) walk(shell);
-      return {
-        count: images.length,
-        broken: images.filter((image) => image.naturalWidth === 0).length,
-      };
+      // An image that is present may still be decoding: only one that fails to decode is broken.
+      const decoded = await Promise.all(
+        images.map((image) =>
+          image.decode().then(
+            () => image.naturalWidth > 0,
+            () => false,
+          ),
+        ),
+      );
+      return { count: images.length, broken: decoded.filter((ok) => !ok).length };
     });
     if (pictures.count < 2)
       failures.push(`found ${pictures.count.toString()} thumbnail images in the shadow roots`);
