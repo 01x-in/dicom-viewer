@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { startMockServer } from '../../tools/dicomweb-mock/src/server.ts';
 import { smokeHeadless } from './headless.ts';
+import { smokeShell } from './shell.ts';
 import { fileBytes, kib, measureJavaScript, sizeOf, total, type FileSize } from './measure.ts';
 import { packTarballs, type Tarballs } from './pack.ts';
 import { launchBrowser, smoke } from './smoke.ts';
@@ -283,6 +284,18 @@ async function runVariant(
       if (variant.ssr && !values.dev && /error/i.test(serverErrors))
         failures.push(`server errors:\n${serverErrors}`);
       rows.push({ variant: variant.name, mode, failures });
+      mock.requestLog.length = 0;
+      const shellFailures = await smokeShell(browser, {
+        pageUrl,
+        wadoRoot: mock.url,
+        studyUid: study,
+        seriesUid: series.seriesUid,
+        segSeriesUid: segSeries.seriesUid,
+        assetsMode: mode,
+        assetsPath: '/viewer-assets',
+        cpuRendering: false,
+      });
+      rows.push({ variant: variant.name, mode: `${mode}: shell`, failures: shellFailures });
     }
   } finally {
     await browser.close();

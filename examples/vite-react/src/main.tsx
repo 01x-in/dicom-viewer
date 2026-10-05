@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 // back from `data-dv-status` and `window.__dv`.
 declare global {
   interface Window {
-    __dv?: ViewportApi;
+    __dv?: ViewportApi | undefined;
     __dvError?: string;
   }
 }
@@ -24,13 +24,13 @@ function App(): JSX.Element {
   }, []);
 
   return (
-    <div style={{ width: 512, height: 512 }}>
+    <div style={{ width: 800, height: 600 }}>
       <DicomViewer
         options={options}
         studyInstanceUID={params.get('study') ?? ''}
         seriesInstanceUID={params.get('series') ?? ''}
-        onReady={(series) => {
-          window.__dv = series;
+        onReady={(_viewer, viewport) => {
+          window.__dv = viewport;
           document.documentElement.dataset['dvStatus'] = 'ready';
         }}
         onError={(error) => {

@@ -9,7 +9,7 @@ import { z } from 'zod';
 // back from `data-dv-status` and `window.__dv`.
 declare global {
   interface Window {
-    __dv?: ViewportApi;
+    __dv?: ViewportApi | undefined;
     __dvError?: string;
   }
 }
@@ -62,14 +62,14 @@ export function Viewer(): JSX.Element {
   }, []);
 
   return (
-    <div style={{ width: 512, height: 512 }}>
+    <div style={{ width: 800, height: 600 }}>
       {config === undefined ? null : (
         <DicomViewer
           options={config.options}
           studyInstanceUID={config.study}
           seriesInstanceUID={config.series}
-          onReady={(series) => {
-            window.__dv = series;
+          onReady={(_viewer, viewport) => {
+            window.__dv = viewport;
             document.documentElement.dataset['dvStatus'] = 'ready';
           }}
           onError={(error) => {

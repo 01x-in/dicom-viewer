@@ -79,6 +79,7 @@ export class DvViewerElement extends LitElement {
     toolbarItems: { attribute: false },
     hideToolbar: { type: Boolean, attribute: 'hide-toolbar' },
     hideSeriesPanel: { type: Boolean, attribute: 'hide-series-panel' },
+    label: {},
     status: { reflect: true },
     shown: { state: true },
     announcement: { state: true },
@@ -182,6 +183,8 @@ export class DvViewerElement extends LitElement {
   declare toolbarItems: readonly ToolbarItem[];
   declare hideToolbar: boolean;
   declare hideSeriesPanel: boolean;
+  /** The accessible name of the viewer as a whole, a landmark. Default `DICOM viewer`. */
+  declare label: string;
   declare status: ViewerStatus;
   declare shown: boolean;
   declare announcement: string;
@@ -200,6 +203,7 @@ export class DvViewerElement extends LitElement {
     this.toolbarItems = DEFAULT_TOOLBAR;
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
+    this.label = 'DICOM viewer';
     this.status = 'idle';
     this.shown = false;
     this.announcement = '';
@@ -426,7 +430,7 @@ export class DvViewerElement extends LitElement {
   override render(): TemplateResult {
     const viewer = this.#viewer;
     const { ids, columns, rows } = layoutCells(viewer?.getState().layout ?? '1x1');
-    return html`<div class="shell" part="shell">
+    return html`<div class="shell" part="shell" role="region" aria-label=${this.label}>
       <div class="banner" part="banner"><slot name="banner"></slot></div>
       ${
         this.hideToolbar
@@ -439,7 +443,7 @@ export class DvViewerElement extends LitElement {
       <div class="body" part="body">
         <dv-panel-dock part="dock-left" .viewer=${viewer} placement="left"></dv-panel-dock>
         <slot name="panel-left"></slot>
-        <main
+        <div
           class="stage"
           part="stage"
           style=${`grid-template-columns: repeat(${columns.toString()}, minmax(0, 1fr)); grid-template-rows: repeat(${rows.toString()}, minmax(0, 1fr));`}
@@ -454,7 +458,7 @@ export class DvViewerElement extends LitElement {
           <div class="dv-visually-hidden" role="status" aria-live="polite" aria-atomic="true">
             ${this.announcement}
           </div>
-        </main>
+        </div>
         <slot name="panel-right"></slot>
         <dv-panel-dock part="dock-right" .viewer=${viewer} placement="right"></dv-panel-dock>
       </div>
