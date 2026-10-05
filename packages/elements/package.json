@@ -16,6 +16,7 @@
       "types": "./dist/define.d.ts",
       "default": "./dist/define.js"
     },
+    "./styles.css": "./dist/styles.css",
     "./package.json": "./package.json"
   },
   "files": [
