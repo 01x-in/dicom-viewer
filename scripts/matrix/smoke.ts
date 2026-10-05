@@ -197,7 +197,9 @@ export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeR
     }
 
     // Real input must reach Cornerstone's tool group through the host's DOM (light DOM, no shadow root).
-    await page.mouse.move(256, 256);
+    const box = await page.locator('canvas').first().boundingBox();
+    if (box === null) throw new Error('the viewport has no canvas');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, 240);
     await page.waitForTimeout(500);
     const afterWheel = await page.evaluate(() => window.__dv?.getImageIndex());

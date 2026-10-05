@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": [
-    "./dist/define.js"
+    "./dist/define.js",
+    "./dist/styles.css"
   ],
   "exports": {
     ".": {
@@ -16,6 +17,7 @@
       "types": "./dist/define.d.ts",
       "default": "./dist/define.js"
     },
+    "./styles.css": "./dist/styles.css",
     "./package.json": "./package.json"
   },
   "files": [

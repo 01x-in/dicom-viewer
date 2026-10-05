@@ -6,7 +6,7 @@ import type { DvViewerElement } from '@scope/viewer-elements';
 // back from `data-dv-status` and `window.__dv`.
 declare global {
   interface Window {
-    __dv?: ViewportApi;
+    __dv?: ViewportApi | undefined;
     __dvError?: string;
   }
 }

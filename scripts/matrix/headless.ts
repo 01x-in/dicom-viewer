@@ -49,6 +49,9 @@ interface ViewerHandle {
     seriesInstanceUID: string;
     sopInstanceUID: string;
   }): Promise<{ imageIndex: number; stackIndex: number; sopInstanceUID: string }>;
+  thumbnails: {
+    get(seriesInstanceUID: string, options?: { size?: number }): Promise<string | undefined>;
+  };
 }
 
 interface SourceHandle {
@@ -593,6 +596,94 @@ async function scenarioNavigation(browser: Browser, input: HeadlessInput): Promi
   return failures;
 }
 
+/** Thumbnails: drawn on the CPU from the real engine, square, not blank, and not left in the cache. */
+async function scenarioThumbnails(browser: Browser, input: HeadlessInput): Promise<string[]> {
+  const watched = await watch(browser);
+  const { page, failures } = watched;
+  try {
+    input.mock.requestLog.length = 0;
+    // Prefetch off, so every frame request in the log is one the thumbnail asked for.
+    await page.goto(
+      query(input, {
+        wadoRoot: input.mock.url,
+        study: input.studyUid,
+        series: input.evrleSeriesUid,
+        prefetch: '0',
+      }),
+      { waitUntil: 'load', timeout: 180_000 },
+    );
+    if (!(await expectReady(watched))) return failures;
+    const framesOf = (series: string): number =>
+      input.mock.requestLog.filter(
+        (entry) => entry.path.includes(series) && entry.path.includes('/frames/'),
+      ).length;
+    const before = framesOf(input.j2kSeriesUid);
+    const url = await page.evaluate(
+      (series) => window.__dvViewer?.thumbnails.get(series, { size: 64 }),
+      input.j2kSeriesUid,
+    );
+    if (url?.startsWith('data:image/jpeg;base64,') !== true) {
+      failures.push(`the thumbnail is not a JPEG data URL: ${String(url).slice(0, 40)}`);
+      return failures;
+    }
+    // Decode the picture in the page and look at the pixels.
+    const look = await page.evaluate(async (dataUrl) => {
+      const image = new Image();
+      image.src = dataUrl;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext('2d');
+      if (context === null) return undefined;
+      context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      let lit = 0;
+      const levels = new Set<number>();
+      for (let at = 0; at < data.length; at += 4) {
+        const grey = data[at] ?? 0;
+        levels.add(grey >> 4);
+        if (grey > 24) lit += 1;
+      }
+      return {
+        width: canvas.width,
+        height: canvas.height,
+        lit: lit / (data.length / 4),
+        levels: levels.size,
+      };
+    }, url);
+    if (look === undefined) failures.push('the page has no 2D canvas');
+    else {
+      if (look.width !== 64 || look.height !== 64)
+        failures.push(
+          `the thumbnail is ${look.width.toString()}x${look.height.toString()}, not 64x64`,
+        );
+      if (look.lit < 0.05) failures.push(`the thumbnail is blank (${look.lit.toFixed(3)} lit)`);
+      if (look.levels < 4) failures.push(`the thumbnail has ${look.levels.toString()} grey levels`);
+    }
+    const asked = framesOf(input.j2kSeriesUid) - before;
+    if (asked !== 1) failures.push(`one thumbnail fetched ${asked.toString()} frames`);
+    // The same picture again comes from the viewer, not the server.
+    const again = await page.evaluate(
+      (series) => window.__dvViewer?.thumbnails.get(series, { size: 64 }),
+      input.j2kSeriesUid,
+    );
+    if (again !== url) failures.push('asking again gave another picture');
+    if (framesOf(input.j2kSeriesUid) - before !== 1) failures.push('asking again fetched a frame');
+    // A SEG has nothing to draw.
+    const seg = await page.evaluate(
+      (series) => window.__dvViewer?.thumbnails.get(series),
+      input.segSeriesUid,
+    );
+    if (seg !== undefined) failures.push('a SEG got a thumbnail');
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
+
 async function scenarioAuth(browser: Browser, input: HeadlessInput): Promise<string[]> {
   const watched = await watch(browser);
   const { page, failures } = watched;
@@ -899,6 +990,7 @@ export async function smokeHeadless(
   const scenarios: readonly [string, (b: Browser, i: HeadlessInput) => Promise<string[]>][] = [
     ['dicomweb', scenarioDicomWeb],
     ['navigation', scenarioNavigation],
+    ['thumbnails', scenarioThumbnails],
     ['auth', scenarioAuth],
     ['retry', scenarioRetry],
     ['local files', scenarioLocalFiles],

@@ -21,3 +21,7 @@ The styled UI is built as Lit web components. Lit renders into a shadow root by 
 
 - Host page CSS reaches the viewport. The element sets only `width`/`height: 100%` itself; hosts must give `<dv-viewer>` a size.
 - Lit's SSR shim loads on the server (Next, Nuxt) without errors; the React and Vue adapters in M1 do not use the element at all (they call core directly), so SSR of the element itself is exercised only by importing it.
+
+## Update (M4)
+
+[ADR 0007](0007-styled-shell.md) puts the chrome in shadow DOM and keeps the viewport in the light DOM, shown through a slot. `<dv-viewer>` no longer renders into itself; it renders into a shadow root and appends the viewport elements as light-DOM children. The matrix's `shell` scenario is the evidence that Cornerstone's input works across that boundary.
