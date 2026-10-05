@@ -80,7 +80,7 @@ const SLOTS = [
  *
  * Slots: `banner`, `toolbar-start`, `toolbar-end`, `panel-left`, `panel-right` (plain content beside the
  * tabbed panels), `viewport-overlay`, `empty-state`, and
- * `panel-<id>` for each entry of `panels`.
+ * `panel-<id>` for each entry of `panels` (a panel with the id `left` or `right` takes that plain slot over).
  */
 export const DicomViewer: Component<DicomViewerProps> = defineComponent({
   name: 'DicomViewer',
@@ -249,7 +249,10 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
 
     return () => {
       const children: VNodeChild[] = [];
+      const panelSlots = new Set((props.panels ?? []).map((panel) => `panel-${panel.id}`));
       for (const [slotName, name] of SLOTS) {
+        // A panel with the id `left` owns the slot `panel-left`: it is not also plain content.
+        if (panelSlots.has(slotName)) continue;
         const content = slots[slotName]?.();
         if (content !== undefined && content.length > 0) {
           children.push(h('div', { slot: name, key: name }, content));

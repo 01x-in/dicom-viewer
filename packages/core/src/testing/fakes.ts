@@ -19,6 +19,8 @@ export const STUDY = '1.2.3';
 export const CT = '1.2.3.1';
 export const CT_TWO_STACKS = '1.2.3.2';
 export const SEG = '1.2.3.9';
+/** A study whose only series is the SEG: nothing in it can be shown. */
+export const ONLY_SEG_STUDY = '1.2.5';
 /** A series that is not a SEG or an SR but has no image with rows and columns, so nothing can be shown. */
 export const NO_PIXELS = '1.2.3.8';
 
@@ -110,18 +112,24 @@ export function fakeSource(): FakeSource {
       calls.push(`getStudy ${studyInstanceUID}`);
       return Promise.resolve().then(() => {
         maybeFail();
-        if (studyInstanceUID !== STUDY && studyInstanceUID !== '1.2.4') {
+        if (
+          studyInstanceUID !== STUDY &&
+          studyInstanceUID !== '1.2.4' &&
+          studyInstanceUID !== ONLY_SEG_STUDY
+        ) {
           throw new DataSourceError('no such study', 404);
         }
         return {
           studyInstanceUID,
-          series: Object.values(series).map((item) => ({
-            seriesInstanceUID: item.seriesInstanceUID,
-            modality: item.modality,
-            description: item.description,
-            seriesNumber: undefined,
-            instanceCount: item.instances.length,
-          })),
+          series: Object.values(series)
+            .filter((item) => studyInstanceUID !== ONLY_SEG_STUDY || item.modality === 'SEG')
+            .map((item) => ({
+              seriesInstanceUID: item.seriesInstanceUID,
+              modality: item.modality,
+              description: item.description,
+              seriesNumber: undefined,
+              instanceCount: item.instances.length,
+            })),
         };
       });
     },

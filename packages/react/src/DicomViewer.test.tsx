@@ -183,6 +183,24 @@ describe('<DicomViewer>', () => {
     root = createRoot(host);
   });
 
+  it('has the viewer in the ref by the time onReady runs, and not after teardown starts', async () => {
+    const viewerRef: RefObject<Viewer | null> = createRef<Viewer | null>();
+    const seen: (Viewer | null)[] = [];
+    await render({
+      viewerRef,
+      onReady: () => {
+        seen.push(viewerRef.current);
+      },
+    });
+    expect(seen).toEqual([made[0]?.viewer]);
+    const teardown = vi.fn(() => {
+      seen.push(viewerRef.current);
+    });
+    element().addEventListener('dv-teardown', teardown, { once: true });
+    await render({ viewerRef, studyInstanceUID: '1.2.4' });
+    expect(viewerRef.current).toBe(made[1]?.viewer);
+  });
+
   it('moves the viewer to a new ref, and lets go of the old one', async () => {
     const first: RefObject<Viewer | null> = createRef<Viewer | null>();
     const second: RefObject<Viewer | null> = createRef<Viewer | null>();

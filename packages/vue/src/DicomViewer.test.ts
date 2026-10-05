@@ -296,6 +296,16 @@ describe('panels and composables', () => {
     expect(isProxy(seenViewer?.value)).toBe(false);
   });
 
+  it('gives a panel called left the slot panel-left, and does not also draw it beside the dock', async () => {
+    await mount(
+      { hideSeriesPanel: true, panels: [{ id: 'left', title: 'Left', placement: 'left' }] },
+      { 'panel-left': () => h(Probe) },
+    );
+    expect(element().querySelector('[slot="panel-left"]')).toBeNull();
+    const dock = element().shadowRoot?.querySelector('dv-panel-dock[placement="left"]');
+    expect(dock?.shadowRoot?.querySelectorAll('[data-probe]')).toHaveLength(1);
+  });
+
   it('removes a panel when it is no longer in the props', async () => {
     const props = await mount(
       { hideSeriesPanel: true, panels: [{ id: 'notes', title: 'Notes' }] },

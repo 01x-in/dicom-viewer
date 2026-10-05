@@ -8,6 +8,7 @@ import {
   fakePort,
   fakeSource,
   NO_PIXELS,
+  ONLY_SEG_STUDY,
   SEG,
   STUDY,
 } from './testing/fakes';
@@ -23,7 +24,16 @@ export const FAKE_IDS: {
   readonly seg: string;
   /** Not a SEG, but with nothing to show: automatic series choice has to skip it. */
   readonly noPixels: string;
-} = { study: STUDY, ct: CT, ctTwoStacks: CT_TWO_STACKS, seg: SEG, noPixels: NO_PIXELS };
+  /** A study whose only series is the SEG: nothing in it can be shown. */
+  readonly onlySegStudy: string;
+} = {
+  study: STUDY,
+  ct: CT,
+  ctTwoStacks: CT_TWO_STACKS,
+  seg: SEG,
+  noPixels: NO_PIXELS,
+  onlySegStudy: ONLY_SEG_STUDY,
+};
 
 export interface FakeViewer {
   readonly viewer: Viewer;

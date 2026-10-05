@@ -222,19 +222,19 @@ describe('<dv-viewer> lifecycle', () => {
     expect(element.status).toBe('ready');
   });
 
-  it('hands over no viewport when the study has nothing to show', async () => {
+  it('is ready, with no viewport to hand over, when the study has nothing to show', async () => {
     const element = create();
     const details: ViewerReadyDetail[] = [];
     element.addEventListener('dv-ready', (event) => {
       details.push((event as CustomEvent<ViewerReadyDetail>).detail);
     });
     element.options = options();
-    element.studyInstanceUid = FAKE_IDS.study;
-    // Asking for the SEG, which has no pictures, leaves vp-0 empty.
-    element.seriesInstanceUid = FAKE_IDS.seg;
+    element.studyInstanceUid = FAKE_IDS.onlySegStudy;
     await settle(element);
-    expect(details.length + (element.status === 'error' ? 1 : 0)).toBeGreaterThan(0);
-    for (const detail of details) expect(detail.viewport).toBeUndefined();
+    expect(element.status).toBe('ready');
+    expect(details).toHaveLength(1);
+    expect(details[0]?.viewport).toBeUndefined();
+    expect(details[0]?.viewer).toBe(made[0]?.viewer);
   });
 
   it('says a viewer is going before it is destroyed, once per viewer', async () => {

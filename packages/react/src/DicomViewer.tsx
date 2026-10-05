@@ -98,6 +98,25 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
   // Callbacks and render functions change identity every render; nothing may restart for them.
   const latest = useRef(props);
   latest.current = props;
+  // Who holds the viewer, so a ref is only told what changed, and a replaced ref lets go of it.
+  const given = useRef<{ ref: Ref<Viewer | null> | undefined; value: Viewer | null }>({
+    ref: undefined,
+    value: null,
+  });
+  const give = useRef((ref: Ref<Viewer | null> | undefined, value: Viewer | null): void => {
+    const held = given.current;
+    if (held.ref === ref && held.value === value) return;
+    // Nothing held and nothing to give: there is nothing to tell the ref.
+    if (held.value === null && value === null) {
+      given.current = { ref, value };
+      return;
+    }
+    if (held.ref !== ref && held.ref !== undefined && held.value !== null) {
+      assignRef(held.ref, null);
+    }
+    given.current = { ref, value };
+    assignRef(ref, value);
+  }).current;
   const [defined, setDefined] = useState(false);
   const [viewer, setViewer] = useState<Viewer | undefined>(undefined);
   const [containers, setContainers] = useState<ReadonlyMap<string, HTMLElement>>(new Map());
@@ -145,9 +164,12 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     const onReady = (event: Event): void => {
       const { viewer: ready, viewport } = (event as CustomEvent<ViewerReadyDetail>).detail;
       setViewer(ready);
+      // Before `onReady`, so the callback finds the viewer in the ref.
+      give(latest.current.viewerRef, ready);
       latest.current.onReady?.(ready, viewport);
     };
     const onTeardown = (): void => {
+      give(latest.current.viewerRef, null);
       setViewer(undefined);
     };
     const onError = (event: Event): void => {
@@ -161,17 +183,19 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
       element.removeEventListener('dv-teardown', onTeardown);
       element.removeEventListener('dv-error', onError);
     };
-  }, [defined]);
+  }, [defined, give]);
 
-  // The ref holds the viewer while there is one. A different ref gets it, and the old one lets go.
+  // A different ref gets the viewer, and the old one lets go. On unmount the ref lets go too.
   const { viewerRef } = props;
   useEffect(() => {
-    if (viewer === undefined) return;
-    assignRef(viewerRef, viewer);
-    return (): void => {
-      assignRef(viewerRef, null);
-    };
-  }, [viewer, viewerRef]);
+    give(viewerRef, viewer ?? null);
+  }, [give, viewer, viewerRef]);
+  useEffect(
+    () => (): void => {
+      give(latest.current.viewerRef, null);
+    },
+    [give],
+  );
 
   useEffect(() => {
     if (viewer === undefined) return;
