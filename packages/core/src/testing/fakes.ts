@@ -19,6 +19,8 @@ export const STUDY = '1.2.3';
 export const CT = '1.2.3.1';
 export const CT_TWO_STACKS = '1.2.3.2';
 export const SEG = '1.2.3.9';
+/** A series that is not a SEG or an SR but has no image with rows and columns, so nothing can be shown. */
+export const NO_PIXELS = '1.2.3.8';
 
 /** The window every fake stack starts with, as if the images had asked for it. */
 export const FAKE_DEFAULT_WINDOW = { center: 40, width: 400 } as const;
@@ -64,6 +66,14 @@ export function fakeSource(): FakeSource {
     throw new DataSourceError(`HTTP ${status.toString()}`, status);
   }
   const series: Record<string, LoadedSeriesData> = {
+    [NO_PIXELS]: {
+      studyInstanceUID: STUDY,
+      seriesInstanceUID: NO_PIXELS,
+      modality: 'OT',
+      description: 'Other',
+      instances: instances(NO_PIXELS, 0, 2),
+      stacks: [],
+    },
     [CT]: {
       studyInstanceUID: STUDY,
       seriesInstanceUID: CT,

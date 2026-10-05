@@ -7,6 +7,7 @@ import {
   type FakeStackPort,
   fakePort,
   fakeSource,
+  NO_PIXELS,
   SEG,
   STUDY,
 } from './testing/fakes';
@@ -20,7 +21,9 @@ export const FAKE_IDS: {
   readonly ct: string;
   readonly ctTwoStacks: string;
   readonly seg: string;
-} = { study: STUDY, ct: CT, ctTwoStacks: CT_TWO_STACKS, seg: SEG };
+  /** Not a SEG, but with nothing to show: automatic series choice has to skip it. */
+  readonly noPixels: string;
+} = { study: STUDY, ct: CT, ctTwoStacks: CT_TWO_STACKS, seg: SEG, noPixels: NO_PIXELS };
 
 export interface FakeViewer {
   readonly viewer: Viewer;
@@ -32,7 +35,7 @@ export interface FakeViewer {
 
 /**
  * A real viewer on a fake data source and a fake engine, for tests of a host or an adapter that
- * run without a browser engine, WebGL, or a server. The source has a 10-slice CT, a CT that splits
+ * run without a browser engine, WebGL, or a server. The source has a series with nothing to show, a 10-slice CT, a CT that splits
  * into stacks of 6 and 3, and a one-instance SEG (`FAKE_IDS`). Not part of the semver contract.
  */
 export function createFakeViewer(

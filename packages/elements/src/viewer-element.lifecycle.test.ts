@@ -89,6 +89,17 @@ describe('<dv-viewer> lifecycle', () => {
     expect(made).toHaveLength(1);
   });
 
+  it('skips a series with nothing to show when choosing the first one', async () => {
+    // The fake study lists a series with no pictures before the CT.
+    const element = create();
+    element.options = options();
+    element.studyInstanceUid = FAKE_IDS.study;
+    await settle(element);
+    expect(made[0]?.viewer.getStudy()?.series[0]?.seriesInstanceUID).toBe(FAKE_IDS.noPixels);
+    expect(shownSeries(made[0])).toBe(FAKE_IDS.ct);
+    expect(element.status).toBe('ready');
+  });
+
   it('shows the first series that has pictures when none is asked for', async () => {
     const element = create();
     element.options = options();

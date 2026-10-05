@@ -23,15 +23,17 @@ export interface ThumbnailsApi {
 }
 
 export interface ThumbnailsDeps {
-  /** The series of the current study. Rejects when there is none. */
-  series(seriesInstanceUID: string): Promise<LoadedSeriesData>;
+  /** The study the viewer has now, or `undefined`. A request is bound to it when it is made. */
+  study(): string | undefined;
+  /** One series of a study. */
+  series(studyInstanceUID: string, seriesInstanceUID: string): Promise<LoadedSeriesData>;
   /** Draws one slice as a square picture. */
   render(stack: SeriesStack, imageIndex: number, size: number): Promise<string>;
 }
 
 export interface Thumbnails {
   readonly api: ThumbnailsApi;
-  /** Forgets every picture, for a different study. */
+  /** For a different study: forgets every picture and rejects the requests still waiting for a turn. */
   clear(): void;
   /** Rejects what is waiting, and refuses what comes next. */
   dispose(): void;
@@ -39,7 +41,7 @@ export interface Thumbnails {
 
 export function createThumbnails(deps: ThumbnailsDeps): Thumbnails {
   const pictures = new Map<string, Promise<string | undefined>>();
-  const waiting: { start(): void; cancel(): void }[] = [];
+  const waiting: { start(): void; cancel(reason: string): void }[] = [];
   let running = 0;
   let disposed = false;
 
@@ -64,8 +66,8 @@ export function createThumbnails(deps: ThumbnailsDeps): Thumbnails {
               next();
             });
         },
-        cancel: () => {
-          reject(new Error('The viewer was destroyed.'));
+        cancel: (reason) => {
+          reject(new Error(reason));
         },
       });
       next();
@@ -84,11 +86,18 @@ export function createThumbnails(deps: ThumbnailsDeps): Thumbnails {
             );
           }
           if (disposed) throw new Error('The viewer was destroyed.');
-          const key = `${seriesInstanceUID}/${size.toString()}`;
+          // Bound now, not when a place frees up: by then the viewer may have another study.
+          const study = deps.study();
+          if (study === undefined) {
+            throw new Error(
+              'Load a study first: call loadStudy, or setState with a studyInstanceUID.',
+            );
+          }
+          const key = `${study}/${seriesInstanceUID}/${size.toString()}`;
           let picture = pictures.get(key);
           if (picture === undefined) {
             picture = limited(async () => {
-              const series = await deps.series(seriesInstanceUID);
+              const series = await deps.series(study, seriesInstanceUID);
               const stack = series.stacks[0];
               if (stack === undefined) return undefined;
               return deps.render(stack, Math.floor(stack.imageIds.length / 2), size);
@@ -107,12 +116,14 @@ export function createThumbnails(deps: ThumbnailsDeps): Thumbnails {
     },
     clear(): void {
       pictures.clear();
+      // What has not started belongs to the study that is gone, and would hold both places up.
+      for (const entry of waiting.splice(0)) entry.cancel('The study changed.');
     },
     dispose(): void {
       disposed = true;
       pictures.clear();
       // Every waiting task is rejected here, one after another, so a long queue cannot grow the stack.
-      for (const entry of waiting.splice(0)) entry.cancel();
+      for (const entry of waiting.splice(0)) entry.cancel('The viewer was destroyed.');
     },
   };
 }

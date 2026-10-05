@@ -339,15 +339,8 @@ export function createViewerCore(
   });
   let study: StudyData | undefined;
   const thumbnails = createThumbnails({
-    series: (seriesInstanceUID) => {
-      const { studyInstanceUID } = store.getState();
-      if (studyInstanceUID === undefined) {
-        return Promise.reject(
-          new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.'),
-        );
-      }
-      return getSeries(studyInstanceUID, seriesInstanceUID);
-    },
+    study: () => store.getState().studyInstanceUID,
+    series: (studyInstanceUID, seriesInstanceUID) => getSeries(studyInstanceUID, seriesInstanceUID),
     render: async (stack, imageIndex, size) => {
       const port = await portPromise;
       assertAlive();

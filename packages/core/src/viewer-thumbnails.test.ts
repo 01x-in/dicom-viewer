@@ -132,4 +132,40 @@ describe('viewer.thumbnails', () => {
     expect(results).toHaveLength(994);
     expect(results.every((result) => result.status === 'rejected')).toBe(true);
   });
+
+  it('rejects requests still waiting when another study is loaded, and never asks for them in the new one', async () => {
+    const { viewer, port, source } = harness();
+    await viewer.loadStudy(STUDY);
+    const held = port.holdThumbnails();
+    const asked = [CT, CT_TWO_STACKS, CT, CT_TWO_STACKS].map((uid, at) =>
+      viewer.thumbnails.get(uid, { size: 32 + at * 8 }),
+    );
+    const settled = Promise.allSettled(asked);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await viewer.loadStudy('1.2.4');
+    held.release();
+    const results = await settled;
+    // Two were already being drawn, for the study they were asked in; two had not started.
+    expect(results.map((result) => result.status)).toEqual([
+      'fulfilled',
+      'fulfilled',
+      'rejected',
+      'rejected',
+    ]);
+    expect((results[2] as PromiseRejectedResult).reason).toEqual(
+      expect.objectContaining({ message: 'The study changed.' }),
+    );
+    expect(source.calls.filter((call) => call.startsWith('getSeries 1.2.4'))).toEqual([]);
+  });
+
+  it('keeps a picture for the study it was asked in, not for the one that came after', async () => {
+    const { viewer, port } = harness();
+    await viewer.loadStudy(STUDY);
+    const first = viewer.thumbnails.get(CT);
+    await viewer.loadStudy('1.2.4');
+    await first;
+    // The same series UID in the new study is a new picture.
+    await viewer.thumbnails.get(CT);
+    expect(port.thumbnailCalls).toHaveLength(2);
+  });
 });

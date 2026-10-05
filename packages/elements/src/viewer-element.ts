@@ -395,12 +395,16 @@ export class DvViewerElement extends LitElement {
       this.#createViewportElements(viewer);
       await viewer.loadStudy(study);
       if (generation !== this.#generation) return;
-      const wanted = this.seriesInstanceUid ?? this.#firstPictureSeries(viewer);
       const showing = viewer.getState().viewports.find((viewport) => viewport.id === 'vp-0');
-      if (wanted !== undefined && showing?.seriesInstanceUID !== wanted) {
-        await viewer.setViewportSeries('vp-0', wanted);
-        if (generation !== this.#generation) return;
+      if (this.seriesInstanceUid !== undefined) {
+        if (showing?.seriesInstanceUID !== this.seriesInstanceUid) {
+          await viewer.setViewportSeries('vp-0', this.seriesInstanceUid);
+        }
+      } else if (showing?.seriesInstanceUID === undefined) {
+        // Nothing asked for and nothing restored.
+        await this.#showFirstPictureSeries(viewer, generation);
       }
+      if (generation !== this.#generation) return;
       this.#refreshLabels(false);
       this.status = 'ready';
       this.dispatchEvent(
@@ -425,12 +429,26 @@ export class DvViewerElement extends LitElement {
     return viewport?.series === undefined ? undefined : viewport;
   }
 
-  /** What to show when no series was asked for and none was restored. */
-  #firstPictureSeries(viewer: Viewer): string | undefined {
-    const restored = viewer.getState().viewports.find((viewport) => viewport.id === 'vp-0');
-    if (restored?.seriesInstanceUID !== undefined) return restored.seriesInstanceUID;
-    return viewer.getStudy()?.series.find((series) => isDisplayableModality(series.modality))
-      ?.seriesInstanceUID;
+  /**
+   * Shows the first series that has pictures. A series is only known to have none when it is
+   * opened (its images may lack a size), so a failure moves on to the next; if none can be shown the
+   * last failure is the load's.
+   */
+  async #showFirstPictureSeries(viewer: Viewer, generation: number): Promise<void> {
+    const candidates = (viewer.getStudy()?.series ?? []).filter((series) =>
+      isDisplayableModality(series.modality),
+    );
+    let failure: unknown;
+    for (const candidate of candidates) {
+      if (generation !== this.#generation) return;
+      try {
+        await viewer.setViewportSeries('vp-0', candidate.seriesInstanceUID);
+        return;
+      } catch (error) {
+        failure = error;
+      }
+    }
+    if (candidates.length > 0) throw toError(failure);
   }
 
   override render(): TemplateResult {

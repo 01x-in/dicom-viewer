@@ -102,7 +102,7 @@ describe('<dv-series-browser>', () => {
     expect(browser.shadowRoot?.querySelector('[role="listbox"]')?.getAttribute('aria-label')).toBe(
       'Series',
     );
-    expect(rows(browser)).toHaveLength(3);
+    expect(rows(browser)).toHaveLength(4);
     expect(row(browser, FAKE_IDS.ct).textContent).toContain('CT');
   });
 
@@ -110,7 +110,7 @@ describe('<dv-series-browser>', () => {
     const { browser, fake } = await mount({ study: false });
     await fake.viewer.loadStudy(FAKE_IDS.study);
     await settle(browser);
-    expect(rows(browser)).toHaveLength(3);
+    expect(rows(browser)).toHaveLength(4);
   });
 
   it('marks the series on screen as selected, and follows the viewport', async () => {
@@ -196,15 +196,14 @@ describe('<dv-series-browser>', () => {
     browser.viewer = fake.viewer;
     document.body.append(browser);
     await settle(browser);
-    const broken = rows(browser).filter(
-      (item) => item.querySelector('img') === null && item.getAttribute('aria-disabled') !== 'true',
-    );
-    expect(broken).toHaveLength(1);
-    broken[0]?.click();
+    // The first picture to be drawn fails. The series with nothing to show asks the engine for none,
+    // so it is the CT that has no picture.
+    const failed = row(browser, FAKE_IDS.ct);
+    expect(failed.querySelector('img')).toBeNull();
+    expect(row(browser, FAKE_IDS.ctTwoStacks).querySelector('img')).not.toBeNull();
+    failed.click();
     await settle(browser);
-    expect(fake.viewer.getState().viewports[0]?.seriesInstanceUID).toBe(
-      broken[0]?.dataset['series'],
-    );
+    expect(fake.viewer.getState().viewports[0]?.seriesInstanceUID).toBe(FAKE_IDS.ct);
   });
 
   it('starts over for another study', async () => {
@@ -223,8 +222,8 @@ describe('<dv-series-browser>', () => {
     press(nth(all, 0), 'ArrowDown');
     expect(browser.shadowRoot?.activeElement).toBe(all[1]);
     press(nth(all, 1), 'End');
-    expect(browser.shadowRoot?.activeElement).toBe(all[2]);
-    press(nth(all, 2), 'ArrowDown');
+    expect(browser.shadowRoot?.activeElement).toBe(all[3]);
+    press(nth(all, 3), 'ArrowDown');
     expect(browser.shadowRoot?.activeElement).toBe(all[0]);
     await settle(browser);
     expect(fake.viewer.getState().viewports[0]?.seriesInstanceUID).toBeUndefined();

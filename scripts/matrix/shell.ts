@@ -173,12 +173,25 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
     if (withPicture < 2)
       failures.push(`${withPicture.toString()} series have a thumbnail, expected 2 or more`);
     if (disabled < 1) failures.push('the SEG row is not marked unavailable');
-    const broken = await page.evaluate(() => {
-      const images = [...document.querySelectorAll('dv-viewer *')].flatMap((element) => [
-        ...(element.shadowRoot?.querySelectorAll('img') ?? []),
-      ]);
-      return images.filter((image) => image.naturalWidth === 0).length;
+    // Every thumbnail in every open shadow root under the viewer: all there, all decoded.
+    const pictures = await page.evaluate(() => {
+      const images: HTMLImageElement[] = [];
+      const walk = (root: ParentNode): void => {
+        for (const element of root.querySelectorAll('*')) {
+          if (element instanceof HTMLImageElement) images.push(element);
+          if (element.shadowRoot !== null) walk(element.shadowRoot);
+        }
+      };
+      const shell = document.querySelector('dv-viewer')?.shadowRoot;
+      if (shell !== null && shell !== undefined) walk(shell);
+      return {
+        count: images.length,
+        broken: images.filter((image) => image.naturalWidth === 0).length,
+      };
     });
+    if (pictures.count < 2)
+      failures.push(`found ${pictures.count.toString()} thumbnail images in the shadow roots`);
+    const { broken } = pictures;
     if (broken > 0) failures.push(`${broken.toString()} thumbnails did not decode`);
 
     await runAxe(page, 'dark theme', failures);
