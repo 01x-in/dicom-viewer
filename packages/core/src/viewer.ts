@@ -29,6 +29,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     {
       dataSource,
       ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
+      ...(options.tools === undefined ? {} : { tools: options.tools }),
     },
     loadEngine,
   );

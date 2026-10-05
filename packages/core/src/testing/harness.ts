@@ -38,6 +38,7 @@ export function harness(
     'viewport:image': [],
     'viewport:voi': [],
     'viewport:camera': [],
+    'tool:active': [],
     'state:changed': [],
     error: [],
   };
@@ -45,6 +46,7 @@ export function harness(
   viewer.on('viewport:image', (event) => events['viewport:image'].push(event));
   viewer.on('viewport:voi', (event) => events['viewport:voi'].push(event));
   viewer.on('viewport:camera', (event) => events['viewport:camera'].push(event));
+  viewer.on('tool:active', (event) => events['tool:active'].push(event));
   viewer.on('state:changed', (event) => events['state:changed'].push(event));
   viewer.on('error', (event) => events.error.push(event));
   return { viewer, port, source, element: document.createElement('div'), events };

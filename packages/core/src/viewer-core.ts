@@ -16,6 +16,13 @@ import {
   type ViewerStateV1,
   type ViewportStateV1,
 } from './state/viewer-state';
+import {
+  DEFAULT_PRIMARY_TOOL,
+  isPrimaryTool,
+  PRIMARY_TOOLS,
+  type PrimaryTool,
+  type ToolInfo,
+} from './tools';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 
 export interface ViewerEvents {
@@ -41,6 +48,8 @@ export interface ViewerEvents {
     readonly zoom: number;
     readonly origin: StateOrigin;
   };
+  /** The tool the left mouse button drives changed. */
+  'tool:active': { readonly tool: PrimaryTool; readonly previous: PrimaryTool };
   'state:changed': {
     readonly state: ViewerStateV1;
     readonly previous: ViewerStateV1;
@@ -107,12 +116,21 @@ export interface ViewportsApi {
   list(): ViewportApi[];
 }
 
+export interface ToolsApi {
+  /** The tools the left mouse button can drive. The middle button always pans, the right zooms, and the wheel scrolls. */
+  list(): readonly ToolInfo[];
+  getActive(): PrimaryTool;
+  /** Rejects with a `RangeError` for a tool that does not exist. */
+  setActive(tool: PrimaryTool): Promise<void>;
+}
+
 export interface Viewer {
   /** Resolves once the engine is ready. Rejects if it cannot start. */
   readonly ready: Promise<void>;
   /** Lists the series of a study and makes it the current one. Loading another study empties the viewports. */
   loadStudy(studyInstanceUID: string): Promise<StudyData>;
   readonly viewports: ViewportsApi;
+  readonly tools: ToolsApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
   setViewportSeries(
     viewportId: string,
@@ -138,6 +156,10 @@ export interface ViewerCoreOptions {
   readonly dataSource: DataSource;
   /** A state to restore, for example one decoded from the URL. It is validated. */
   readonly initialState?: ViewerStateV1;
+  readonly tools?: {
+    /** The tool the left mouse button drives at the start. Default: window / level. */
+    readonly active?: PrimaryTool;
+  };
 }
 
 interface Shown {
@@ -202,6 +224,11 @@ export function createViewerCore(
     throw new Error(`Invalid initialState: ${initial.error}`);
   }
   const { dataSource } = options;
+  const initialTool = options.tools?.active ?? DEFAULT_PRIMARY_TOOL;
+  if (!isPrimaryTool(initialTool)) {
+    throw new RangeError(`There is no tool ${String(initialTool)}.`);
+  }
+  let activeTool: PrimaryTool = initialTool;
   const store = createStore<ViewerStateV1>(initial?.state ?? createInitialState());
   const events = createEmitter<ViewerEvents>();
   store.onChange((state, previous, origin) => {
@@ -442,6 +469,7 @@ export function createViewerCore(
         offView();
       };
       runtime.shown = next;
+      stackPort.setPrimaryTool(activeTool);
       // The state describes what is on screen: the stack and the slice that are showing now.
       reportImage(runtime, next, stackPort.getImageIndex(), origin, { stackIndex: stack.index });
       applyView(runtime, viewportState(id) ?? desired, origin);
@@ -701,6 +729,24 @@ export function createViewerCore(
     });
   }
 
+  const tools: ToolsApi = {
+    list: () => PRIMARY_TOOLS,
+    getActive: () => activeTool,
+    setActive(tool): Promise<void> {
+      if (!isPrimaryTool(tool)) {
+        return Promise.reject(new RangeError(`There is no tool ${String(tool)}.`));
+      }
+      return enqueue(() => {
+        const previous = activeTool;
+        if (tool === previous) return Promise.resolve();
+        activeTool = tool;
+        for (const runtime of runtimes.values()) runtime.shown?.port.setPrimaryTool(tool);
+        events.emit('tool:active', { tool, previous });
+        return Promise.resolve();
+      });
+    },
+  };
+
   const viewports: ViewportsApi = {
     attach(viewportId, element): void {
       assertAlive();
@@ -747,6 +793,7 @@ export function createViewerCore(
     ready,
     loadStudy,
     viewports,
+    tools,
     setViewportSeries,
     getState: () => store.getState(),
     setState,

@@ -26,7 +26,7 @@ import { isLocalFileImageId, registerLocalFile } from './local-files';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';
 import type { RuntimeOptions } from './runtime';
 import { parseSegmentation } from './segmentation';
-import { attachStackTools } from './tools';
+import { attachStackTools, type StackTools } from './tools';
 
 export interface EngineOptions extends RuntimeOptions {
   /** Applies the host's headers and token refresh to the frames the loader fetches. */
@@ -111,7 +111,8 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     assertNotDestroyed();
     claimImages(stack.imageIds);
     let viewportId: string | undefined;
-    let detachTools: (() => void) | undefined;
+    let tools: StackTools | undefined;
+    let stopContextMenu: (() => void) | undefined;
     try {
       await Promise.all(
         stack.instances.map((instance) =>
@@ -141,7 +142,15 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       await viewport.setStack([...stack.imageIds], first);
       assertNotDestroyed();
       viewport.render();
-      detachTools = attachStackTools(renderingEngineId, viewportId);
+      tools = attachStackTools(renderingEngineId, viewportId);
+      // The right button zooms, so the browser's menu must not open over the drag.
+      const blockMenu = (event: Event): void => {
+        event.preventDefault();
+      };
+      element.addEventListener('contextmenu', blockMenu);
+      stopContextMenu = (): void => {
+        element.removeEventListener('contextmenu', blockMenu);
+      };
 
       const readWindow = (): WindowLevel => {
         const range = viewport.getProperties().voiRange;
@@ -196,6 +205,9 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
         },
         getView,
         setWindow,
+        setPrimaryTool(tool): void {
+          tools?.setPrimary(tool);
+        },
         setInvert(invert): void {
           viewport.setProperties({ invert });
           viewport.render();
@@ -255,14 +267,16 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
         destroy(): void {
           if (stackDestroyed) return;
           stackDestroyed = true;
-          detachTools?.();
+          stopContextMenu?.();
+          tools?.detach();
           renderingEngine.disableElement(enabledViewportId);
           releaseImages(stack.imageIds);
         },
       };
     } catch (error) {
       // A stack that failed to come up must not keep what it claimed.
-      detachTools?.();
+      stopContextMenu?.();
+      tools?.detach();
       if (viewportId !== undefined) renderingEngine.disableElement(viewportId);
       releaseImages(stack.imageIds);
       throw error;

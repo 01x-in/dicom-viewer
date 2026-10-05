@@ -39,10 +39,13 @@ export {
   viewerStateV1Schema,
 } from './state/viewer-state';
 export type { ParseResult, ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
+export { PRIMARY_TOOLS } from './tools';
+export type { PrimaryTool, ToolInfo } from './tools';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
 export type {
   SetViewportSeriesOptions,
+  ToolsApi,
   Viewer,
   ViewerEvents,
   ViewerStatePatch,

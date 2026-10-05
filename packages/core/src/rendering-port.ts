@@ -1,6 +1,7 @@
 import type { SeriesStack } from './data/types';
 import type { Unsubscribe } from './state/events';
 import type { WindowLevel } from './state/viewer-state';
+import type { PrimaryTool } from './tools';
 
 export type { WindowLevel };
 
@@ -45,6 +46,8 @@ export interface StackPort {
   setZoom(zoom: number): void;
   /** Back to the default window, no inversion, fit to the viewport, and centred. */
   resetView(): void;
+  /** Which tool the left mouse button drives. The other buttons and the wheel keep their bindings. */
+  setPrimaryTool(tool: PrimaryTool): void;
   /** Called whenever the view changes: by the host, or by the user's mouse. */
   onViewChange(listener: (view: ViewSnapshot) => void): Unsubscribe;
   /** Decodes one slice and returns the Hounsfield value of one pixel. */
