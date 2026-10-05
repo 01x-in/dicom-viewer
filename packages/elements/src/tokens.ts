@@ -7,8 +7,31 @@ export type ThemeName = 'dark' | 'light';
 
 export const THEMES: readonly ThemeName[] = ['dark', 'light'];
 
+export type SharedTokenName =
+  | '--dv-font-family'
+  | '--dv-font-size'
+  | '--dv-radius'
+  | '--dv-space'
+  | '--dv-toolbar-height'
+  | '--dv-panel-width'
+  | '--dv-viewport-bg';
+
+export type ThemeTokenName =
+  | '--dv-color-bg'
+  | '--dv-color-surface'
+  | '--dv-color-surface-raised'
+  | '--dv-color-border'
+  | '--dv-color-text'
+  | '--dv-color-text-muted'
+  | '--dv-color-accent'
+  | '--dv-color-accent-text'
+  | '--dv-color-focus'
+  | '--dv-color-danger';
+
+export type TokenName = SharedTokenName | ThemeTokenName;
+
 /** Not themed: the same in both. */
-export const SHARED_TOKENS = {
+export const SHARED_TOKENS: Readonly<Record<SharedTokenName, string>> = {
   '--dv-font-family': "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   '--dv-font-size': '0.875rem',
   '--dv-radius': '6px',
@@ -16,9 +39,9 @@ export const SHARED_TOKENS = {
   '--dv-toolbar-height': '2.75rem',
   '--dv-panel-width': '17rem',
   '--dv-viewport-bg': '#000000',
-} as const;
+};
 
-export const THEME_TOKENS = {
+export const THEME_TOKENS: Readonly<Record<ThemeName, Readonly<Record<ThemeTokenName, string>>>> = {
   dark: {
     '--dv-color-bg': '#0f1216',
     '--dv-color-surface': '#171b21',
@@ -43,9 +66,7 @@ export const THEME_TOKENS = {
     '--dv-color-focus': '#0a4a9c',
     '--dv-color-danger': '#b3261e',
   },
-} as const satisfies Record<ThemeName, Record<string, string>>;
-
-export type TokenName = keyof (typeof THEME_TOKENS)['dark'] | keyof typeof SHARED_TOKENS;
+};
 
 function declarations(tokens: Record<string, string>): string {
   return Object.entries(tokens)
