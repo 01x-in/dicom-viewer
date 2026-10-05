@@ -1,70 +1,240 @@
-import { createViewer, type ViewerOptions, type ViewportApi } from '@scope/viewer-core';
-import { type CSSProperties, type JSX, useEffect, useRef } from 'react';
+import type {
+  NavigateTarget,
+  PanelPlacement,
+  Viewer,
+  ViewerOptions,
+  ViewerStateV1,
+  ViewportApi,
+} from '@scope/viewer-core';
+import type {
+  DvViewerElement,
+  ThemeName,
+  ToolbarItem,
+  ViewerErrorDetail,
+  ViewerReadyDetail,
+} from '@scope/viewer-elements';
+import {
+  createElement,
+  type CSSProperties,
+  type JSX,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { ViewerContext } from './context';
+
+/** A side panel written in React. It is drawn into a portal, so it keeps the host's context. */
+export interface ReactPanel {
+  readonly title: string;
+  /** Default `right`. */
+  readonly placement?: PanelPlacement;
+  readonly render: () => ReactNode;
+}
 
 export interface DicomViewerProps {
+  /**
+   * A new object restarts the viewer: keep it stable (`useMemo`, or a module constant). `initialState`
+   * is merged into it when the viewer starts.
+   */
   readonly options: ViewerOptions;
   readonly studyInstanceUID: string;
-  readonly seriesInstanceUID: string;
-  readonly onReady?: (viewport: ViewportApi) => void;
-  readonly onError?: (error: Error) => void;
-  readonly className?: string;
-  readonly style?: CSSProperties;
+  /** Default: the series a restored `initialState` had, else the first with pictures. */
+  readonly seriesInstanceUID?: string | undefined;
+  /** Shows an instance, now and whenever the target changes, once the viewer is ready. */
+  readonly navigate?: NavigateTarget | undefined;
+  /** Read when the viewer starts. Later changes are ignored: use the viewer's API to change the view. */
+  readonly initialState?: ViewerStateV1 | undefined;
+  /** Called after every change of the state, with who made it. */
+  readonly onStateChange?: ((state: ViewerStateV1, origin: string) => void) | undefined;
+  /** Items for the toolbar, or `false` for none. Default: the built-in tools, actions and presets. */
+  readonly toolbar?: readonly ToolbarItem[] | false | undefined;
+  /** Extra side panels, by id. The series browser is built in. */
+  readonly panels?: Readonly<Record<string, ReactPanel>> | undefined;
+  readonly hideSeriesPanel?: boolean | undefined;
+  readonly theme?: ThemeName | undefined;
+  /** Slots of the shell. */
+  readonly banner?: ReactNode;
+  readonly toolbarStart?: ReactNode;
+  readonly toolbarEnd?: ReactNode;
+  readonly viewportOverlay?: ReactNode;
+  readonly emptyState?: ReactNode;
+  /** Set to the viewer when it is ready, and to `null` when it goes. */
+  readonly viewerRef?: Ref<Viewer | null> | undefined;
+  readonly onReady?: ((viewer: Viewer, viewport: ViewportApi | undefined) => void) | undefined;
+  readonly onError?: ((error: Error) => void) | undefined;
+  readonly className?: string | undefined;
+  readonly style?: CSSProperties | undefined;
+}
+
+function assignRef<T>(ref: Ref<T> | undefined, value: T): void {
+  if (typeof ref === 'function') ref(value);
+  else if (ref !== undefined && ref !== null) ref.current = value;
+}
+
+function targetKey(target: NavigateTarget | undefined): string {
+  return target === undefined
+    ? ''
+    : JSON.stringify([
+        target.seriesInstanceUID,
+        target.sopInstanceUID,
+        target.frameNumber,
+        target.viewportId,
+      ]);
 }
 
 /**
- * M1 spike of the React adapter. The viewer is created in an effect, so nothing touches the
- * browser during SSR and Next.js hosts need no `dynamic(..., { ssr: false })`.
+ * The styled viewer for React: `<dv-viewer>` with React props and slots. Nothing touches the browser
+ * during server rendering, so Next.js hosts need no `dynamic(..., { ssr: false })`: the element and
+ * the engine are loaded in an effect.
  */
 export function DicomViewer(props: DicomViewerProps): JSX.Element {
-  const { options, studyInstanceUID, seriesInstanceUID, className, style } = props;
-  const hostRef = useRef<HTMLDivElement>(null);
-  // Callbacks change identity every render; the effect must not restart for them. `options` is a
-  // real input, so a new object restarts the viewer: keep it stable (useMemo) in the host.
+  const { options, studyInstanceUID, seriesInstanceUID, className, style, theme } = props;
+  const elementRef = useRef<DvViewerElement | null>(null);
+  // Callbacks and render functions change identity every render; nothing may restart for them.
   const latest = useRef(props);
   latest.current = props;
+  const [defined, setDefined] = useState(false);
+  const [viewer, setViewer] = useState<Viewer | undefined>(undefined);
+  const [containers, setContainers] = useState<ReadonlyMap<string, HTMLElement>>(new Map());
 
   useEffect(() => {
-    const host = hostRef.current;
-    if (host === null) return;
     let cancelled = false;
-    const viewer = createViewer(options);
-    const fail = (error: unknown): void => {
-      if (!cancelled) {
-        latest.current.onError?.(error instanceof Error ? error : new Error(String(error)));
-      }
-    };
-    try {
-      viewer.viewports.attach('vp-0', host);
-    } catch (error) {
-      // A failure before the load starts: the viewer must not be left running.
-      viewer.destroy();
-      fail(error);
-      return;
-    }
-    viewer
-      .setState({
-        studyInstanceUID,
-        viewports: [{ id: 'vp-0', seriesInstanceUID }],
-      })
-      .then(
-        () => {
-          const viewport = viewer.viewports.get('vp-0');
-          if (!cancelled && viewport !== undefined) latest.current.onReady?.(viewport);
-        },
-        (error: unknown) => {
-          // A viewer that failed to load must not keep its engine, workers, or cache while the
-          // component stays mounted. Destroying twice is safe, so the effect cleanup still runs.
-          viewer.destroy();
-          fail(error);
-        },
-      );
+    import('@scope/viewer-elements/define').then(
+      () => {
+        if (!cancelled) setDefined(true);
+      },
+      (error: unknown) => {
+        if (!cancelled) {
+          latest.current.onError?.(error instanceof Error ? error : new Error(String(error)));
+        }
+      },
+    );
     return (): void => {
       cancelled = true;
-      viewer.destroy();
     };
-  }, [options, studyInstanceUID, seriesInstanceUID]);
+  }, []);
+
+  // The inputs go in together, so the element starts once.
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!defined || element === null) return;
+    const { initialState } = latest.current;
+    element.options = initialState === undefined ? options : { ...options, initialState };
+    element.studyInstanceUid = studyInstanceUID;
+    element.seriesInstanceUid = seriesInstanceUID;
+  }, [defined, options, studyInstanceUID, seriesInstanceUID]);
+
+  const { toolbar, hideSeriesPanel } = props;
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!defined || element === null) return;
+    element.theme = theme ?? 'dark';
+    element.hideToolbar = toolbar === false;
+    if (toolbar !== undefined && toolbar !== false) element.toolbarItems = toolbar;
+    element.hideSeriesPanel = hideSeriesPanel === true;
+  }, [defined, theme, toolbar, hideSeriesPanel]);
+
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!defined || element === null) return;
+    const onReady = (event: Event): void => {
+      const { viewer: ready, viewport } = (event as CustomEvent<ViewerReadyDetail>).detail;
+      setViewer(ready);
+      assignRef(latest.current.viewerRef, ready);
+      latest.current.onReady?.(ready, viewport);
+    };
+    const onTeardown = (): void => {
+      setViewer(undefined);
+      assignRef(latest.current.viewerRef, null);
+    };
+    const onError = (event: Event): void => {
+      latest.current.onError?.((event as CustomEvent<ViewerErrorDetail>).detail.error);
+    };
+    element.addEventListener('dv-ready', onReady);
+    element.addEventListener('dv-teardown', onTeardown);
+    element.addEventListener('dv-error', onError);
+    return (): void => {
+      element.removeEventListener('dv-ready', onReady);
+      element.removeEventListener('dv-teardown', onTeardown);
+      element.removeEventListener('dv-error', onError);
+    };
+  }, [defined]);
+
+  useEffect(() => {
+    if (viewer === undefined) return;
+    return viewer.on('state:changed', ({ state, origin }) => {
+      latest.current.onStateChange?.(state, origin);
+    });
+  }, [viewer]);
+
+  const navigateKey = targetKey(props.navigate);
+  useEffect(() => {
+    const target = latest.current.navigate;
+    if (viewer === undefined || target === undefined) return;
+    viewer.navigateTo(target).catch((error: unknown) => {
+      latest.current.onError?.(error instanceof Error ? error : new Error(String(error)));
+    });
+  }, [viewer, navigateKey]);
+
+  // Panels are registered by id, title, and side. Their content is a portal, drawn again on every render.
+  const panelKey = JSON.stringify(
+    Object.entries(props.panels ?? {}).map(([id, panel]) => [
+      id,
+      panel.title,
+      panel.placement ?? 'right',
+    ]),
+  );
+  useEffect(() => {
+    if (viewer === undefined) return;
+    const removers = Object.entries(latest.current.panels ?? {}).map(([id, panel]) =>
+      viewer.ui.registerPanel({
+        id,
+        title: panel.title,
+        placement: panel.placement ?? 'right',
+        mount: (container) => {
+          setContainers((current) => new Map(current).set(id, container));
+          return (): void => {
+            setContainers((current) => {
+              const next = new Map(current);
+              next.delete(id);
+              return next;
+            });
+          };
+        },
+      }),
+    );
+    return (): void => {
+      for (const remove of removers) remove();
+    };
+  }, [viewer, panelKey]);
+
+  const slot = (name: string, content: ReactNode): ReactNode =>
+    content === undefined || content === null || content === false
+      ? null
+      : createElement('div', { slot: name, key: name }, content);
 
   return (
-    <div ref={hostRef} className={className} style={{ width: '100%', height: '100%', ...style }} />
+    <ViewerContext.Provider value={viewer}>
+      {createElement(
+        'dv-viewer',
+        {
+          ref: elementRef,
+          className,
+          style: { display: 'block', width: '100%', height: '100%', ...style },
+        },
+        slot('banner', props.banner),
+        slot('toolbar-start', props.toolbarStart),
+        slot('toolbar-end', props.toolbarEnd),
+        slot('viewport-overlay', props.viewportOverlay),
+        slot('empty-state', props.emptyState),
+      )}
+      {Object.entries(props.panels ?? {}).map(([id, panel]) => {
+        const container = containers.get(id);
+        return container === undefined ? null : createPortal(panel.render(), container, id);
+      })}
+    </ViewerContext.Provider>
   );
 }
