@@ -1,5 +1,6 @@
 // Styled UI as Lit web components: the shell `<dv-viewer>` and its pieces. See docs/adr/0007-styled-shell.md.
 export { ELEMENT_PREFIX, elementTag } from './tags';
+export { DvMeasurementListElement, measurementName } from './measurement-list';
 export { DvPanelDockElement } from './panel-dock';
 export { describeSeries, DvSeriesBrowserElement, isDisplayableModality } from './series-browser';
 export { DvToolbarElement } from './toolbar';

@@ -17,6 +17,7 @@ import {
 } from 'lit';
 import { layoutCells } from './layout';
 import { createThrottledAnnouncer, describeViewport, type ThrottledAnnouncer } from './live-label';
+import type { DvMeasurementListElement } from './measurement-list';
 import { type DvSeriesBrowserElement, isDisplayableModality } from './series-browser';
 import { baseStyles, shellThemeStyles } from './theme';
 import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
@@ -37,7 +38,7 @@ export interface ViewerTeardownDetail {
 
 export interface ViewerErrorDetail {
   readonly error: Error;
-  /** Where it came from: loading, the toolbar, a panel, or what the viewer reports (`attach`, `cine`, `keyboard`). */
+  /** Where it came from: loading, the toolbar, a panel, or what the viewer reports (`attach`, `cine`, `keyboard`, `measurement`). */
   readonly context: string;
 }
 
@@ -79,6 +80,7 @@ export class DvViewerElement extends LitElement {
     toolbarItems: { attribute: false },
     hideToolbar: { type: Boolean, attribute: 'hide-toolbar' },
     hideSeriesPanel: { type: Boolean, attribute: 'hide-series-panel' },
+    hideMeasurementsPanel: { type: Boolean, attribute: 'hide-measurements-panel' },
     label: {},
     status: { reflect: true },
     shown: { state: true },
@@ -183,6 +185,7 @@ export class DvViewerElement extends LitElement {
   declare toolbarItems: readonly ToolbarItem[] | undefined;
   declare hideToolbar: boolean;
   declare hideSeriesPanel: boolean;
+  declare hideMeasurementsPanel: boolean;
   /** The accessible name of the viewer as a whole, a landmark. Default `DICOM viewer`. */
   declare label: string;
   declare status: ViewerStatus;
@@ -193,6 +196,7 @@ export class DvViewerElement extends LitElement {
   #generation = 0;
   #cleanups: (() => void)[] = [];
   #removeSeriesPanel: (() => void) | undefined;
+  #removeMeasurementsPanel: (() => void) | undefined;
   #announcer: ThrottledAnnouncer | undefined;
   #viewportElements: HTMLElement[] = [];
 
@@ -203,6 +207,7 @@ export class DvViewerElement extends LitElement {
     this.toolbarItems = undefined;
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
+    this.hideMeasurementsPanel = false;
     this.label = 'DICOM viewer';
     this.status = 'idle';
     this.shown = false;
@@ -241,6 +246,9 @@ export class DvViewerElement extends LitElement {
     if (changed.has('hideSeriesPanel') && this.#viewer !== undefined) {
       this.#syncSeriesPanel(this.#viewer);
     }
+    if (changed.has('hideMeasurementsPanel') && this.#viewer !== undefined) {
+      this.#syncMeasurementsPanel(this.#viewer);
+    }
   }
 
   #teardown(): void {
@@ -258,6 +266,8 @@ export class DvViewerElement extends LitElement {
     for (const stop of this.#cleanups.splice(0)) stop();
     this.#removeSeriesPanel?.();
     this.#removeSeriesPanel = undefined;
+    this.#removeMeasurementsPanel?.();
+    this.#removeMeasurementsPanel = undefined;
     this.#announcer?.cancel();
     this.#announcer = undefined;
     this.#viewer?.destroy();
@@ -360,6 +370,28 @@ export class DvViewerElement extends LitElement {
     });
   }
 
+  #syncMeasurementsPanel(viewer: Viewer): void {
+    if (this.hideMeasurementsPanel) {
+      this.#removeMeasurementsPanel?.();
+      this.#removeMeasurementsPanel = undefined;
+      return;
+    }
+    if (this.#removeMeasurementsPanel !== undefined) return;
+    this.#removeMeasurementsPanel = viewer.ui.registerPanel({
+      id: 'measurements',
+      title: 'Measurements',
+      placement: 'right',
+      mount: (container) => {
+        const list = document.createElement('dv-measurement-list') as DvMeasurementListElement;
+        list.viewer = viewer;
+        container.append(list);
+        return (): void => {
+          list.remove();
+        };
+      },
+    });
+  }
+
   async #load(): Promise<void> {
     const generation = (this.#generation += 1);
     this.#teardown();
@@ -391,6 +423,7 @@ export class DvViewerElement extends LitElement {
         }),
       );
       this.#syncSeriesPanel(viewer);
+      this.#syncMeasurementsPanel(viewer);
       // A throw here (and any later one) lands in the catch below, which reports it.
       this.#createViewportElements(viewer);
       await viewer.loadStudy(study);
