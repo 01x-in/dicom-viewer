@@ -1,3 +1,4 @@
+import { DvSeriesBrowserElement } from './series-browser';
 import { elementTag } from './tags';
 import { DvToolbarElement } from './toolbar';
 import { DvViewerElement } from './viewer-element';
@@ -9,3 +10,4 @@ function define(name: string, constructor: CustomElementConstructor): void {
 
 define('viewer', DvViewerElement);
 define('toolbar', DvToolbarElement);
+define('series-browser', DvSeriesBrowserElement);
