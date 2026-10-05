@@ -198,6 +198,9 @@ describe('<DicomViewer>', () => {
     });
     element().addEventListener('dv-teardown', teardown, { once: true });
     await render({ viewerRef, studyInstanceUID: '1.2.4' });
+    // The listener ran: the ref was already empty when the old viewer was announced as going.
+    expect(teardown).toHaveBeenCalledOnce();
+    expect(seen).toEqual([made[0]?.viewer, null]);
     expect(viewerRef.current).toBe(made[1]?.viewer);
   });
 
