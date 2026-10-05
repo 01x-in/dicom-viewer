@@ -82,6 +82,16 @@ describe('setWindow', () => {
     expect(vp0(h.viewer)).not.toHaveProperty('window');
   });
 
+  it('answers a value that is not a number with a RangeError, not a TypeError of its own', async () => {
+    const h = harness();
+    const { api } = await shown(h);
+    const notANumber = (value: unknown): number => value as number;
+    await expect(api.setWindow(notANumber(null), 400)).rejects.toThrow(RangeError);
+    await expect(api.setWindow(40, notANumber(undefined))).rejects.toThrow(RangeError);
+    await expect(api.setZoom(notANumber(null))).rejects.toThrow(RangeError);
+    await expect(api.zoomBy(notANumber(undefined))).rejects.toThrow(RangeError);
+  });
+
   it('fails clearly for a viewport that shows nothing', async () => {
     const h = harness();
     h.viewer.viewports.attach('vp-0', h.element);

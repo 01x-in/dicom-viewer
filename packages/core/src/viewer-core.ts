@@ -719,7 +719,7 @@ export function createViewerCore(
         if (!Number.isFinite(center) || !Number.isFinite(width) || width <= 0) {
           return Promise.reject(
             new RangeError(
-              `A window needs a finite center and a width above zero, not ${center.toString()}/${width.toString()}.`,
+              `A window needs a finite center and a width above zero, not ${String(center)}/${String(width)}.`,
             ),
           );
         }
@@ -737,9 +737,7 @@ export function createViewerCore(
         }),
       setZoom(zoom): Promise<void> {
         if (!Number.isFinite(zoom) || zoom <= 0) {
-          return Promise.reject(
-            new RangeError(`A zoom must be above zero, not ${zoom.toString()}.`),
-          );
+          return Promise.reject(new RangeError(`A zoom must be above zero, not ${String(zoom)}.`));
         }
         return viewApi((port) => {
           port.setZoom(clampZoom(zoom));
@@ -748,7 +746,7 @@ export function createViewerCore(
       zoomBy(factor): Promise<void> {
         if (!Number.isFinite(factor) || factor <= 0) {
           return Promise.reject(
-            new RangeError(`A zoom factor must be above zero, not ${factor.toString()}.`),
+            new RangeError(`A zoom factor must be above zero, not ${String(factor)}.`),
           );
         }
         return viewApi((port) => {
@@ -854,12 +852,21 @@ export function createViewerCore(
   ): Promise<void> {
     try {
       assertDicomUid(seriesInstanceUID, 'SeriesInstanceUID');
+      // The state must hold a slice number the schema accepts, whatever a host without types passes.
+      const { imageIndex } = seriesOptions;
+      if (imageIndex !== undefined && !Number.isInteger(imageIndex)) {
+        throw new RangeError(`A slice number is a whole number, not ${String(imageIndex)}.`);
+      }
     } catch (error) {
       return Promise.reject(toError(error));
     }
+    // Below the first slice is the first slice, as above the last is the last.
+    const wanted = seriesOptions.imageIndex;
+    const normalized =
+      wanted === undefined ? seriesOptions : { ...seriesOptions, imageIndex: Math.max(0, wanted) };
     // The state changes inside the queue, so each call is checked against, and applied on top of,
     // the calls made before it.
-    return enqueue(() => applySeries(viewportId, seriesInstanceUID, seriesOptions));
+    return enqueue(() => applySeries(viewportId, seriesInstanceUID, normalized));
   }
 
   function navigateTo(target: NavigateTarget): Promise<NavigateResult> {

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { DataSourceError } from './data/errors';
 import { CT, CT_TWO_STACKS, fakeSource, SEG, STUDY } from './testing/fakes';
 import { destroyViewersAfterEach, harness, track, vp0 } from './testing/harness';
-import type { ViewerStateV1 } from './state/viewer-state';
+import { parseViewerState, type ViewerStateV1 } from './state/viewer-state';
 import { createViewerCore, type Viewer } from './viewer-core';
 import type { Harness } from './testing/harness';
 
@@ -172,6 +172,22 @@ describe('showing a series', () => {
     await viewer.loadStudy(STUDY);
     await viewer.setViewportSeries('vp-0', CT, { imageIndex: 99 });
     expect(vp0(viewer)?.imageIndex).toBe(9);
+  });
+
+  it('keeps a slice number the schema would refuse out of the state', async () => {
+    const { viewer, element } = harness();
+    viewer.viewports.attach('vp-0', element);
+    await viewer.loadStudy(STUDY);
+    for (const bad of [Number.NaN, 1.5, Number.POSITIVE_INFINITY]) {
+      await expect(viewer.setViewportSeries('vp-0', CT, { imageIndex: bad })).rejects.toThrow(
+        RangeError,
+      );
+    }
+    expect(vp0(viewer)).toEqual({ id: 'vp-0' });
+    // Below the first slice is the first, as above the last is the last.
+    await viewer.setViewportSeries('vp-0', CT, { imageIndex: -4 });
+    expect(vp0(viewer)?.imageIndex).toBe(0);
+    expect(parseViewerState(viewer.getState()).ok).toBe(true);
   });
 
   it('destroys the old stack before it draws the new series into the same element', async () => {
