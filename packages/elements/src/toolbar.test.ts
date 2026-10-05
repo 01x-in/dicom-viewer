@@ -77,13 +77,14 @@ describe('<dv-toolbar>', () => {
     expect(bar?.getAttribute('aria-orientation')).toBe('horizontal');
   });
 
-  it('shows the four tools, the actions, and the presets menu by default', async () => {
+  it('shows the four tools, the measure menu, the actions, and the presets menu by default', async () => {
     const { toolbar } = await mount();
     expect(buttons(toolbar).map((item) => item.textContent.trim())).toEqual([
       'Window / level',
       'Pan',
       'Zoom',
       'Scroll',
+      'Measure',
       'Zoom in',
       'Zoom out',
       'Invert',
@@ -102,7 +103,7 @@ describe('<dv-toolbar>', () => {
     expect(toolbar.shadowRoot?.activeElement).toBe(all[1]);
     await toolbar.updateComplete;
     expect(buttons(toolbar).map((item) => item.tabIndex)).toEqual([
-      -1, 0, -1, -1, -1, -1, -1, -1, -1, -1,
+      -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     ]);
     press(nth(buttons(toolbar), 1), 'End');
     expect(toolbar.shadowRoot?.activeElement).toBe(buttons(toolbar).at(-1));
@@ -191,6 +192,77 @@ describe('<dv-toolbar>', () => {
     expect(toolbar.shadowRoot?.querySelector('#note')?.textContent).toBe('hi');
     expect(toolbar.shadowRoot?.querySelector('slot[name="start"]')).not.toBeNull();
     expect(toolbar.shadowRoot?.querySelector('slot[name="end"]')).not.toBeNull();
+  });
+});
+
+describe('the measure menu', () => {
+  const opener = (toolbar: DvToolbarElement): HTMLButtonElement =>
+    button(toolbar, '[data-menu-id="measure"]');
+  const entries = (toolbar: DvToolbarElement): HTMLElement[] => [
+    ...(toolbar.shadowRoot?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? []),
+  ];
+
+  it('lists the six measurement tools as a group of choices, none of them chosen to begin with', async () => {
+    const { toolbar } = await mount();
+    expect(opener(toolbar).hasAttribute('data-active')).toBe(false);
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    expect(entries(toolbar).map((item) => item.textContent.trim())).toEqual([
+      'Length',
+      'Bidirectional',
+      'Ellipse',
+      'Rectangle',
+      'Probe',
+      'Angle',
+    ]);
+    expect(entries(toolbar).every((item) => item.getAttribute('aria-checked') === 'false')).toBe(
+      true,
+    );
+  });
+
+  it('gives the left button to the tool that is chosen, and shows the choice on the menu and its button', async () => {
+    const { toolbar, fake } = await mount();
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    entries(toolbar)[2]?.click();
+    await toolbar.updateComplete;
+    await toolbar.updateComplete;
+
+    expect(fake.viewer.tools.getActive()).toBe('ellipse');
+    expect(opener(toolbar).getAttribute('data-active')).toBe('true');
+    // The menu closed and the focus came back to its button.
+    expect(toolbar.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+    expect(toolbar.shadowRoot?.activeElement).toBe(opener(toolbar));
+
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    expect(entries(toolbar).map((item) => item.getAttribute('aria-checked'))).toEqual([
+      'false',
+      'false',
+      'true',
+      'false',
+      'false',
+      'false',
+    ]);
+  });
+
+  it('stops showing the choice when another tool takes the left button', async () => {
+    const { toolbar, fake } = await mount();
+    await fake.viewer.tools.setActive('angle');
+    await toolbar.updateComplete;
+    expect(opener(toolbar).getAttribute('data-active')).toBe('true');
+    await fake.viewer.tools.setActive('pan');
+    await toolbar.updateComplete;
+    expect(opener(toolbar).hasAttribute('data-active')).toBe(false);
+  });
+
+  it('can be chosen from before a series is shown', async () => {
+    const { toolbar, fake } = await mount({ withSeries: false });
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    entries(toolbar)[0]?.click();
+    await toolbar.updateComplete;
+    expect(fake.viewer.tools.getActive()).toBe('length');
   });
 });
 

@@ -82,7 +82,9 @@ export class DvToolbarElement extends LitElement {
         min-height: 2rem;
         cursor: pointer;
       }
-      button[aria-pressed='true'] {
+      button[aria-pressed='true'],
+      button[data-active='true'],
+      [role='menu'] button[aria-checked='true'] {
         background: var(--dv-color-accent, #5aa9ff);
         border-color: var(--dv-color-accent, #5aa9ff);
         color: var(--dv-color-accent-text, #06121f);
@@ -356,11 +358,9 @@ export class DvToolbarElement extends LitElement {
 
   #renderMenu(item: MenuItem, context: ToolbarContext, at: number): TemplateResult {
     const open = this.openMenu === item.id;
-    const entries = open
-      ? typeof item.items === 'function'
-        ? item.items(context)
-        : item.items
-      : [];
+    const entries = typeof item.items === 'function' ? item.items(context) : item.items;
+    // A menu that has a chosen entry shows it on its button, closed or open.
+    const active = entries.some((entry) => entry.pressed?.(context) === true);
     return html`<div class="menu-wrap">
       <button
         type="button"
@@ -371,6 +371,7 @@ export class DvToolbarElement extends LitElement {
         tabindex=${this.#roving(at)}
         aria-haspopup="menu"
         aria-expanded=${open ? 'true' : 'false'}
+        data-active=${active ? 'true' : nothing}
         @click=${(): void => {
           this.#openMenu(open ? undefined : item.id, false);
         }}
@@ -380,10 +381,12 @@ export class DvToolbarElement extends LitElement {
       ${
         open
           ? html`<div role="menu" part="menu" aria-labelledby=${`dv-menu-button-${item.id}`}>
-            ${entries.map(
-              (entry) => html`<button
+            ${entries.map((entry) => {
+              const chosen = entry.pressed?.(context);
+              return html`<button
                 type="button"
-                role="menuitem"
+                role=${chosen === undefined ? 'menuitem' : 'menuitemradio'}
+                aria-checked=${chosen === undefined ? nothing : chosen ? 'true' : 'false'}
                 part="menu-item"
                 tabindex="-1"
                 data-action=${entry.id}
@@ -395,8 +398,8 @@ export class DvToolbarElement extends LitElement {
                 }}
               >
                 ${entry.label}
-              </button>`,
-            )}
+              </button>`;
+            })}
           </div>`
           : nothing
       }

@@ -119,6 +119,25 @@ const PRESETS: MenuItem = {
     })),
 };
 
+/** The measurement tools as a menu: the left mouse button draws the one that is chosen. */
+const MEASURE: MenuItem = {
+  type: 'menu',
+  id: 'measure',
+  label: 'Measure',
+  items: ({ viewer }) =>
+    viewer.tools
+      .list()
+      .filter((tool) => tool.kind === 'measure')
+      .map((tool) => ({
+        id: `tool-${tool.id}`,
+        label: tool.label,
+        // Choosing a tool needs no series, so it works before one is shown.
+        enabled: () => true,
+        run: () => viewer.tools.setActive(tool.id),
+        pressed: () => viewer.tools.getActive() === tool.id,
+      })),
+};
+
 /** The built-in actions, to put in a toolbar of your own. */
 export const TOOLBAR_ACTIONS: {
   readonly zoomIn: ActionItem;
@@ -127,6 +146,7 @@ export const TOOLBAR_ACTIONS: {
   readonly reset: ActionItem;
   readonly cine: ActionItem;
   readonly presets: MenuItem;
+  readonly measure: MenuItem;
 } = {
   zoomIn: ZOOM_IN,
   zoomOut: ZOOM_OUT,
@@ -134,6 +154,7 @@ export const TOOLBAR_ACTIONS: {
   reset: RESET,
   cine: CINE,
   presets: PRESETS,
+  measure: MEASURE,
 };
 
 /** What `<dv-toolbar>` shows unless it is given other items. */
@@ -142,6 +163,8 @@ export const DEFAULT_TOOLBAR: readonly ToolbarItem[] = [
   { type: 'tool', tool: 'pan' },
   { type: 'tool', tool: 'zoom' },
   { type: 'tool', tool: 'stack-scroll' },
+  { type: 'separator' },
+  MEASURE,
   { type: 'separator' },
   ZOOM_IN,
   ZOOM_OUT,
