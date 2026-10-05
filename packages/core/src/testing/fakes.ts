@@ -28,7 +28,12 @@ function instances(series: string, stack: number, count: number): SeriesInstance
     sopInstanceUID: `${series}.${stack.toString()}.${index.toString()}`,
     instanceNumber: index + 1,
     imageId: `fake:${series}/${stack.toString()}/${index.toString()}`,
-    metadata: {},
+    metadata: {
+      '00280010': { vr: 'US', Value: [256] },
+      '00280011': { vr: 'US', Value: [512] },
+      '00100010': { vr: 'PN', Value: [{ Alphabetic: 'DOE^JANE^^^' }] },
+      '00100020': { vr: 'LO', Value: ['ID-7'] },
+    },
   }));
 }
 

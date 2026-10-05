@@ -31,6 +31,13 @@ import {
   type KeyAction,
   type KeybindingOverrides,
 } from './keyboard';
+import {
+  createOverlayView,
+  describeOverlay,
+  overlayLines,
+  type OverlayOptions,
+  type OverlayView,
+} from './overlay';
 import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 
@@ -182,6 +189,8 @@ export interface ViewerCoreOptions {
    * they have one, and focuses them on a pointer press.
    */
   readonly keybindings?: false | KeybindingOverrides;
+  /** The text drawn over each viewport (series, image size, window, slice number), or `false` for none. */
+  readonly overlay?: false | OverlayOptions;
   /** Replaces the usual CT windows (lung, soft tissue, bone, brain, liver). */
   readonly windowLevelPresets?: readonly WindowPreset[];
 }
@@ -196,6 +205,9 @@ interface Shown {
   lastIndex: number;
   /** The view last reported, so only what changed is announced. */
   view: ViewSnapshot;
+  readonly modality: string;
+  readonly description: string | undefined;
+  overlay: OverlayView | undefined;
 }
 
 interface Runtime {
@@ -257,6 +269,8 @@ export function createViewerCore(
   let activeTool: PrimaryTool = initialTool;
   const windowPresets = options.windowLevelPresets ?? DEFAULT_WINDOW_PRESETS;
   assertWindowPresets(windowPresets);
+  const overlayOptions: OverlayOptions | undefined =
+    options.overlay === false ? undefined : (options.overlay ?? {});
   const keymap =
     options.keybindings === false
       ? undefined
@@ -316,8 +330,29 @@ export function createViewerCore(
     if (shown === undefined) return;
     runtime.shown = undefined;
     runtime.cine?.stop();
+    shown.overlay?.destroy();
     shown.off();
     shown.port.destroy();
+  }
+
+  /** Redraws the text over the picture from what is on screen now. */
+  function updateOverlay(shown: Shown): void {
+    if (shown.overlay === undefined || overlayOptions === undefined || shown.lastIndex < 0) return;
+    const metadata = shown.stack.instances[shown.lastIndex]?.metadata;
+    if (metadata === undefined) return;
+    shown.overlay.update(
+      overlayLines(
+        describeOverlay({
+          modality: shown.modality,
+          seriesDescription: shown.description,
+          metadata,
+          imageIndex: shown.lastIndex,
+          imageCount: shown.stack.imageIds.length,
+          view: shown.view,
+        }),
+        overlayOptions,
+      ),
+    );
   }
 
   function reportImage(
@@ -329,6 +364,7 @@ export function createViewerCore(
   ): void {
     if (shown.lastIndex === index) return;
     shown.lastIndex = index;
+    updateOverlay(shown);
     updateViewport(runtime.id, { ...alsoInState, imageIndex: index }, origin);
     events.emit('viewport:image', {
       viewportId: runtime.id,
@@ -348,6 +384,7 @@ export function createViewerCore(
   ): void {
     const previous = shown.view;
     shown.view = view;
+    updateOverlay(shown);
     const changes = viewChanges(viewportState(runtime.id) ?? { id: runtime.id }, view);
     if (Object.keys(changes).length > 0) updateViewport(runtime.id, changes, origin);
     if (!sameWindow(previous.window, view.window) || previous.invert !== view.invert) {
@@ -485,6 +522,9 @@ export function createViewerCore(
         off: noop,
         lastIndex: -1,
         view: stackPort.getView(),
+        modality: series.modality,
+        description: series.description,
+        overlay: overlayOptions === undefined ? undefined : createOverlayView(element),
       };
       const offImage = stackPort.onImageChange((index) => {
         reportImage(
@@ -508,6 +548,7 @@ export function createViewerCore(
       applyView(runtime, viewportState(id) ?? desired, origin);
     } catch (error) {
       // A viewport that failed shows nothing, and the state must not claim otherwise.
+      teardown(runtime);
       if (!destroyed) {
         updateViewport(
           id,
