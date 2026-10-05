@@ -1126,6 +1126,37 @@ async function scenarioMeasurements(browser: Browser, input: HeadlessInput): Pro
         failures.push(`reshaping made ${String(reshaped?.length)} measurements`);
       within(run, 'reshaped ellipse mean', reshaped?.[0]?.stats?.meanHu, 40, 0.5);
     }
+    // With another tool on the left button, the handles of a measurement still answer to it, and
+    // the drag changes the shape, not the window.
+    await page.evaluate(() => window.__dvViewer?.tools.setActive('window-level'));
+    const resting = await page.evaluate(() => window.__dvViewer?.measurements.list()[0]);
+    const rightHandle = resting?.points[3];
+    if (resting === undefined || rightHandle === undefined) {
+      failures.push('no ellipse is left to reshape with another tool active');
+    } else {
+      const handle = pixelOf(onScreen, rightHandle);
+      const at = {
+        x: centre.x + (handle.column - 63.5) * screenPerPixel,
+        y: centre.y + (handle.row - 63.5) * screenPerPixel,
+      };
+      const windowBeforePassive = await view(page);
+      await dragBetween(page, at, { x: at.x + 4 * screenPerPixel, y: at.y });
+      const moved = await page.evaluate(() => window.__dvViewer?.measurements.list());
+      const movedBy =
+        Math.abs((moved?.[0]?.points[3]?.[0] ?? rightHandle[0] ?? 0) - (rightHandle[0] ?? 0)) /
+        PIXEL_MM;
+      if (moved?.length !== 1)
+        failures.push(`reshaping with window / level made ${String(moved?.length)} measurements`);
+      within(run, 'the handle moved by (image pixels)', movedBy, 4, 1);
+      const windowAfterPassive = await view(page);
+      if (
+        windowBeforePassive !== undefined &&
+        windowAfterPassive !== undefined &&
+        windowBeforePassive.window.center !== windowAfterPassive.window.center
+      ) {
+        failures.push('dragging a handle with window / level active changed the window');
+      }
+    }
     await page.evaluate(() => window.__dvViewer?.measurements.clear());
     await page.evaluate(() => window.__dvViewer?.tools.setActive('window-level'));
   } catch (error) {
