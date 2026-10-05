@@ -24,6 +24,13 @@ import {
   type ToolInfo,
 } from './tools';
 import { assertWindowPresets, DEFAULT_WINDOW_PRESETS, type WindowPreset } from './window-presets';
+import {
+  buildKeymap,
+  chordOf,
+  isTypingTarget,
+  type KeyAction,
+  type KeybindingOverrides,
+} from './keyboard';
 import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 
@@ -60,7 +67,7 @@ export interface ViewerEvents {
     readonly origin: StateOrigin;
   };
   /** A failure that no call is waiting for, such as restoring `initialState` once an element is attached. */
-  error: { readonly error: Error; readonly context: 'attach' | 'cine' };
+  error: { readonly error: Error; readonly context: 'attach' | 'cine' | 'keyboard' };
 }
 
 /** Fields to change. Viewports are matched by id; a field you leave out stays as it is. */
@@ -169,6 +176,12 @@ export interface ViewerCoreOptions {
     /** The tool the left mouse button drives at the start. Default: window / level. */
     readonly active?: PrimaryTool;
   };
+  /**
+   * Keyboard shortcuts, active while a viewport element has the focus: the defaults changed by these
+   * (`null` removes one), or `false` for none. The viewer gives its elements a `tabindex` of 0 unless
+   * they have one, and focuses them on a pointer press.
+   */
+  readonly keybindings?: false | KeybindingOverrides;
   /** Replaces the usual CT windows (lung, soft tissue, bone, brain, liver). */
   readonly windowLevelPresets?: readonly WindowPreset[];
 }
@@ -195,6 +208,7 @@ interface Runtime {
   shown: Shown | undefined;
   api: ViewportApi | undefined;
   cine: CineController | undefined;
+  stopKeys: (() => void) | undefined;
 }
 
 const noop = (): void => undefined;
@@ -243,6 +257,10 @@ export function createViewerCore(
   let activeTool: PrimaryTool = initialTool;
   const windowPresets = options.windowLevelPresets ?? DEFAULT_WINDOW_PRESETS;
   assertWindowPresets(windowPresets);
+  const keymap =
+    options.keybindings === false
+      ? undefined
+      : buildKeymap(windowPresets, options.keybindings ?? {});
   const store = createStore<ViewerStateV1>(initial?.state ?? createInitialState());
   const events = createEmitter<ViewerEvents>();
   store.onChange((state, previous, origin) => {
@@ -816,6 +834,64 @@ export function createViewerCore(
     },
   };
 
+  function perform(api: ViewportApi, action: KeyAction): Promise<void> {
+    switch (action.type) {
+      case 'scroll':
+        return api.scrollBy(action.by);
+      case 'scroll-to':
+        return api.setImageIndex(action.position === 'first' ? 0 : api.imageCount - 1);
+      case 'zoom':
+        return api.zoomBy(action.factor);
+      case 'invert':
+        return api.toggleInvert();
+      case 'reset':
+        return api.resetView();
+      case 'cine':
+        if (api.cine.playing) {
+          api.cine.stop();
+          return Promise.resolve();
+        }
+        return api.cine.play();
+      case 'tool':
+        return tools.setActive(action.tool);
+      case 'preset':
+        return api.applyWindowPreset(action.id);
+    }
+  }
+
+  // Keys held down repeat; scrolling and zooming should, a toggle should not.
+  const repeatable = new Set<KeyAction['type']>(['scroll', 'zoom']);
+
+  /** Listens for shortcuts on one viewport element. Returns what undoes it. */
+  function listenForKeys(runtime: Runtime, element: HTMLElement): () => void {
+    if (keymap === undefined) return noop;
+    const addedTabIndex = !element.hasAttribute('tabindex');
+    if (addedTabIndex) element.tabIndex = 0;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || isTypingTarget(event.target)) return;
+      const chord = chordOf(event);
+      const action = chord === undefined ? undefined : keymap.get(chord);
+      const { api } = runtime;
+      // With nothing on screen there is nothing to act on, and the key is not ours to swallow.
+      if (action === undefined || api === undefined || runtime.shown === undefined) return;
+      event.preventDefault();
+      if (event.repeat && !repeatable.has(action.type)) return;
+      perform(api, action).catch((error: unknown) => {
+        if (!destroyed) events.emit('error', { error: toError(error), context: 'keyboard' });
+      });
+    };
+    const onPointerDown = (): void => {
+      element.focus({ preventScroll: true });
+    };
+    element.addEventListener('keydown', onKeyDown);
+    element.addEventListener('pointerdown', onPointerDown);
+    return (): void => {
+      element.removeEventListener('keydown', onKeyDown);
+      element.removeEventListener('pointerdown', onPointerDown);
+      if (addedTabIndex) element.removeAttribute('tabindex');
+    };
+  }
+
   const viewports: ViewportsApi = {
     attach(viewportId, element): void {
       assertAlive();
@@ -830,11 +906,14 @@ export function createViewerCore(
           shown: undefined,
           api: undefined,
           cine: undefined,
+          stopKeys: undefined,
         };
         runtimes.set(viewportId, runtime);
       }
       if (runtime.element === element) return;
+      runtime.stopKeys?.();
       runtime.element = element;
+      runtime.stopKeys = listenForKeys(runtime, element);
       runtime.api ??= apiFor(runtime);
       // Anything drawn into a previous element is replaced when this runs.
       enqueue(() => syncViewport(viewportId)).catch((error: unknown) => {
@@ -845,6 +924,8 @@ export function createViewerCore(
       const runtime = runtimes.get(viewportId);
       if (runtime === undefined) return;
       runtimes.delete(viewportId);
+      runtime.stopKeys?.();
+      runtime.stopKeys = undefined;
       runtime.element = undefined;
       runtime.api = undefined;
       if (!destroyed) {
@@ -873,7 +954,10 @@ export function createViewerCore(
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
-      for (const runtime of runtimes.values()) teardown(runtime);
+      for (const runtime of runtimes.values()) {
+        runtime.stopKeys?.();
+        teardown(runtime);
+      }
       runtimes.clear();
       seriesCache.clear();
       events.clear();

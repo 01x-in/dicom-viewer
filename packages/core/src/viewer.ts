@@ -29,6 +29,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     {
       dataSource,
       ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
+      ...(options.keybindings === undefined ? {} : { keybindings: options.keybindings }),
       ...(options.tools === undefined ? {} : { tools: options.tools }),
       ...(options.windowLevelPresets === undefined
         ? {}

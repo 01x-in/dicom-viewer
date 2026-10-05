@@ -39,6 +39,8 @@ export {
   viewerStateV1Schema,
 } from './state/viewer-state';
 export type { ParseResult, ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
+export { DEFAULT_KEYBINDINGS } from './keyboard';
+export type { KeyAction, KeybindingOverrides } from './keyboard';
 export { DEFAULT_CINE_FPS, MAX_CINE_FPS } from './cine';
 export type { CineApi, CineOptions } from './cine';
 export { PRIMARY_TOOLS } from './tools';
