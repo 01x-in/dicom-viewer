@@ -26,4 +26,9 @@ export type { ViewportDescription } from './live-label';
 export { THEMES } from './tokens';
 export type { ThemeName, TokenName } from './tokens';
 export { DvViewerElement } from './viewer-element';
-export type { ViewerErrorDetail, ViewerReadyDetail, ViewerStatus } from './viewer-element';
+export type {
+  ViewerErrorDetail,
+  ViewerReadyDetail,
+  ViewerStatus,
+  ViewerTeardownDetail,
+} from './viewer-element';

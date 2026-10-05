@@ -2,7 +2,12 @@
 import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@scope/viewer-core/testing';
 import type { ViewerOptions, ViewerStateV1 } from '@scope/viewer-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DvViewerElement, ViewerErrorDetail, ViewerReadyDetail } from './viewer-element';
+import type {
+  DvViewerElement,
+  ViewerErrorDetail,
+  ViewerReadyDetail,
+  ViewerTeardownDetail,
+} from './viewer-element';
 
 const made: FakeViewer[] = [];
 let holdRenders: { release(): void } | undefined;
@@ -204,6 +209,33 @@ describe('<dv-viewer> lifecycle', () => {
     await settle(element);
     expect(made).toHaveLength(2);
     expect(element.status).toBe('ready');
+  });
+
+  it('says a viewer is going before it is destroyed, once per viewer', async () => {
+    const element = create();
+    element.options = options();
+    element.studyInstanceUid = FAKE_IDS.study;
+    await settle(element);
+    const events: string[] = [];
+    element.addEventListener('dv-teardown', (event) => {
+      const { viewer } = (event as CustomEvent<ViewerTeardownDetail>).detail;
+      events.push(viewer === viewerAt(0) ? 'first' : 'other');
+    });
+    vi.spyOn(viewerAt(0), 'destroy').mockImplementation(() => {
+      events.push('destroyed');
+    });
+    element.studyInstanceUid = '1.2.4';
+    await settle(element);
+    expect(events).toEqual(['first', 'destroyed']);
+    // Removing an input says the same of the viewer that replaced it, and nothing once none is left.
+    events.length = 0;
+    element.studyInstanceUid = undefined;
+    await settle(element);
+    expect(events).toEqual(['other']);
+    events.length = 0;
+    element.wadoRoot = 'http://pacs';
+    await settle(element);
+    expect(events).toEqual([]);
   });
 
   it('passes on what the viewer reports with nobody waiting, as dv-error', async () => {

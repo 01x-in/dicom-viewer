@@ -30,6 +30,11 @@ export interface ViewerReadyDetail {
   readonly viewport: ViewportApi | undefined;
 }
 
+export interface ViewerTeardownDetail {
+  /** The viewer that is about to be destroyed. */
+  readonly viewer: Viewer;
+}
+
 export interface ViewerErrorDetail {
   readonly error: Error;
   /** Where it came from: loading, the toolbar, a panel, or what the viewer reports (`attach`, `cine`, `keyboard`). */
@@ -58,7 +63,8 @@ function toError(error: unknown): Error {
  * Give it `options` (a `ViewerOptions`) or `wado-root`, and a `study-uid`. Without a `series-uid`
  * it shows the first series that has pictures. Size it: it fills its parent's height.
  *
- * Slots: `banner`, `toolbar-start`, `toolbar-end`, `panel-left`, `panel-right`, `viewport-overlay`,
+ * Events: `dv-ready` (`{ viewer, viewport }`), `dv-teardown` (`{ viewer }`, before it is destroyed), and `dv-error`
+ * (`{ error, context }`). Slots: `banner`, `toolbar-start`, `toolbar-end`, `panel-left`, `panel-right`, `viewport-overlay`,
  * `empty-state`. Parts: `shell`, `banner`, `body`, `stage`, and those of the toolbar and panels.
  */
 export class DvViewerElement extends LitElement {
@@ -234,6 +240,17 @@ export class DvViewerElement extends LitElement {
   }
 
   #teardown(): void {
+    // Told first, while the viewer still works, so a host can let go of it (an adapter drops its
+    // subscriptions and its reference).
+    if (this.#viewer !== undefined) {
+      this.dispatchEvent(
+        new CustomEvent<ViewerTeardownDetail>('dv-teardown', {
+          detail: { viewer: this.#viewer },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    }
     for (const stop of this.#cleanups.splice(0)) stop();
     this.#removeSeriesPanel?.();
     this.#removeSeriesPanel = undefined;
