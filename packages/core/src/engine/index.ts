@@ -27,7 +27,7 @@ import type {
   WindowLevel,
 } from '../rendering-port';
 import { isLocalFileImageId, registerLocalFile } from './local-files';
-import { utilities as toolsUtilities } from '@cornerstonejs/tools';
+import { annotation as annotationApi, utilities as toolsUtilities } from '@cornerstonejs/tools';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';
 import type { RuntimeOptions } from './runtime';
 import { parseSegmentation } from './segmentation';
@@ -118,6 +118,7 @@ provideEngineDiagnostics(() => {
     ),
     activeEngines: activeViewers(),
     imagesInUse: imageUsers.size,
+    annotations: annotationApi.state.getAllAnnotations().length,
   };
 });
 
