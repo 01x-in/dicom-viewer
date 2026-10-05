@@ -242,3 +242,12 @@ Reference files:
 - **Prefetching** is Cornerstone's `stackPrefetch`, 64 slices either way by default; it has one setting per page.
 - **Runtime release** waits for loads in flight before it stops the workers (ADR 0005).
 - Still open: Safari and Firefox, React 18, the package name, touch input, cancellation of a started request, and whether the default keys should match OHIF exactly.
+
+## M4 outcome
+
+**Done**, with the limits in [m4-report.md](m4-report.md); the decisions are in [ADR 0007](adr/0007-styled-shell.md). Changes to this plan that came out of the milestone:
+- **The shell is chrome in shadow DOM and viewports in light DOM, shown through slots.** The adapters wrap `<dv-viewer>`, so one UI codebase serves vanilla, React, and Vue.
+- **`viewer.ui.registerPanel` lives in the core**, as data, so a headless host can use it. `viewer.thumbnails.get` draws on the CPU through the rendering port.
+- **`@scope/viewer-core/testing`** is a real viewer on a fake engine, for tests of hosts and adapters.
+- **The controlled `state` prop moves to M5 to M7**, with the state it controls. `Viewer.ui` has panels only; slots are the shell's.
+- Still open: Safari and Firefox, React 18, the package name, touch input, and whether the default keys should match OHIF exactly.
