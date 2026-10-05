@@ -23,6 +23,7 @@ import type {
   WindowLevel,
 } from '../rendering-port';
 import { isLocalFileImageId, registerLocalFile } from './local-files';
+import { utilities as toolsUtilities } from '@cornerstonejs/tools';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';
 import type { RuntimeOptions } from './runtime';
 import { parseSegmentation } from './segmentation';
@@ -113,6 +114,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     let viewportId: string | undefined;
     let tools: StackTools | undefined;
     let stopContextMenu: (() => void) | undefined;
+    let stopPrefetch: (() => void) | undefined;
     try {
       await Promise.all(
         stack.instances.map((instance) =>
@@ -151,6 +153,21 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       stopContextMenu = (): void => {
         element.removeEventListener('contextmenu', blockMenu);
       };
+
+      const radius = renderOptions.prefetchRadius ?? 0;
+      if (radius > 0) {
+        // The first slice is already loading as part of setStack, at interaction priority. Prefetch
+        // runs below that and follows the slice on screen. Cornerstone keeps this setting once per page.
+        const { stackPrefetch } = toolsUtilities;
+        stackPrefetch.setConfiguration({
+          ...stackPrefetch.getConfiguration(),
+          maxImagesToPrefetch: radius,
+        });
+        stackPrefetch.enable(element);
+        stopPrefetch = (): void => {
+          stackPrefetch.disable(element);
+        };
+      }
 
       const readWindow = (): WindowLevel => {
         const range = viewport.getProperties().voiRange;
@@ -268,6 +285,8 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
           if (stackDestroyed) return;
           stackDestroyed = true;
           stopContextMenu?.();
+          // While the element is still enabled: Cornerstone looks the viewport up from it.
+          stopPrefetch?.();
           tools?.detach();
           renderingEngine.disableElement(enabledViewportId);
           releaseImages(stack.imageIds);
@@ -276,6 +295,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     } catch (error) {
       // A stack that failed to come up must not keep what it claimed.
       stopContextMenu?.();
+      stopPrefetch?.();
       tools?.detach();
       if (viewportId !== undefined) renderingEngine.disableElement(viewportId);
       releaseImages(stack.imageIds);

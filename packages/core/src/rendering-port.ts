@@ -58,6 +58,11 @@ export interface StackPort {
 export interface RenderStackOptions {
   /** The slice to show first. Default: the middle one. Out-of-range values are clamped. */
   readonly imageIndex?: number | undefined;
+  /**
+   * After the first slice, load this many slices either side of the one on screen, nearest first,
+   * and keep doing so as it moves. 0: only the slices that are asked for.
+   */
+  readonly prefetchRadius?: number | undefined;
 }
 
 /**

@@ -52,6 +52,8 @@ export type { WindowPreset } from './window-presets';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
 export type {
+  NavigateResult,
+  NavigateTarget,
   SetViewportSeriesOptions,
   ToolsApi,
   Viewer,

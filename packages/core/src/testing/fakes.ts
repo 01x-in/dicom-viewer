@@ -143,6 +143,8 @@ export interface FakeStackPort extends StackPort {
   emitView(change: Partial<ViewSnapshot>): void;
   /** Every change the host asked for, in order, such as `window 40/400` or `zoom 2`. */
   readonly viewCalls: string[];
+  /** What the viewer asked the engine for when it drew this stack. */
+  readonly renderOptions: RenderStackOptions;
   /** The tool the left mouse button drives, as the host last set it. */
   primaryTool: PrimaryTool | undefined;
 }
@@ -205,6 +207,7 @@ export function fakePort(): FakePort {
         destroyed: false,
         samples: [],
         viewCalls: [],
+        renderOptions: options,
         primaryTool: undefined,
         imageCount: stack.imageIds.length,
         getImageIndex: () => index,

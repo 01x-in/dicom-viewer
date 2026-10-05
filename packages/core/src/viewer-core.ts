@@ -96,6 +96,23 @@ export interface ViewportSeriesInfo {
   readonly imageCount: number;
 }
 
+export interface NavigateTarget {
+  readonly seriesInstanceUID: string;
+  readonly sopInstanceUID: string;
+  /** 1-based. Only frame 1 exists until multi-frame images are supported. */
+  readonly frameNumber?: number;
+  /** Default `vp-0`. */
+  readonly viewportId?: string;
+}
+
+export interface NavigateResult {
+  readonly viewportId: string;
+  readonly seriesInstanceUID: string;
+  readonly stackIndex: number;
+  readonly imageIndex: number;
+  readonly sopInstanceUID: string;
+}
+
 export interface ViewportApi {
   readonly id: string;
   /** What the viewport shows now. `undefined` until a series is displayed. */
@@ -160,6 +177,12 @@ export interface Viewer {
     seriesInstanceUID: string,
     options?: SetViewportSeriesOptions,
   ): Promise<void>;
+  /**
+   * Shows one instance: the series it is in, in its stack, at its slice. The slice is loaded before
+   * anything else, and its neighbours follow, nearest first. Rejects, and changes nothing, if the
+   * series does not have the instance.
+   */
+  navigateTo(target: NavigateTarget): Promise<NavigateResult>;
   getState(): ViewerStateV1;
   /** Applies a patch and resolves once everything it asks for is displayed. Rejects if the result is not a valid state. */
   setState(patch: ViewerStatePatch, options?: { readonly origin?: 'api' | 'url' }): Promise<void>;
@@ -189,6 +212,12 @@ export interface ViewerCoreOptions {
    * they have one, and focuses them on a pointer press.
    */
   readonly keybindings?: false | KeybindingOverrides;
+  /**
+   * How far from the slice on screen images are loaded ahead of being asked for: `radius` slices
+   * either side, 64 by default. `false` loads only what is asked for. Cornerstone keeps one
+   * setting per page, so with several viewers the last one drawn decides.
+   */
+  readonly prefetch?: false | { readonly radius?: number };
   /** The text drawn over each viewport (series, image size, window, slice number), or `false` for none. */
   readonly overlay?: false | OverlayOptions;
   /** Replaces the usual CT windows (lung, soft tissue, bone, brain, liver). */
@@ -224,6 +253,8 @@ interface Runtime {
 }
 
 const noop = (): void => undefined;
+
+const DEFAULT_PREFETCH_RADIUS = 64;
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -269,6 +300,13 @@ export function createViewerCore(
   let activeTool: PrimaryTool = initialTool;
   const windowPresets = options.windowLevelPresets ?? DEFAULT_WINDOW_PRESETS;
   assertWindowPresets(windowPresets);
+  const prefetchRadius =
+    options.prefetch === false ? 0 : (options.prefetch?.radius ?? DEFAULT_PREFETCH_RADIUS);
+  if (!Number.isInteger(prefetchRadius) || prefetchRadius < 0) {
+    throw new RangeError(
+      `The prefetch radius must be a whole number, 0 or more, not ${prefetchRadius.toString()}.`,
+    );
+  }
   const overlayOptions: OverlayOptions | undefined =
     options.overlay === false ? undefined : (options.overlay ?? {});
   const keymap =
@@ -508,7 +546,10 @@ export function createViewerCore(
         );
       }
       const port = await portPromise;
-      const stackPort = await port.renderStack(element, stack, { imageIndex: desired.imageIndex });
+      const stackPort = await port.renderStack(element, stack, {
+        imageIndex: desired.imageIndex,
+        prefetchRadius,
+      });
       if (destroyed || runtime.element !== element) {
         // Detached or destroyed while the render was in flight.
         stackPort.destroy();
@@ -770,6 +811,36 @@ export function createViewerCore(
     });
   }
 
+  /** Records what a viewport should show and makes the engine show it. Runs inside the queue. */
+  async function applySeries(
+    viewportId: string,
+    seriesInstanceUID: string,
+    seriesOptions: SetViewportSeriesOptions,
+  ): Promise<void> {
+    requireViewport(viewportId);
+    if (store.getState().studyInstanceUID === undefined) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    // Asking for what is already on screen, without a slice, must not forget the slice.
+    const shown = runtimes.get(viewportId)?.shown;
+    const sameStack =
+      shown?.seriesInstanceUID === seriesInstanceUID &&
+      shown.stack.index === (seriesOptions.stackIndex ?? 0);
+    updateViewport(
+      viewportId,
+      {
+        seriesInstanceUID,
+        stackIndex: seriesOptions.stackIndex,
+        imageIndex:
+          seriesOptions.imageIndex ?? (sameStack ? shown.port.getImageIndex() : undefined),
+        // Another series starts with its own window, no inversion, and fit to the viewport.
+        ...(sameStack ? {} : { window: undefined, invert: undefined, zoom: undefined }),
+      },
+      'api',
+    );
+    await syncViewport(viewportId);
+  }
+
   function setViewportSeries(
     viewportId: string,
     seriesInstanceUID: string,
@@ -782,29 +853,64 @@ export function createViewerCore(
     }
     // The state changes inside the queue, so each call is checked against, and applied on top of,
     // the calls made before it.
+    return enqueue(() => applySeries(viewportId, seriesInstanceUID, seriesOptions));
+  }
+
+  function navigateTo(target: NavigateTarget): Promise<NavigateResult> {
+    const viewportId = target.viewportId ?? 'vp-0';
+    try {
+      assertDicomUid(target.seriesInstanceUID, 'SeriesInstanceUID');
+      assertDicomUid(target.sopInstanceUID, 'SOPInstanceUID');
+      const { frameNumber } = target;
+      if (frameNumber !== undefined) {
+        if (!Number.isInteger(frameNumber) || frameNumber < 1) {
+          throw new RangeError(
+            `A frame number is a whole number from 1, not ${frameNumber.toString()}.`,
+          );
+        }
+        if (frameNumber > 1) {
+          throw new RangeError(
+            `Frame ${frameNumber.toString()} was asked for, but multi-frame images are not supported yet.`,
+          );
+        }
+      }
+    } catch (error) {
+      return Promise.reject(toError(error));
+    }
     return enqueue(async () => {
       requireViewport(viewportId);
-      if (store.getState().studyInstanceUID === undefined) {
+      const { studyInstanceUID } = store.getState();
+      if (studyInstanceUID === undefined) {
         throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
       }
-      // Asking for what is already on screen, without a slice, must not forget the slice.
-      const shown = runtimes.get(viewportId)?.shown;
-      const sameStack =
-        shown?.seriesInstanceUID === seriesInstanceUID &&
-        shown.stack.index === (seriesOptions.stackIndex ?? 0);
-      updateViewport(
-        viewportId,
-        {
-          seriesInstanceUID,
-          stackIndex: seriesOptions.stackIndex,
-          imageIndex:
-            seriesOptions.imageIndex ?? (sameStack ? shown.port.getImageIndex() : undefined),
-          // Another series starts with its own window, no inversion, and fit to the viewport.
-          ...(sameStack ? {} : { window: undefined, invert: undefined, zoom: undefined }),
-        },
-        'api',
+      // Find the slice before changing anything, so a target that is not there leaves the viewport as it was.
+      const series = await getSeries(studyInstanceUID, target.seriesInstanceUID);
+      assertAlive();
+      if (series.stacks.length === 0) {
+        throw new Error(
+          `Series ${target.seriesInstanceUID} (${series.modality}) has no images to display.`,
+        );
+      }
+      const stackIndex = series.stacks.findIndex((stack) =>
+        stack.instances.some((instance) => instance.sopInstanceUID === target.sopInstanceUID),
       );
-      await syncViewport(viewportId);
+      const stack = series.stacks[stackIndex];
+      if (stack === undefined) {
+        throw new Error(
+          `Series ${target.seriesInstanceUID} has no instance ${target.sopInstanceUID}.`,
+        );
+      }
+      const imageIndex = stack.instances.findIndex(
+        (instance) => instance.sopInstanceUID === target.sopInstanceUID,
+      );
+      await applySeries(viewportId, target.seriesInstanceUID, { stackIndex, imageIndex });
+      return {
+        viewportId,
+        seriesInstanceUID: target.seriesInstanceUID,
+        stackIndex,
+        imageIndex: viewportState(viewportId)?.imageIndex ?? imageIndex,
+        sopInstanceUID: target.sopInstanceUID,
+      };
     });
   }
 
@@ -987,6 +1093,7 @@ export function createViewerCore(
     viewports,
     tools,
     setViewportSeries,
+    navigateTo,
     getState: () => store.getState(),
     setState,
     subscribe: (selector, listener, subscribeOptions) =>
