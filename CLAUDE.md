@@ -22,6 +22,7 @@
 - Cornerstone packages are exact-pinned `devDependencies` of `@scope/viewer-core`, bundled into its lazily loaded engine chunk, and never peers (docs/adr/0003-prebundled-engine.md).
 - Vue code must keep Cornerstone and viewer objects out of reactivity (`shallowRef` + `markRaw`).
 - Viewer state is `ViewerStateV1`. Every change a host asks for, and every call that touches the engine, goes through the queue in `viewer-core.ts` (docs/adr/0004-viewer-state-and-ordering.md). Only the engine's reports of user input (the mouse wheel) update the state directly.
+- What a viewport looks like (window, invert, zoom) is part of `ViewportStateV1`, and the mouse, keys, presets, cine, and `navigateTo` all reach it through the same queue and the same engine report (docs/adr/0006-view-state-and-input.md). Do not add a path that changes the engine without going through `viewer-core.ts`.
 - Whatever the engine acquires (workers, cache, metadata, WebGL) must be given back when the viewer or stack is destroyed (docs/adr/0005-engine-runtime-lifecycle.md). `pnpm matrix --only headless` runs the 20-cycle leak check.
 - UIDs that come from a link or a host are validated with `assertDicomUid` before they reach a request path.
 

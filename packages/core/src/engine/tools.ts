@@ -74,20 +74,23 @@ export function attachStackTools(renderingEngineId: string, viewportId: string):
   if (group === undefined) throw new Error(`Could not create tool group ${groupId}.`);
   for (const tool of V1_TOOLS) group.addTool(nameOf(tool));
   group.addViewport(viewportId, renderingEngineId);
-  const setPrimary = (primary: PrimaryTool): void => {
-    for (const { id } of PRIMARY_TOOLS) {
-      const buttons = [
-        ...FIXED_BUTTONS[id],
-        ...(id === primary ? [Enums.MouseBindings.Primary] : []),
-      ];
-      if (buttons.length === 0) {
-        group.setToolPassive(TOOL_NAMES[id]);
-      } else {
-        group.setToolActive(TOOL_NAMES[id], {
-          bindings: buttons.map((mouseButton) => ({ mouseButton })),
-        });
-      }
+  // The buttons every tool keeps whatever the left button drives. Set once: Cornerstone adds the
+  // bindings it is given to the ones a tool has, so they would only pile up.
+  for (const { id } of PRIMARY_TOOLS) {
+    const buttons = FIXED_BUTTONS[id];
+    if (buttons.length > 0) {
+      group.setToolActive(TOOL_NAMES[id], {
+        bindings: buttons.map((mouseButton) => ({ mouseButton })),
+      });
     }
+  }
+  const setPrimary = (primary: PrimaryTool): void => {
+    // Passive takes the left button away from a tool and leaves its other buttons; then the new
+    // tool is given the left button on top of its own.
+    for (const { id } of PRIMARY_TOOLS) group.setToolPassive(TOOL_NAMES[id]);
+    group.setToolActive(TOOL_NAMES[primary], {
+      bindings: [{ mouseButton: Enums.MouseBindings.Primary }],
+    });
   };
   setPrimary(DEFAULT_PRIMARY_TOOL);
   return {

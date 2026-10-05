@@ -3,6 +3,8 @@ import {
   cache,
   Enums,
   getRenderingEngines,
+  imageLoadPoolManager,
+  imageRetrievalPoolManager,
   getWebWorkerManager,
   imageLoader,
   RenderingEngine,
@@ -47,6 +49,7 @@ function claimImages(imageIds: readonly string[]): void {
 }
 
 function releaseImages(imageIds: readonly string[]): void {
+  const dropped = new Set<string>();
   for (const imageId of imageIds) {
     const users = (imageUsers.get(imageId) ?? 1) - 1;
     if (users > 0) {
@@ -54,10 +57,25 @@ function releaseImages(imageIds: readonly string[]): void {
       continue;
     }
     imageUsers.delete(imageId);
+    dropped.add(imageId);
     // Only slices that were actually loaded are in the cache; removing any other throws.
     if (cache.getImageLoadObject(imageId) !== undefined) cache.removeImageLoadObject(imageId);
     metaData.clearQuery(MetadataEnums.MetadataModules.NATURALIZED, imageId);
   }
+  if (dropped.size === 0) return;
+  // Slices of this stack still waiting to be fetched or decoded are of no use to anyone now. Those
+  // already being fetched cannot be called back, and finish into a cache that no longer has them.
+  const stillWanted = ({ additionalDetails }: { additionalDetails: unknown }): boolean => {
+    const id =
+      typeof additionalDetails === 'object' &&
+      additionalDetails !== null &&
+      'imageId' in additionalDetails
+        ? additionalDetails.imageId
+        : undefined;
+    return typeof id !== 'string' || !dropped.has(id);
+  };
+  imageLoadPoolManager.filterRequests(stillWanted);
+  imageRetrievalPoolManager.filterRequests(stillWanted);
 }
 
 provideEngineDiagnostics(() => {
