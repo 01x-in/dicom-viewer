@@ -40,6 +40,7 @@ import {
 } from './overlay';
 import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
+import { createThumbnails, type ThumbnailsApi } from './thumbnails';
 import { createUiRegistry, type PanelDefinition, type UiApi } from './ui';
 
 export interface ViewerEvents {
@@ -176,6 +177,8 @@ export interface Viewer {
   getStudy(): StudyData | undefined;
   readonly viewports: ViewportsApi;
   readonly tools: ToolsApi;
+  /** Small pictures of the series of the current study. */
+  readonly thumbnails: ThumbnailsApi;
   /** Side panels for the styled shell, and for a host that draws its own. */
   readonly ui: UiApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
@@ -335,6 +338,25 @@ export function createViewerCore(
     events.emit('ui:panels', { panels });
   });
   let study: StudyData | undefined;
+  const thumbnails = createThumbnails({
+    series: (seriesInstanceUID) => {
+      const { studyInstanceUID } = store.getState();
+      if (studyInstanceUID === undefined) {
+        return Promise.reject(
+          new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.'),
+        );
+      }
+      return getSeries(studyInstanceUID, seriesInstanceUID);
+    },
+    render: async (stack, imageIndex, size) => {
+      const port = await portPromise;
+      assertAlive();
+      const picture = await port.renderThumbnail(stack, imageIndex, size);
+      // A picture that lands after destroy() is not delivered.
+      assertAlive();
+      return picture;
+    },
+  });
   const runtimes = new Map<string, Runtime>();
   const seriesCache = new Map<string, Promise<LoadedSeriesData>>();
   let destroyed = false;
@@ -819,6 +841,7 @@ export function createViewerCore(
       if (store.getState().studyInstanceUID !== studyInstanceUID) {
         for (const runtime of runtimes.values()) teardown(runtime);
         seriesCache.clear();
+        thumbnails.clear();
         store.update((state) => ({ studyInstanceUID, viewports: emptyViewports(state) }), 'api');
       }
       study = loaded;
@@ -975,7 +998,10 @@ export function createViewerCore(
       });
       if (!candidate.ok) throw new Error(`Invalid state: ${candidate.error}`);
 
-      if (studyChanged) seriesCache.clear();
+      if (studyChanged) {
+        seriesCache.clear();
+        thumbnails.clear();
+      }
       store.update(
         {
           studyInstanceUID: candidate.state.studyInstanceUID,
@@ -1121,6 +1147,7 @@ export function createViewerCore(
         : undefined,
     viewports,
     tools,
+    thumbnails: thumbnails.api,
     ui: {
       registerPanel(panel): Unsubscribe {
         assertAlive();
@@ -1145,6 +1172,7 @@ export function createViewerCore(
       runtimes.clear();
       seriesCache.clear();
       ui.clear();
+      thumbnails.dispose();
       events.clear();
       // If the engine never started there is nothing to destroy; the failure reached `ready`.
       portPromise.then((port) => {

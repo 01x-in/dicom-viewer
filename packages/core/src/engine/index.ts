@@ -9,13 +9,14 @@ import {
   imageLoader,
   RenderingEngine,
   StackViewport,
+  utilities as coreUtilities,
 } from '@cornerstonejs/core';
 import {
   Enums as MetadataEnums,
   metaData,
   utilities as metadataUtilities,
 } from '@cornerstonejs/metadata';
-import type { FrameRequestPolicy, SeriesStack } from '../data/types';
+import type { FrameRequestPolicy, SeriesInstance, SeriesStack } from '../data/types';
 import { provideEngineDiagnostics } from '../diagnostics';
 import type {
   RenderingPort,
@@ -37,6 +38,29 @@ export interface EngineOptions extends RuntimeOptions {
 }
 
 let engineCount = 0;
+
+/** Tells Cornerstone what the instance's headers say, so its image can be loaded and drawn. */
+function registerInstance(instance: SeriesInstance): Promise<void> {
+  return isLocalFileImageId(instance.imageId)
+    ? registerLocalFile(instance.imageId)
+    : metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata);
+}
+
+/** The picture on a black square, with the image fitted inside it. */
+function fitOnSquare(source: HTMLCanvasElement, size: number): string {
+  const square = document.createElement('canvas');
+  square.width = size;
+  square.height = size;
+  const context = square.getContext('2d');
+  if (context === null) throw new Error('A 2D canvas is not available.');
+  context.fillStyle = '#000';
+  context.fillRect(0, 0, size, size);
+  const scale = Math.min(size / source.width, size / source.height);
+  const width = source.width * scale;
+  const height = source.height * scale;
+  context.drawImage(source, (size - width) / 2, (size - height) / 2, width, height);
+  return square.toDataURL('image/jpeg', 0.8);
+}
 
 /**
  * How many live stacks use each image id. Stacks of different viewers may show the same series,
@@ -134,13 +158,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     let stopContextMenu: (() => void) | undefined;
     let stopPrefetch: (() => void) | undefined;
     try {
-      await Promise.all(
-        stack.instances.map((instance) =>
-          isLocalFileImageId(instance.imageId)
-            ? registerLocalFile(instance.imageId)
-            : metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata),
-        ),
-      );
+      await Promise.all(stack.instances.map(registerInstance));
 
       assertNotDestroyed();
       viewportCount += 1;
@@ -321,7 +339,46 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     }
   }
 
+  async function drawThumbnail(
+    stack: SeriesStack,
+    imageIndex: number,
+    size: number,
+  ): Promise<string> {
+    assertNotDestroyed();
+    const instance = stack.instances[imageIndex];
+    if (instance === undefined) {
+      throw new RangeError(`No image at index ${imageIndex.toString()}.`);
+    }
+    // Claimed like a stack's images: the same slice may be on screen, and then it stays cached.
+    claimImages([instance.imageId]);
+    try {
+      await registerInstance(instance);
+      assertNotDestroyed();
+      const canvas = document.createElement('canvas');
+      canvas.height = size;
+      await coreUtilities.loadImageToCanvas({
+        canvas,
+        imageId: instance.imageId,
+        useCPURendering: true,
+        imageAspect: true,
+      });
+      assertNotDestroyed();
+      return fitOnSquare(canvas, size);
+    } finally {
+      releaseImages([instance.imageId]);
+    }
+  }
+
   return {
+    renderThumbnail(stack, imageIndex, size): Promise<string> {
+      const drawn = drawThumbnail(stack, imageIndex, size);
+      pending.add(drawn);
+      const done = (): void => {
+        pending.delete(drawn);
+      };
+      drawn.then(done, done);
+      return drawn;
+    },
     renderStack(element, stack, renderOptions = {}): Promise<StackPort> {
       const render = setUpStack(element, stack, renderOptions);
       pending.add(render);

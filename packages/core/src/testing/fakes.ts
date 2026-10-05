@@ -156,12 +156,23 @@ export interface FakePort extends RenderingPort {
   /** Holds every `renderStack` until `release()`, to test what happens while one is in flight. */
   hold(): { release(): void };
   readonly segmentationCalls: { imageIds: readonly string[]; bytes: ArrayBuffer }[];
+  /** Every thumbnail asked for, as `imageId@size`. */
+  readonly thumbnailCalls: string[];
+  /** Makes the next `renderThumbnail` fail. */
+  failNextThumbnail(): void;
+  /** Holds every `renderThumbnail` until `release()`. Reports how many are in flight at most at once. */
+  holdThumbnails(): { release(): void; readonly peak: () => number };
 }
 
 export function fakePort(): FakePort {
   const stacks: FakeStackPort[] = [];
   const log: string[] = [];
   const segmentationCalls: FakePort['segmentationCalls'] = [];
+  const thumbnailCalls: string[] = [];
+  let thumbnailFailure = false;
+  let thumbnailGate: Promise<void> | undefined;
+  let thumbnailsInFlight = 0;
+  let thumbnailPeak = 0;
   let gate: Promise<void> | undefined;
 
   const port: FakePort = {
@@ -169,6 +180,23 @@ export function fakePort(): FakePort {
     log,
     destroyed: false,
     segmentationCalls,
+    thumbnailCalls,
+    failNextThumbnail(): void {
+      thumbnailFailure = true;
+    },
+    holdThumbnails(): { release(): void; readonly peak: () => number } {
+      let release: () => void = () => undefined;
+      thumbnailGate = new Promise((resolve) => {
+        release = resolve;
+      });
+      return {
+        release: (): void => {
+          thumbnailGate = undefined;
+          release();
+        },
+        peak: () => thumbnailPeak,
+      };
+    },
     hold(): { release(): void } {
       let release: () => void = () => undefined;
       gate = new Promise((resolve) => {
@@ -264,6 +292,22 @@ export function fakePort(): FakePort {
       };
       stacks.push(fake);
       return fake;
+    },
+    async renderThumbnail(stack, imageIndex, size): Promise<string> {
+      const imageId = stack.imageIds[imageIndex] ?? '?';
+      thumbnailCalls.push(`${imageId}@${size.toString()}`);
+      thumbnailsInFlight += 1;
+      thumbnailPeak = Math.max(thumbnailPeak, thumbnailsInFlight);
+      try {
+        await thumbnailGate;
+        if (thumbnailFailure) {
+          thumbnailFailure = false;
+          throw new Error('The picture could not be drawn.');
+        }
+        return `data:image/fake,${imageId}@${size.toString()}`;
+      } finally {
+        thumbnailsInFlight -= 1;
+      }
     },
     loadSegmentation(imageIds, bytes): Promise<SegmentationHandle> {
       segmentationCalls.push({ imageIds, bytes });

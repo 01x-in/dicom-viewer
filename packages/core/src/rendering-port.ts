@@ -75,6 +75,12 @@ export interface RenderingPort {
     stack: SeriesStack,
     options?: RenderStackOptions,
   ): Promise<StackPort>;
+  /**
+   * Draws one slice of a stack as a `size` by `size` picture (the image fitted, on black) without
+   * WebGL, and returns it as an image data URL. It runs at the lowest priority, and does not keep
+   * the slice in the image cache.
+   */
+  renderThumbnail(stack: SeriesStack, imageIndex: number, size: number): Promise<string>;
   /** Parses a SEG against the images it segments (a stack's image ids). */
   loadSegmentation(imageIds: readonly string[], bytes: ArrayBuffer): Promise<SegmentationHandle>;
   destroy(): void;

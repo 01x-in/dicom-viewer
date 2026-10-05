@@ -49,6 +49,8 @@ export { PRIMARY_TOOLS } from './tools';
 export type { PrimaryTool, ToolInfo } from './tools';
 export { DEFAULT_WINDOW_PRESETS } from './window-presets';
 export type { WindowPreset } from './window-presets';
+export { DEFAULT_THUMBNAIL_SIZE, MAX_THUMBNAIL_SIZE, MIN_THUMBNAIL_SIZE } from './thumbnails';
+export type { ThumbnailOptions, ThumbnailsApi } from './thumbnails';
 export type { PanelDefinition, PanelPlacement, UiApi } from './ui';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
