@@ -1,50 +1,13 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DataSourceError } from './data/errors';
-import type { FakePort, FakeSource } from './testing/fakes';
-import { CT, CT_TWO_STACKS, fakePort, fakeSource, SEG, STUDY } from './testing/fakes';
-import type { ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
-import { createViewerCore, type Viewer, type ViewerEvents } from './viewer-core';
+import { CT, CT_TWO_STACKS, fakeSource, SEG, STUDY } from './testing/fakes';
+import { destroyViewersAfterEach, harness, track, vp0 } from './testing/harness';
+import type { ViewerStateV1 } from './state/viewer-state';
+import { createViewerCore, type Viewer } from './viewer-core';
+import type { Harness } from './testing/harness';
 
-interface Harness {
-  readonly viewer: Viewer;
-  readonly port: FakePort;
-  readonly source: FakeSource;
-  readonly element: HTMLElement;
-  readonly events: { [K in keyof ViewerEvents]: ViewerEvents[K][] };
-}
-
-const open: Viewer[] = [];
-
-function harness(options: { initialState?: ViewerStateV1 } = {}): Harness {
-  const port = fakePort();
-  const source = fakeSource();
-  const viewer = createViewerCore(
-    {
-      dataSource: source,
-      ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
-    },
-    () => Promise.resolve(port),
-  );
-  open.push(viewer);
-  const events: Harness['events'] = {
-    'study:loaded': [],
-    'viewport:image': [],
-    'state:changed': [],
-    error: [],
-  };
-  viewer.on('study:loaded', (event) => events['study:loaded'].push(event));
-  viewer.on('viewport:image', (event) => events['viewport:image'].push(event));
-  viewer.on('state:changed', (event) => events['state:changed'].push(event));
-  viewer.on('error', (event) => events.error.push(event));
-  return { viewer, port, source, element: document.createElement('div'), events };
-}
-
-afterEach(() => {
-  for (const viewer of open.splice(0)) viewer.destroy();
-});
-
-const vp0 = (viewer: Viewer): ViewportStateV1 | undefined => viewer.getState().viewports[0];
+destroyViewersAfterEach();
 
 describe('a new viewer', () => {
   it('starts empty, with one viewport, and becomes ready when the engine is up', async () => {
@@ -62,7 +25,7 @@ describe('a new viewer', () => {
     const viewer = createViewerCore({ dataSource: fakeSource() }, () =>
       Promise.reject(new Error('no WebGL')),
     );
-    open.push(viewer);
+    track(viewer);
     await expect(viewer.ready).rejects.toThrow('no WebGL');
     viewer.viewports.attach('vp-0', document.createElement('div'));
     await expect(

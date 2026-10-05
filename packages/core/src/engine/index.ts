@@ -15,7 +15,13 @@ import {
 } from '@cornerstonejs/metadata';
 import type { FrameRequestPolicy, SeriesStack } from '../data/types';
 import { provideEngineDiagnostics } from '../diagnostics';
-import type { RenderingPort, RenderStackOptions, StackPort } from '../rendering-port';
+import type {
+  RenderingPort,
+  RenderStackOptions,
+  StackPort,
+  ViewSnapshot,
+  WindowLevel,
+} from '../rendering-port';
 import { isLocalFileImageId, registerLocalFile } from './local-files';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';
 import type { RuntimeOptions } from './runtime';
@@ -137,6 +143,37 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       viewport.render();
       detachTools = attachStackTools(renderingEngineId, viewportId);
 
+      const readWindow = (): WindowLevel => {
+        const range = viewport.getProperties().voiRange;
+        if (range !== undefined) {
+          return {
+            center: (range.upper + range.lower) / 2,
+            width: Math.max(range.upper - range.lower, 1),
+          };
+        }
+        // No window yet: show the whole range of the image.
+        const image = viewport.getCornerstoneImage();
+        const lower = image.minPixelValue * image.slope + image.intercept;
+        const upper = image.maxPixelValue * image.slope + image.intercept;
+        return { center: (upper + lower) / 2, width: Math.max(upper - lower, 1) };
+      };
+      const defaultWindow = readWindow();
+      const getView = (): ViewSnapshot => ({
+        window: readWindow(),
+        defaultWindow,
+        invert: viewport.getProperties().invert ?? false,
+        zoom: viewport.getZoom(),
+      });
+      const setWindow = (window: WindowLevel): void => {
+        viewport.setProperties({
+          voiRange: {
+            lower: window.center - window.width / 2,
+            upper: window.center + window.width / 2,
+          },
+        });
+        viewport.render();
+      };
+
       const enabledViewportId = viewportId;
       let stackDestroyed = false;
       return {
@@ -155,6 +192,40 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
           element.addEventListener(Enums.Events.STACK_NEW_IMAGE, handler);
           return (): void => {
             element.removeEventListener(Enums.Events.STACK_NEW_IMAGE, handler);
+          };
+        },
+        getView,
+        setWindow,
+        setInvert(invert): void {
+          viewport.setProperties({ invert });
+          viewport.render();
+        },
+        setZoom(zoom): void {
+          viewport.setZoom(zoom);
+          viewport.render();
+        },
+        resetView(): void {
+          // The window goes back to the one the first image asked for, not to the current image's
+          // own, so a reset after scrolling looks the same as one before.
+          viewport.setProperties({
+            voiRange: {
+              lower: defaultWindow.center - defaultWindow.width / 2,
+              upper: defaultWindow.center + defaultWindow.width / 2,
+            },
+            invert: false,
+          });
+          viewport.resetCamera({ resetPan: true, resetZoom: true });
+          viewport.render();
+        },
+        onViewChange(listener): () => void {
+          const handler = (): void => {
+            listener(getView());
+          };
+          element.addEventListener(Enums.Events.VOI_MODIFIED, handler);
+          element.addEventListener(Enums.Events.CAMERA_MODIFIED, handler);
+          return (): void => {
+            element.removeEventListener(Enums.Events.VOI_MODIFIED, handler);
+            element.removeEventListener(Enums.Events.CAMERA_MODIFIED, handler);
           };
         },
         async sampleHu(imageIndex, row, column): Promise<number> {

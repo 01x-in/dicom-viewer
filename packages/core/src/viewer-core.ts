@@ -1,14 +1,22 @@
 import type { DataSource, LoadedSeriesData, SeriesStack, StudyData } from './data/types';
 import { assertDicomUid } from './data/uid';
-import type { RenderingPort, SegmentationHandle, StackPort } from './rendering-port';
+import type {
+  RenderingPort,
+  SegmentationHandle,
+  StackPort,
+  ViewSnapshot,
+  WindowLevel,
+} from './rendering-port';
 import { createEmitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
 import {
+  compactViewport,
   createInitialState,
   parseViewerState,
   type ViewerStateV1,
   type ViewportStateV1,
 } from './state/viewer-state';
+import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 
 export interface ViewerEvents {
   'study:loaded': { readonly study: StudyData };
@@ -17,6 +25,20 @@ export interface ViewerEvents {
     readonly imageIndex: number;
     readonly imageCount: number;
     readonly sopInstanceUID: string | undefined;
+    readonly origin: StateOrigin;
+  };
+  /** The window or the inversion changed. */
+  'viewport:voi': {
+    readonly viewportId: string;
+    readonly window: WindowLevel;
+    readonly defaultWindow: WindowLevel;
+    readonly invert: boolean;
+    readonly origin: StateOrigin;
+  };
+  /** The zoom changed. */
+  'viewport:camera': {
+    readonly viewportId: string;
+    readonly zoom: number;
     readonly origin: StateOrigin;
   };
   'state:changed': {
@@ -58,6 +80,18 @@ export interface ViewportApi {
   setImageIndex(index: number): Promise<void>;
   /** Moves by a number of slices and stops at the first or last one. */
   scrollBy(delta: number): Promise<void>;
+  /** What the viewport looks like now. `undefined` until a series is displayed. */
+  getView(): ViewSnapshot | undefined;
+  /** Rejects with a `RangeError` unless `center` is finite and `width` is finite and above zero. */
+  setWindow(center: number, width: number): Promise<void>;
+  setInvert(invert: boolean): Promise<void>;
+  toggleInvert(): Promise<void>;
+  /** 1 fits the image to the viewport. Values outside 0.1 to 32 are clamped. Rejects with a `RangeError` unless `zoom` is above zero. */
+  setZoom(zoom: number): Promise<void>;
+  /** Multiplies the zoom, within the same limits. */
+  zoomBy(factor: number): Promise<void>;
+  /** Back to the default window, no inversion, fit to the viewport, and centred. */
+  resetView(): Promise<void>;
   /** Decodes one slice and returns the Hounsfield value of one pixel. */
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
   /** M1 spike: retrieves a SEG of the study and parses it against the displayed series. Replaced in M6. */
@@ -114,12 +148,16 @@ interface Shown {
   off: Unsubscribe;
   /** The slice last reported, so a repeat is not announced twice. */
   lastIndex: number;
+  /** The view last reported, so only what changed is announced. */
+  view: ViewSnapshot;
 }
 
 interface Runtime {
   readonly id: string;
   /** The slice a call is moving this viewport to, and who asked, so the engine's change event can be told from the wheel. */
   pendingMove: { readonly index: number; readonly origin: StateOrigin } | undefined;
+  /** Who is changing the view while a call runs, so the engine's report can be told from the mouse. */
+  viewOrigin: StateOrigin | undefined;
   element: HTMLElement | undefined;
   shown: Shown | undefined;
   api: ViewportApi | undefined;
@@ -144,7 +182,9 @@ function withViewport(
     (key) => !Object.is(patch[key], current[key]),
   );
   if (!changed) return viewports;
-  return viewports.map((viewport, at) => (at === index ? { ...viewport, ...patch } : viewport));
+  return viewports.map((viewport, at) =>
+    at === index ? compactViewport({ ...viewport, ...patch }) : viewport,
+  );
 }
 
 /**
@@ -239,6 +279,60 @@ export function createViewerCore(
     });
   }
 
+  /** Records a change of view in the state and announces what changed. */
+  function reportView(
+    runtime: Runtime,
+    shown: Shown,
+    view: ViewSnapshot,
+    origin: StateOrigin,
+  ): void {
+    const previous = shown.view;
+    shown.view = view;
+    const changes = viewChanges(viewportState(runtime.id) ?? { id: runtime.id }, view);
+    if (Object.keys(changes).length > 0) updateViewport(runtime.id, changes, origin);
+    if (!sameWindow(previous.window, view.window) || previous.invert !== view.invert) {
+      events.emit('viewport:voi', {
+        viewportId: runtime.id,
+        window: view.window,
+        defaultWindow: view.defaultWindow,
+        invert: view.invert,
+        origin,
+      });
+    }
+    if (!sameZoom(previous.zoom, view.zoom)) {
+      events.emit('viewport:camera', { viewportId: runtime.id, zoom: view.zoom, origin });
+    }
+  }
+
+  /** Runs one change of the view, remembering who asked while the engine reports it. */
+  function changeView(
+    runtime: Runtime,
+    origin: StateOrigin,
+    change: (port: StackPort) => void,
+  ): void {
+    const { shown } = runtime;
+    if (shown === undefined) return;
+    runtime.viewOrigin = origin;
+    try {
+      change(shown.port);
+    } finally {
+      runtime.viewOrigin = undefined;
+    }
+  }
+
+  /** Makes the engine show the window, inversion, and zoom the state asks for. */
+  function applyView(runtime: Runtime, desired: ViewportStateV1, origin: StateOrigin): void {
+    const { shown } = runtime;
+    if (shown === undefined) return;
+    const have = shown.port.getView();
+    const want = desiredView(desired, have);
+    changeView(runtime, origin, (port) => {
+      if (!sameWindow(want.window, have.window)) port.setWindow(want.window);
+      if (want.invert !== have.invert) port.setInvert(want.invert);
+      if (!sameZoom(want.zoom, have.zoom)) port.setZoom(want.zoom);
+    });
+  }
+
   function getSeries(
     studyInstanceUID: string,
     seriesInstanceUID: string,
@@ -300,6 +394,7 @@ export function createViewerCore(
         const index = Math.min(Math.max(0, Math.trunc(wanted)), shown.port.imageCount - 1);
         await moveTo(runtime, shown, index, origin);
       }
+      applyView(runtime, desired, origin);
       return;
     }
 
@@ -329,8 +424,9 @@ export function createViewerCore(
         port: stackPort,
         off: noop,
         lastIndex: -1,
+        view: stackPort.getView(),
       };
-      next.off = stackPort.onImageChange((index) => {
+      const offImage = stackPort.onImageChange((index) => {
         reportImage(
           runtime,
           next,
@@ -338,15 +434,30 @@ export function createViewerCore(
           runtime.pendingMove?.index === index ? runtime.pendingMove.origin : 'user',
         );
       });
+      const offView = stackPort.onViewChange((view) => {
+        reportView(runtime, next, view, runtime.viewOrigin ?? 'user');
+      });
+      next.off = (): void => {
+        offImage();
+        offView();
+      };
       runtime.shown = next;
       // The state describes what is on screen: the stack and the slice that are showing now.
       reportImage(runtime, next, stackPort.getImageIndex(), origin, { stackIndex: stack.index });
+      applyView(runtime, viewportState(id) ?? desired, origin);
     } catch (error) {
       // A viewport that failed shows nothing, and the state must not claim otherwise.
       if (!destroyed) {
         updateViewport(
           id,
-          { seriesInstanceUID: undefined, stackIndex: undefined, imageIndex: undefined },
+          {
+            seriesInstanceUID: undefined,
+            stackIndex: undefined,
+            imageIndex: undefined,
+            window: undefined,
+            invert: undefined,
+            zoom: undefined,
+          },
           origin,
         );
       }
@@ -364,6 +475,12 @@ export function createViewerCore(
     };
     const moveApiTo = (index: number): Promise<void> =>
       enqueue(() => moveTo(runtime, requireShown(), index, 'api'));
+    const viewApi = (change: (port: StackPort) => void): Promise<void> =>
+      enqueue(() => {
+        requireShown();
+        changeView(runtime, 'api', change);
+        return Promise.resolve();
+      });
     return {
       id: runtime.id,
       get series(): ViewportSeriesInfo | undefined {
@@ -404,6 +521,51 @@ export function createViewerCore(
           return moveTo(runtime, shown, target, 'api');
         });
       },
+      getView: () => runtime.shown?.port.getView(),
+      setWindow(center, width): Promise<void> {
+        if (!Number.isFinite(center) || !Number.isFinite(width) || width <= 0) {
+          return Promise.reject(
+            new RangeError(
+              `A window needs a finite center and a width above zero, not ${center.toString()}/${width.toString()}.`,
+            ),
+          );
+        }
+        return viewApi((port) => {
+          port.setWindow({ center, width });
+        });
+      },
+      setInvert: (invert) =>
+        viewApi((port) => {
+          port.setInvert(invert);
+        }),
+      toggleInvert: () =>
+        viewApi((port) => {
+          port.setInvert(!port.getView().invert);
+        }),
+      setZoom(zoom): Promise<void> {
+        if (!Number.isFinite(zoom) || zoom <= 0) {
+          return Promise.reject(
+            new RangeError(`A zoom must be above zero, not ${zoom.toString()}.`),
+          );
+        }
+        return viewApi((port) => {
+          port.setZoom(clampZoom(zoom));
+        });
+      },
+      zoomBy(factor): Promise<void> {
+        if (!Number.isFinite(factor) || factor <= 0) {
+          return Promise.reject(
+            new RangeError(`A zoom factor must be above zero, not ${factor.toString()}.`),
+          );
+        }
+        return viewApi((port) => {
+          port.setZoom(clampZoom(port.getView().zoom * factor));
+        });
+      },
+      resetView: () =>
+        viewApi((port) => {
+          port.resetView();
+        }),
       sampleHu(imageIndex, row, column): Promise<number> {
         // Queued like every engine call, so a sample asked for after a series switch is taken from the new series.
         return enqueue(() => requireShown().port.sampleHu(imageIndex, row, column));
@@ -482,6 +644,8 @@ export function createViewerCore(
           stackIndex: seriesOptions.stackIndex,
           imageIndex:
             seriesOptions.imageIndex ?? (sameStack ? shown.port.getImageIndex() : undefined),
+          // Another series starts with its own window, no inversion, and fit to the viewport.
+          ...(sameStack ? {} : { window: undefined, invert: undefined, zoom: undefined }),
         },
         'api',
       );
@@ -501,7 +665,16 @@ export function createViewerCore(
       const base = studyChanged ? emptyViewports(current) : current.viewports;
       const merged = base.map((viewport) => {
         const change = patch.viewports?.find((candidate) => candidate.id === viewport.id);
-        return change === undefined ? viewport : { ...viewport, ...change };
+        if (change === undefined) return viewport;
+        const sameStack =
+          (change.seriesInstanceUID ?? viewport.seriesInstanceUID) === viewport.seriesInstanceUID &&
+          (change.stackIndex ?? viewport.stackIndex ?? 0) === (viewport.stackIndex ?? 0);
+        // Another series starts with its own view, unless the patch says otherwise.
+        return compactViewport({
+          ...viewport,
+          ...(sameStack ? {} : { window: undefined, invert: undefined, zoom: undefined }),
+          ...change,
+        });
       });
       const unmatched = patch.viewports?.find(
         (change) => !merged.some((viewport) => viewport.id === change.id),
@@ -537,6 +710,7 @@ export function createViewerCore(
         runtime = {
           id: viewportId,
           pendingMove: undefined,
+          viewOrigin: undefined,
           element: undefined,
           shown: undefined,
           api: undefined,

@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { isDicomUid } from '../data/uid';
+import { MAX_ZOOM, MIN_ZOOM } from '../view';
+
+/** A window as DICOM defines it: the value at the middle of the grey scale, and the width around it. */
+export interface WindowLevel {
+  readonly center: number;
+  readonly width: number;
+}
 
 /** The part of a viewport that a link can restore. Viewport ids are stable: `vp-0` to `vp-3`. */
 export interface ViewportStateV1 {
@@ -8,6 +15,12 @@ export interface ViewportStateV1 {
   /** Which stack of the series, when it splits into several. Default 0. */
   readonly stackIndex?: number | undefined;
   readonly imageIndex?: number | undefined;
+  /** Window and level. Absent: the one the images ask for. */
+  readonly window?: WindowLevel | undefined;
+  /** Absent: not inverted. */
+  readonly invert?: boolean | undefined;
+  /** 1 fits the image to the viewport. Absent: 1. */
+  readonly zoom?: number | undefined;
 }
 
 /**
@@ -27,11 +40,19 @@ const MAX_VIEWPORTS = 4;
 // UIDs from a link or a host end up in request paths: only well-formed ones get in.
 const uid = z.string().refine(isDicomUid, 'Not a DICOM UID');
 
+const windowSchema: z.ZodType<WindowLevel> = z.object({
+  center: z.number(),
+  width: z.number().positive(),
+});
+
 const viewportSchema: z.ZodType<ViewportStateV1> = z.object({
   id: z.string().regex(/^vp-[0-3]$/, 'Viewport ids are vp-0 to vp-3'),
   seriesInstanceUID: uid.optional(),
   stackIndex: z.number().int().min(0).optional(),
   imageIndex: z.number().int().min(0).optional(),
+  window: windowSchema.optional(),
+  invert: z.boolean().optional(),
+  zoom: z.number().min(MIN_ZOOM).max(MAX_ZOOM).optional(),
 });
 
 export const viewerStateV1Schema: z.ZodType<ViewerStateV1> = z.object({
@@ -57,6 +78,20 @@ export const viewerStateV1Schema: z.ZodType<ViewerStateV1> = z.object({
 export type ParseResult =
   | { readonly ok: true; readonly state: ViewerStateV1 }
   | { readonly ok: false; readonly error: string };
+
+/** The same viewport without the fields that are `undefined`, so "not set" is one thing and not two. */
+export function compactViewport(viewport: ViewportStateV1): ViewportStateV1 {
+  const { id, seriesInstanceUID, stackIndex, imageIndex, window, invert, zoom } = viewport;
+  return {
+    id,
+    ...(seriesInstanceUID === undefined ? {} : { seriesInstanceUID }),
+    ...(stackIndex === undefined ? {} : { stackIndex }),
+    ...(imageIndex === undefined ? {} : { imageIndex }),
+    ...(window === undefined ? {} : { window }),
+    ...(invert === undefined ? {} : { invert }),
+    ...(zoom === undefined ? {} : { zoom }),
+  };
+}
 
 export function createInitialState(): ViewerStateV1 {
   return { version: 1, layout: '1x1', viewports: [{ id: 'vp-0' }] };

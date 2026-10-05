@@ -1,5 +1,18 @@
 import type { SeriesStack } from './data/types';
 import type { Unsubscribe } from './state/events';
+import type { WindowLevel } from './state/viewer-state';
+
+export type { WindowLevel };
+
+/** How a stack looks now: the window, whether it is inverted, and how far it is zoomed. */
+export interface ViewSnapshot {
+  readonly window: WindowLevel;
+  /** The window the images asked for. Taken when the stack was first shown. */
+  readonly defaultWindow: WindowLevel;
+  readonly invert: boolean;
+  /** 1 fits the image to the viewport. */
+  readonly zoom: number;
+}
 
 export interface SegmentInfo {
   readonly number: number;
@@ -25,6 +38,15 @@ export interface StackPort {
   setImageIndex(index: number): Promise<void>;
   /** Called whenever the displayed slice changes: by the host, or by the user's mouse wheel. */
   onImageChange(listener: (imageIndex: number) => void): Unsubscribe;
+  getView(): ViewSnapshot;
+  setWindow(window: WindowLevel): void;
+  setInvert(invert: boolean): void;
+  /** Zooms about the middle of the viewport. The caller keeps `zoom` within the supported range. */
+  setZoom(zoom: number): void;
+  /** Back to the default window, no inversion, fit to the viewport, and centred. */
+  resetView(): void;
+  /** Called whenever the view changes: by the host, or by the user's mouse. */
+  onViewChange(listener: (view: ViewSnapshot) => void): Unsubscribe;
   /** Decodes one slice and returns the Hounsfield value of one pixel. */
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
   destroy(): void;
