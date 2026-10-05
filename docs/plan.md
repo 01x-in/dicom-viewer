@@ -232,3 +232,13 @@ Reference files:
 - **WebGL:** still ContextPool mode, with a pool of one context instead of Cornerstone's seven (ADR 0005). M7 revisits it for MPR.
 - **Multi-frame image series** are refused with an error until a fixture and per-frame geometry exist.
 - Still open: Safari and Firefox, React 18, the package name, the `compute` worker size, cancellation of superseded loads, and `<dv-viewer>` request headers (M4).
+
+## M3 outcome
+
+**Done**, in the headless example. The report is [m3-report.md](m3-report.md); the decisions are in [ADR 0006](adr/0006-view-state-and-input.md). Changes to this plan that came out of the milestone:
+- **The view is part of the state.** `ViewportStateV1` has `window`, `invert`, and `zoom`, kept only when they differ from the default. Pan, the left-button tool, and cine are not in it.
+- **`Viewer` so far** also has `navigateTo`, `tools`, and the options `tools`, `windowLevelPresets`, `keybindings`, `overlay`, and `prefetch`. `NavigateTarget` has no `segmentations` until M6.
+- **Cine runs in the core**, not in Cornerstone's cine tool.
+- **Prefetching** is Cornerstone's `stackPrefetch`, 64 slices either way by default; it has one setting per page.
+- **Runtime release** waits for loads in flight before it stops the workers (ADR 0005).
+- Still open: Safari and Firefox, React 18, the package name, touch input, cancellation of a started request, and whether the default keys should match OHIF exactly.

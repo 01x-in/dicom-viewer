@@ -3,6 +3,8 @@ import {
   cache,
   Enums,
   getRenderingEngines,
+  imageLoadPoolManager,
+  imageRetrievalPoolManager,
   getWebWorkerManager,
   imageLoader,
   RenderingEngine,
@@ -15,12 +17,19 @@ import {
 } from '@cornerstonejs/metadata';
 import type { FrameRequestPolicy, SeriesStack } from '../data/types';
 import { provideEngineDiagnostics } from '../diagnostics';
-import type { RenderingPort, RenderStackOptions, StackPort } from '../rendering-port';
+import type {
+  RenderingPort,
+  RenderStackOptions,
+  StackPort,
+  ViewSnapshot,
+  WindowLevel,
+} from '../rendering-port';
 import { isLocalFileImageId, registerLocalFile } from './local-files';
+import { utilities as toolsUtilities } from '@cornerstonejs/tools';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';
 import type { RuntimeOptions } from './runtime';
 import { parseSegmentation } from './segmentation';
-import { attachStackTools } from './tools';
+import { attachStackTools, type StackTools } from './tools';
 
 export interface EngineOptions extends RuntimeOptions {
   /** Applies the host's headers and token refresh to the frames the loader fetches. */
@@ -40,6 +49,7 @@ function claimImages(imageIds: readonly string[]): void {
 }
 
 function releaseImages(imageIds: readonly string[]): void {
+  const dropped = new Set<string>();
   for (const imageId of imageIds) {
     const users = (imageUsers.get(imageId) ?? 1) - 1;
     if (users > 0) {
@@ -47,10 +57,25 @@ function releaseImages(imageIds: readonly string[]): void {
       continue;
     }
     imageUsers.delete(imageId);
+    dropped.add(imageId);
     // Only slices that were actually loaded are in the cache; removing any other throws.
     if (cache.getImageLoadObject(imageId) !== undefined) cache.removeImageLoadObject(imageId);
     metaData.clearQuery(MetadataEnums.MetadataModules.NATURALIZED, imageId);
   }
+  if (dropped.size === 0) return;
+  // Slices of this stack still waiting to be fetched or decoded are of no use to anyone now. Those
+  // already being fetched cannot be called back, and finish into a cache that no longer has them.
+  const stillWanted = ({ additionalDetails }: { additionalDetails: unknown }): boolean => {
+    const id =
+      typeof additionalDetails === 'object' &&
+      additionalDetails !== null &&
+      'imageId' in additionalDetails
+        ? additionalDetails.imageId
+        : undefined;
+    return typeof id !== 'string' || !dropped.has(id);
+  };
+  imageLoadPoolManager.filterRequests(stillWanted);
+  imageRetrievalPoolManager.filterRequests(stillWanted);
 }
 
 provideEngineDiagnostics(() => {
@@ -105,7 +130,9 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     assertNotDestroyed();
     claimImages(stack.imageIds);
     let viewportId: string | undefined;
-    let detachTools: (() => void) | undefined;
+    let tools: StackTools | undefined;
+    let stopContextMenu: (() => void) | undefined;
+    let stopPrefetch: (() => void) | undefined;
     try {
       await Promise.all(
         stack.instances.map((instance) =>
@@ -135,7 +162,61 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       await viewport.setStack([...stack.imageIds], first);
       assertNotDestroyed();
       viewport.render();
-      detachTools = attachStackTools(renderingEngineId, viewportId);
+      tools = attachStackTools(renderingEngineId, viewportId);
+      // The right button zooms, so the browser's menu must not open over the drag.
+      const blockMenu = (event: Event): void => {
+        event.preventDefault();
+      };
+      element.addEventListener('contextmenu', blockMenu);
+      stopContextMenu = (): void => {
+        element.removeEventListener('contextmenu', blockMenu);
+      };
+
+      const radius = renderOptions.prefetchRadius ?? 0;
+      if (radius > 0) {
+        // The first slice is already loading as part of setStack, at interaction priority. Prefetch
+        // runs below that and follows the slice on screen. Cornerstone keeps this setting once per page.
+        const { stackPrefetch } = toolsUtilities;
+        stackPrefetch.setConfiguration({
+          ...stackPrefetch.getConfiguration(),
+          maxImagesToPrefetch: radius,
+        });
+        stackPrefetch.enable(element);
+        stopPrefetch = (): void => {
+          stackPrefetch.disable(element);
+        };
+      }
+
+      const readWindow = (): WindowLevel => {
+        const range = viewport.getProperties().voiRange;
+        if (range !== undefined) {
+          return {
+            center: (range.upper + range.lower) / 2,
+            width: Math.max(range.upper - range.lower, 1),
+          };
+        }
+        // No window yet: show the whole range of the image.
+        const image = viewport.getCornerstoneImage();
+        const lower = image.minPixelValue * image.slope + image.intercept;
+        const upper = image.maxPixelValue * image.slope + image.intercept;
+        return { center: (upper + lower) / 2, width: Math.max(upper - lower, 1) };
+      };
+      const defaultWindow = readWindow();
+      const getView = (): ViewSnapshot => ({
+        window: readWindow(),
+        defaultWindow,
+        invert: viewport.getProperties().invert ?? false,
+        zoom: viewport.getZoom(),
+      });
+      const setWindow = (window: WindowLevel): void => {
+        viewport.setProperties({
+          voiRange: {
+            lower: window.center - window.width / 2,
+            upper: window.center + window.width / 2,
+          },
+        });
+        viewport.render();
+      };
 
       const enabledViewportId = viewportId;
       let stackDestroyed = false;
@@ -155,6 +236,43 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
           element.addEventListener(Enums.Events.STACK_NEW_IMAGE, handler);
           return (): void => {
             element.removeEventListener(Enums.Events.STACK_NEW_IMAGE, handler);
+          };
+        },
+        getView,
+        setWindow,
+        setPrimaryTool(tool): void {
+          tools?.setPrimary(tool);
+        },
+        setInvert(invert): void {
+          viewport.setProperties({ invert });
+          viewport.render();
+        },
+        setZoom(zoom): void {
+          viewport.setZoom(zoom);
+          viewport.render();
+        },
+        resetView(): void {
+          // The window goes back to the one the first image asked for, not to the current image's
+          // own, so a reset after scrolling looks the same as one before.
+          viewport.setProperties({
+            voiRange: {
+              lower: defaultWindow.center - defaultWindow.width / 2,
+              upper: defaultWindow.center + defaultWindow.width / 2,
+            },
+            invert: false,
+          });
+          viewport.resetCamera({ resetPan: true, resetZoom: true });
+          viewport.render();
+        },
+        onViewChange(listener): () => void {
+          const handler = (): void => {
+            listener(getView());
+          };
+          element.addEventListener(Enums.Events.VOI_MODIFIED, handler);
+          element.addEventListener(Enums.Events.CAMERA_MODIFIED, handler);
+          return (): void => {
+            element.removeEventListener(Enums.Events.VOI_MODIFIED, handler);
+            element.removeEventListener(Enums.Events.CAMERA_MODIFIED, handler);
           };
         },
         async sampleHu(imageIndex, row, column): Promise<number> {
@@ -184,14 +302,19 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
         destroy(): void {
           if (stackDestroyed) return;
           stackDestroyed = true;
-          detachTools?.();
+          stopContextMenu?.();
+          // While the element is still enabled: Cornerstone looks the viewport up from it.
+          stopPrefetch?.();
+          tools?.detach();
           renderingEngine.disableElement(enabledViewportId);
           releaseImages(stack.imageIds);
         },
       };
     } catch (error) {
       // A stack that failed to come up must not keep what it claimed.
-      detachTools?.();
+      stopContextMenu?.();
+      stopPrefetch?.();
+      tools?.detach();
       if (viewportId !== undefined) renderingEngine.disableElement(viewportId);
       releaseImages(stack.imageIds);
       throw error;

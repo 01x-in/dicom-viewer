@@ -46,11 +46,47 @@ export const frameRequests: FrameRequests = createFrameRequests();
 let initialized = false;
 let configured: { readonly key: string; readonly workers: Promise<WorkerSetup> } | undefined;
 let active = 0;
+// Image loads that have started and not finished. Their decode needs the workers, so the workers
+// are stopped once these are done, not before: stopping them earlier would have each finishing
+// load start a new worker for a viewer that no longer exists.
+let loadsInFlight = 0;
+let stopPending = false;
+const idleWaiters: (() => void)[] = [];
 // Acquiring changes shared state across awaits, so acquisitions are set up one after another.
 let setupQueue: Promise<void> = Promise.resolve();
 
 export function activeViewers(): number {
   return active;
+}
+
+function loadsSettled(): void {
+  if (loadsInFlight > 0) return;
+  for (const resolve of idleWaiters.splice(0)) resolve();
+  finishRelease();
+}
+
+/** Counts a loader's calls while they run, so the runtime knows when nothing is decoding. */
+function tracked<A extends unknown[], R extends { readonly promise: Promise<unknown> }>(
+  load: (...args: A) => R,
+): (...args: A) => R {
+  return (...args) => {
+    const result = load(...args);
+    loadsInFlight += 1;
+    const done = (): void => {
+      loadsInFlight -= 1;
+      loadsSettled();
+    };
+    result.promise.then(done, done);
+    return result;
+  };
+}
+
+function whenLoadsSettled(): Promise<void> {
+  return loadsInFlight === 0
+    ? Promise.resolve()
+    : new Promise((resolve) => {
+        idleWaiters.push(resolve);
+      });
 }
 
 function configureWorkers(options: RuntimeOptions): Promise<WorkerSetup> {
@@ -94,8 +130,8 @@ function initializeOnce(options: RuntimeOptions): void {
   });
   // After registerWadorsLoader, which registers the plain loader: this one retries a frame once
   // after a 401 refresh.
-  imageLoader.registerImageLoader('wadors', frameRequests.wrap(loadWadorsImage));
-  imageLoader.registerImageLoader(LOCAL_FILE_SCHEME, loadLocalFileImage);
+  imageLoader.registerImageLoader('wadors', tracked(frameRequests.wrap(loadWadorsImage)));
+  imageLoader.registerImageLoader(LOCAL_FILE_SCHEME, tracked(loadLocalFileImage));
   registerTools();
 }
 
@@ -123,9 +159,11 @@ async function setUp(options: RuntimeOptions): Promise<void> {
           'A viewer is already running with different asset or rendering settings. Use one configuration per page.',
         );
       }
-      // Nobody else is using the runtime: switch to the new settings.
+      // Nobody else is using the runtime: switch to the new settings, once what the old ones are
+      // decoding has finished.
       const previous = configured;
       configured = undefined;
+      await whenLoadsSettled();
       stopWorkers();
       (await previous.workers).dispose();
     }
@@ -142,11 +180,21 @@ async function setUp(options: RuntimeOptions): Promise<void> {
 export function releaseRuntime(): void {
   active -= 1;
   if (active > 0) return;
-  if (configured !== undefined) stopWorkers();
   // Frames still queued would be decoded for a viewer that no longer exists.
   for (const type of Object.values(Enums.RequestType)) {
     imageLoadPoolManager.clearRequestStack(type);
     imageRetrievalPoolManager.clearRequestStack(type);
   }
+  cache.purgeCache();
+  // Frames already on their way cannot be called back. The workers go when they have landed.
+  stopPending = true;
+  finishRelease();
+}
+
+function finishRelease(): void {
+  if (!stopPending || active > 0 || loadsInFlight > 0) return;
+  stopPending = false;
+  if (configured !== undefined) stopWorkers();
+  // Anything that landed while waiting.
   cache.purgeCache();
 }

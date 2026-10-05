@@ -26,8 +26,23 @@ interface SegmentationHandle {
   sample(sliceIndex: number, row: number, column: number): number;
 }
 
+interface ViewSnapshot {
+  readonly window: { center: number; width: number };
+  readonly defaultWindow: { center: number; width: number };
+  readonly invert: boolean;
+  readonly zoom: number;
+}
+
 interface ViewerHandle {
   readonly imageCount: number;
+  getView(): ViewSnapshot | undefined;
+  applyWindowPreset(presetId: string): Promise<void>;
+  setZoom(zoom: number): Promise<void>;
+  readonly cine: {
+    play(options?: { fps?: number; loop?: boolean }): Promise<void>;
+    stop(): void;
+    readonly playing: boolean;
+  };
   loadSegmentation(segSeriesInstanceUID: string): Promise<SegmentationHandle>;
   getImageIndex(): number | undefined;
   setImageIndex(index: number): Promise<void>;

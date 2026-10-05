@@ -40,8 +40,26 @@ interface ViewerHandle {
       seriesInstanceUID?: string;
       stackIndex?: number;
       imageIndex?: number;
+      window?: { center: number; width: number };
+      invert?: boolean;
+      zoom?: number;
     }[];
   };
+  navigateTo(target: {
+    seriesInstanceUID: string;
+    sopInstanceUID: string;
+  }): Promise<{ imageIndex: number; stackIndex: number; sopInstanceUID: string }>;
+}
+
+interface SourceHandle {
+  getSeries(
+    study: string,
+    series: string,
+  ): Promise<{
+    stacks: {
+      instances: { sopInstanceUID: string; metadata: Record<string, { Value?: unknown[] }> }[];
+    }[];
+  }>;
 }
 
 interface DiagnosticsSample {
@@ -59,6 +77,7 @@ declare global {
     __dvRefreshes?: number;
     __dvSkipped?: { name: string; reason: string }[];
     __dvGl?: WeakRef<WebGLRenderingContext | WebGL2RenderingContext>[];
+    __dvSource?: SourceHandle;
   }
 }
 
@@ -291,6 +310,289 @@ async function scenarioDicomWeb(browser: Browser, input: HeadlessInput): Promise
   return failures;
 }
 
+interface View {
+  window: { center: number; width: number };
+  defaultWindow: { center: number; width: number };
+  invert: boolean;
+  zoom: number;
+}
+
+const view = (page: Page): Promise<View | undefined> => page.evaluate(() => window.__dv?.getView());
+
+async function drag(
+  page: Page,
+  button: 'left' | 'middle' | 'right',
+  dx: number,
+  dy: number,
+): Promise<void> {
+  const centre = await viewportCentre(page);
+  await page.mouse.move(centre.x, centre.y);
+  await page.mouse.down({ button });
+  await page.mouse.move(centre.x + dx, centre.y + dy, { steps: 8 });
+  await page.mouse.up({ button });
+  await page.waitForTimeout(150);
+}
+
+function frameIndex(path: string, sops: readonly string[]): number {
+  const match = /\/instances\/([^/]+)\/frames\//.exec(path);
+  return match?.[1] === undefined ? -1 : sops.indexOf(match[1]);
+}
+
+/** M3: tools, keyboard, presets, cine, the overlay, navigateTo, and prefetching, against the real engine. */
+async function scenarioNavigation(browser: Browser, input: HeadlessInput): Promise<string[]> {
+  const watched = await watch(browser);
+  const { page, failures } = watched;
+  try {
+    input.mock.requestLog.length = 0;
+    await page.goto(
+      query(input, { wadoRoot: input.mock.url, study: input.studyUid, series: input.j2kSeriesUid }),
+      { waitUntil: 'load', timeout: 180_000 },
+    );
+    if (!(await expectReady(watched))) return failures;
+    const study = input.studyUid;
+
+    // Prefetching: the slice on screen and then its neighbours, so all 64 are fetched without being asked for.
+    const framesOf = (series: string): string[] =>
+      input.mock.requestLog
+        .filter((entry) => entry.path.includes(series) && entry.path.includes('/frames/'))
+        .map((entry) => entry.path);
+    const deadline = Date.now() + 60_000;
+    while (new Set(framesOf(input.j2kSeriesUid)).size < 64 && Date.now() < deadline) {
+      await page.waitForTimeout(250);
+    }
+    const fetched = new Set(framesOf(input.j2kSeriesUid)).size;
+    if (fetched < 64) failures.push(`prefetch loaded ${fetched.toString()} of 64 slices`);
+
+    // The overlay: the slice indicator follows the slice, and the patient is not shown.
+    const bottomRight = async (): Promise<string> =>
+      (await page.locator('#viewport [data-dv-corner="bottom-right"]').textContent()) ?? '';
+    if (!/^Image \d+ \/ 64$/.test(await bottomRight()))
+      failures.push(`the slice indicator says "${await bottomRight()}"`);
+    await page.evaluate(() => window.__dv?.setImageIndex(9));
+    if ((await bottomRight()) !== 'Image 10 / 64')
+      failures.push(`after moving to slice 10 the indicator says "${await bottomRight()}"`);
+    const overlayText = (await page.locator('#viewport .dv-overlay').textContent()) ?? '';
+    const topLeft =
+      (await page.locator('#viewport [data-dv-corner="top-left"]').textContent()) ?? '';
+    const identity = await page.evaluate(
+      async ([studyUid, seriesUid]) => {
+        const series = await window.__dvSource?.getSeries(studyUid ?? '', seriesUid ?? '');
+        const metadata = series?.stacks[0]?.instances[0]?.metadata ?? {};
+        const text = (tag: string): string => {
+          const value = metadata[tag]?.Value?.[0];
+          if (typeof value === 'string') return value;
+          if (typeof value === 'object' && value !== null && 'Alphabetic' in value)
+            return String(value.Alphabetic);
+          return '';
+        };
+        return {
+          name: text('00100010'),
+          id: text('00100020'),
+          description: text('0008103E'),
+        };
+      },
+      [study, input.j2kSeriesUid],
+    );
+    // The series description is allowed; nothing else is in that corner, and the patient is nowhere.
+    if (topLeft !== identity.description)
+      failures.push(
+        `the top left of the overlay says "${topLeft}", expected only the series description`,
+      );
+    for (const secret of [identity.id, ...identity.name.split('^')]) {
+      if (
+        secret.length > 2 &&
+        overlayText.includes(secret) &&
+        !identity.description.includes(secret)
+      )
+        failures.push(`the overlay shows "${secret}", which is the patient's`);
+    }
+
+    // Mouse: the left button changes the window, the right zooms, the middle pans, and the wheel scrolls.
+    const first = await view(page);
+    if (first === undefined) return [...failures, 'no view'];
+    await drag(page, 'left', 90, 40);
+    const windowed = await view(page);
+    if (
+      windowed === undefined ||
+      (windowed.window.center === first.window.center &&
+        windowed.window.width === first.window.width)
+    ) {
+      failures.push('dragging with the left button did not change the window');
+    }
+    const afterWindow = await page.evaluate(() => window.__dvViewer?.getState().viewports[0]);
+    if (afterWindow?.window === undefined)
+      failures.push('the window the user set is not in the state');
+
+    await drag(page, 'right', 0, -80);
+    const zoomed = await view(page);
+    if (zoomed === undefined || Math.abs(zoomed.zoom - 1) < 0.05)
+      failures.push('dragging with the right button did not zoom');
+
+    const pictureBefore = await page.locator('#viewport').screenshot();
+    await drag(page, 'middle', 60, 30);
+    if (pictureBefore.equals(await page.locator('#viewport').screenshot()))
+      failures.push('dragging with the middle button did not pan');
+
+    // The tool on the left button can be changed: pan with the left button, then zoom.
+    await page.locator('#tools button[data-tool="pan"]').click();
+    const panBefore = await page.locator('#viewport').screenshot();
+    await drag(page, 'left', -50, -20);
+    if (panBefore.equals(await page.locator('#viewport').screenshot()))
+      failures.push('with the pan tool, dragging with the left button did not pan');
+    await page.locator('#tools button[data-tool="zoom"]').click();
+    const zoomBefore = (await view(page))?.zoom ?? 0;
+    await drag(page, 'left', 0, 60);
+    const zoomAfter = (await view(page))?.zoom ?? 0;
+    if (Math.abs(zoomAfter - zoomBefore) < 0.05)
+      failures.push(
+        `with the zoom tool, dragging with the left button did not zoom (${zoomBefore.toString()} to ${zoomAfter.toString()})`,
+      );
+    // Back to window / level: the left button must have been given back, not shared with the zoom tool.
+    await page.locator('#tools button[data-tool="window-level"]').click();
+    const beforeBack = await view(page);
+    await drag(page, 'left', 70, 0);
+    const afterBack = await view(page);
+    if (
+      beforeBack === undefined ||
+      afterBack === undefined ||
+      (afterBack.window.center === beforeBack.window.center &&
+        afterBack.window.width === beforeBack.window.width)
+    ) {
+      failures.push(
+        'after going back to window / level, the left button did not change the window',
+      );
+    } else if (Math.abs(afterBack.zoom - beforeBack.zoom) > 1e-6) {
+      failures.push('after going back to window / level, the left button still zoomed');
+    }
+
+    // Reset puts everything back, state included.
+    await page.locator('#tools button[data-action="reset"]').click();
+    await page.waitForTimeout(150);
+    const reset = await view(page);
+    if (
+      reset === undefined ||
+      Math.abs(reset.zoom - 1) > 1e-6 ||
+      Math.abs(reset.window.width - reset.defaultWindow.width) > 1e-6
+    ) {
+      failures.push(`reset left the view at ${JSON.stringify(reset)}`);
+    }
+    const afterReset = await page.evaluate(() => window.__dvViewer?.getState().viewports[0]);
+    if (afterReset?.window !== undefined || afterReset?.zoom !== undefined)
+      failures.push('reset left the window or the zoom in the state');
+
+    // Keyboard, after a click gave the viewport the focus.
+    await page.locator('#viewport').click();
+    await page.evaluate(() => window.__dv?.setImageIndex(20));
+    await page.keyboard.press('ArrowDown');
+    await page
+      .waitForFunction(() => window.__dv?.getImageIndex() === 21, undefined, {
+        timeout: 10_000,
+      })
+      .catch(() => {
+        failures.push('ArrowDown did not scroll to the next slice');
+      });
+    await page.keyboard.press('1');
+    await page.waitForTimeout(150);
+    const lung = (await view(page))?.window;
+    if (lung?.center !== -600 || lung.width !== 1500)
+      failures.push(`key 1 set the window to ${JSON.stringify(lung)}`);
+    await page.keyboard.press('i');
+    await page.waitForTimeout(150);
+    if ((await view(page))?.invert !== true) failures.push('key i did not invert');
+    await page.keyboard.press('r');
+    await page.waitForTimeout(150);
+    const afterKeys = await view(page);
+    if (
+      afterKeys?.invert !== false ||
+      Math.abs(afterKeys.window.width - afterKeys.defaultWindow.width) > 1e-6
+    )
+      failures.push('key r did not reset the view');
+
+    // Cine plays slices and stops when asked.
+    await page.evaluate(() => window.__dv?.setImageIndex(0));
+    await page.locator('#tools button[data-action="cine"]').click();
+    const seen = new Set<number | undefined>();
+    for (let tick = 0; tick < 12; tick += 1) {
+      await page.waitForTimeout(100);
+      seen.add(await page.evaluate(() => window.__dv?.getImageIndex()));
+    }
+    if (seen.size < 5) failures.push(`cine showed only ${seen.size.toString()} different slices`);
+    await page.locator('#tools button[data-action="cine"]').click();
+    const stoppedAt = await page.evaluate(() => window.__dv?.getImageIndex());
+    await page.waitForTimeout(400);
+    if ((await page.evaluate(() => window.__dv?.getImageIndex())) !== stoppedAt)
+      failures.push('cine kept going after it was stopped');
+    if (await page.evaluate(() => window.__dv?.cine.playing))
+      failures.push('cine still says it is playing');
+
+    // The window, the inversion, and the zoom are in the link, and a reload restores them.
+    await page.evaluate(async () => {
+      await window.__dv?.applyWindowPreset('bone');
+      await window.__dv?.setZoom(2);
+    });
+    await page.waitForTimeout(400);
+    await page.reload({ waitUntil: 'load' });
+    if (!(await expectReady(watched))) return failures;
+    const restored = await view(page);
+    if (
+      restored?.window.center !== 480 ||
+      restored.window.width !== 2500 ||
+      Math.abs(restored.zoom - 2) > 1e-6
+    ) {
+      failures.push(`the link restored ${JSON.stringify(restored)}, expected bone and zoom 2`);
+    }
+
+    // navigateTo: a series that was never loaded, at slice 40. That slice is fetched first and its
+    // neighbours next, nearest first.
+    const sops = await page.evaluate(
+      async ([studyUid, seriesUid]) => {
+        const series = await window.__dvSource?.getSeries(studyUid ?? '', seriesUid ?? '');
+        return series?.stacks[0]?.instances.map((instance) => instance.sopInstanceUID) ?? [];
+      },
+      [study, input.evrleSeriesUid],
+    );
+    if (sops.length !== 64) {
+      failures.push(`the EVRLE series has ${sops.length.toString()} instances`);
+      return failures;
+    }
+    input.mock.requestLog.length = 0;
+    const target = sops[40];
+    if (target === undefined) return failures;
+    const result = await page.evaluate((arguments_) => window.__dvViewer?.navigateTo(arguments_), {
+      seriesInstanceUID: input.evrleSeriesUid,
+      sopInstanceUID: target,
+    });
+    if (result?.imageIndex !== 40) failures.push(`navigateTo landed on ${JSON.stringify(result)}`);
+    if ((await page.evaluate(() => window.__dv?.getImageIndex())) !== 40)
+      failures.push('navigateTo did not put slice 40 on screen');
+    await page.waitForTimeout(1500);
+    const order = input.mock.requestLog
+      .filter((entry) => entry.path.includes('/frames/'))
+      .map((entry) => frameIndex(entry.path, sops));
+    if (order[0] !== 40)
+      failures.push(`the first frame fetched was slice ${String(order[0])}, not the target 40`);
+    const far = order.slice(0, 6).filter((index) => Math.abs(index - 40) > 4);
+    if (far.length > 0)
+      failures.push(
+        `the first frames fetched were ${JSON.stringify(order.slice(0, 6))}, not its neighbours`,
+      );
+    if (new Set(order).size < 60)
+      failures.push(
+        `only ${new Set(order).size.toString()} slices of the series were fetched after navigateTo`,
+      );
+
+    for (const entry of input.mock.requestLog) {
+      if (entry.status >= 400)
+        failures.push(`mock saw ${entry.status.toString()} for ${entry.path}`);
+    }
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
+
 async function scenarioAuth(browser: Browser, input: HeadlessInput): Promise<string[]> {
   const watched = await watch(browser);
   const { page, failures } = watched;
@@ -310,6 +612,9 @@ async function scenarioAuth(browser: Browser, input: HeadlessInput): Promise<str
         study: input.studyUid,
         series: input.j2kSeriesUid,
         token: 't1',
+        // The scenario revokes the token and expects the next frame it asks for to fail, so no
+        // frame may be fetched ahead of time.
+        prefetch: '0',
       }),
       { waitUntil: 'load', timeout: 180_000 },
     );
@@ -366,7 +671,12 @@ async function scenarioRetry(browser: Browser, input: HeadlessInput): Promise<st
     // The study list fails twice, then answers: the page's retry setting allows two retries.
     input.mock.failNext(503, 2);
     await page.goto(
-      query(input, { wadoRoot: input.mock.url, study: input.studyUid, series: input.j2kSeriesUid }),
+      query(input, {
+        wadoRoot: input.mock.url,
+        study: input.studyUid,
+        series: input.j2kSeriesUid,
+        prefetch: '0',
+      }),
       { waitUntil: 'load', timeout: 180_000 },
     );
     if (!(await expectReady(watched))) return failures;
@@ -588,6 +898,7 @@ export async function smokeHeadless(
 ): Promise<ScenarioResult[]> {
   const scenarios: readonly [string, (b: Browser, i: HeadlessInput) => Promise<string[]>][] = [
     ['dicomweb', scenarioDicomWeb],
+    ['navigation', scenarioNavigation],
     ['auth', scenarioAuth],
     ['retry', scenarioRetry],
     ['local files', scenarioLocalFiles],
@@ -595,7 +906,10 @@ export async function smokeHeadless(
     ['switching assets', scenarioAssetSwitch],
   ];
   const results: ScenarioResult[] = [];
+  // DV_SCENARIO=navigation runs one scenario, for working on it.
+  const only = process.env['DV_SCENARIO'];
   for (const [scenario, run] of scenarios) {
+    if (only !== undefined && only !== scenario) continue;
     console.log(`   scenario: ${scenario}`);
     results.push({ scenario, failures: await run(browser, input) });
   }

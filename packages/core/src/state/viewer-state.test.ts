@@ -64,3 +64,28 @@ describe('parseViewerState', () => {
     if (!result.ok) expect(result.error.length).toBeGreaterThan(0);
   });
 });
+
+describe('the view of a viewport', () => {
+  const withView = (view: object): unknown => ({
+    ...full,
+    viewports: [{ id: 'vp-0', ...view }],
+  });
+
+  it('accepts a window, an inversion, and a zoom', () => {
+    const view = { window: { center: -600, width: 1500 }, invert: true, zoom: 2.5 };
+    expect(parseViewerState(withView(view))).toEqual({
+      ok: true,
+      state: { ...full, viewports: [{ id: 'vp-0', ...view }] },
+    });
+  });
+
+  it.each([
+    ['a window with no width', { window: { center: 0, width: 0 } }],
+    ['a window that is not finite', { window: { center: Number.POSITIVE_INFINITY, width: 1 } }],
+    ['a zoom of zero', { zoom: 0 }],
+    ['a zoom beyond what the viewer supports', { zoom: 64 }],
+    ['an inversion that is not a boolean', { invert: 'yes' }],
+  ])('rejects %s', (_name, view) => {
+    expect(parseViewerState(withView(view)).ok).toBe(false);
+  });
+});

@@ -11,19 +11,29 @@ import type {
   RenderStackOptions,
   SegmentationHandle,
   StackPort,
+  ViewSnapshot,
 } from '../rendering-port';
+import type { PrimaryTool } from '../tools';
 
 export const STUDY = '1.2.3';
 export const CT = '1.2.3.1';
 export const CT_TWO_STACKS = '1.2.3.2';
 export const SEG = '1.2.3.9';
 
+/** The window every fake stack starts with, as if the images had asked for it. */
+export const FAKE_DEFAULT_WINDOW = { center: 40, width: 400 } as const;
+
 function instances(series: string, stack: number, count: number): SeriesInstance[] {
   return Array.from({ length: count }, (_, index) => ({
     sopInstanceUID: `${series}.${stack.toString()}.${index.toString()}`,
     instanceNumber: index + 1,
     imageId: `fake:${series}/${stack.toString()}/${index.toString()}`,
-    metadata: {},
+    metadata: {
+      '00280010': { vr: 'US', Value: [256] },
+      '00280011': { vr: 'US', Value: [512] },
+      '00100010': { vr: 'PN', Value: [{ Alphabetic: 'DOE^JANE^^^' }] },
+      '00100020': { vr: 'LO', Value: ['ID-7'] },
+    },
   }));
 }
 
@@ -129,6 +139,14 @@ export interface FakeStackPort extends StackPort {
   readonly samples: { imageIndex: number; row: number; column: number }[];
   /** Simulates the image changing without the host asking, as the mouse wheel does. */
   emitImage(index: number): void;
+  /** Simulates the view changing without the host asking, as dragging with the mouse does. */
+  emitView(change: Partial<ViewSnapshot>): void;
+  /** Every change the host asked for, in order, such as `window 40/400` or `zoom 2`. */
+  readonly viewCalls: string[];
+  /** What the viewer asked the engine for when it drew this stack. */
+  readonly renderOptions: RenderStackOptions;
+  /** The tool the left mouse button drives, as the host last set it. */
+  primaryTool: PrimaryTool | undefined;
 }
 
 export interface FakePort extends RenderingPort {
@@ -167,6 +185,17 @@ export function fakePort(): FakePort {
       log.push(`render ${stack.imageIds[0] ?? '?'}`);
       await gate;
       const listeners = new Set<(index: number) => void>();
+      const viewListeners = new Set<(view: ViewSnapshot) => void>();
+      let view: ViewSnapshot = {
+        window: FAKE_DEFAULT_WINDOW,
+        defaultWindow: FAKE_DEFAULT_WINDOW,
+        invert: false,
+        zoom: 1,
+      };
+      const changeView = (change: Partial<ViewSnapshot>): void => {
+        view = { ...view, ...change };
+        for (const listener of [...viewListeners]) listener(view);
+      };
       const last = stack.imageIds.length - 1;
       let index =
         options.imageIndex === undefined
@@ -177,6 +206,9 @@ export function fakePort(): FakePort {
         stack,
         destroyed: false,
         samples: [],
+        viewCalls: [],
+        renderOptions: options,
+        primaryTool: undefined,
         imageCount: stack.imageIds.length,
         getImageIndex: () => index,
         setImageIndex(next): Promise<void> {
@@ -192,6 +224,33 @@ export function fakePort(): FakePort {
           listeners.add(listener);
           return (): void => {
             listeners.delete(listener);
+          };
+        },
+        getView: () => view,
+        setWindow(window): void {
+          fake.viewCalls.push(`window ${window.center.toString()}/${window.width.toString()}`);
+          changeView({ window });
+        },
+        setInvert(invert): void {
+          fake.viewCalls.push(`invert ${String(invert)}`);
+          changeView({ invert });
+        },
+        setZoom(zoom): void {
+          fake.viewCalls.push(`zoom ${zoom.toString()}`);
+          changeView({ zoom });
+        },
+        resetView(): void {
+          fake.viewCalls.push('reset');
+          changeView({ window: view.defaultWindow, invert: false, zoom: 1 });
+        },
+        setPrimaryTool(tool): void {
+          fake.primaryTool = tool;
+        },
+        emitView: changeView,
+        onViewChange(listener): () => void {
+          viewListeners.add(listener);
+          return (): void => {
+            viewListeners.delete(listener);
           };
         },
         sampleHu(imageIndex, row, column): Promise<number> {

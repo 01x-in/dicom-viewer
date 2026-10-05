@@ -1,50 +1,13 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DataSourceError } from './data/errors';
-import type { FakePort, FakeSource } from './testing/fakes';
-import { CT, CT_TWO_STACKS, fakePort, fakeSource, SEG, STUDY } from './testing/fakes';
-import type { ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
-import { createViewerCore, type Viewer, type ViewerEvents } from './viewer-core';
+import { CT, CT_TWO_STACKS, fakeSource, SEG, STUDY } from './testing/fakes';
+import { destroyViewersAfterEach, harness, track, vp0 } from './testing/harness';
+import { parseViewerState, type ViewerStateV1 } from './state/viewer-state';
+import { createViewerCore, type Viewer } from './viewer-core';
+import type { Harness } from './testing/harness';
 
-interface Harness {
-  readonly viewer: Viewer;
-  readonly port: FakePort;
-  readonly source: FakeSource;
-  readonly element: HTMLElement;
-  readonly events: { [K in keyof ViewerEvents]: ViewerEvents[K][] };
-}
-
-const open: Viewer[] = [];
-
-function harness(options: { initialState?: ViewerStateV1 } = {}): Harness {
-  const port = fakePort();
-  const source = fakeSource();
-  const viewer = createViewerCore(
-    {
-      dataSource: source,
-      ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
-    },
-    () => Promise.resolve(port),
-  );
-  open.push(viewer);
-  const events: Harness['events'] = {
-    'study:loaded': [],
-    'viewport:image': [],
-    'state:changed': [],
-    error: [],
-  };
-  viewer.on('study:loaded', (event) => events['study:loaded'].push(event));
-  viewer.on('viewport:image', (event) => events['viewport:image'].push(event));
-  viewer.on('state:changed', (event) => events['state:changed'].push(event));
-  viewer.on('error', (event) => events.error.push(event));
-  return { viewer, port, source, element: document.createElement('div'), events };
-}
-
-afterEach(() => {
-  for (const viewer of open.splice(0)) viewer.destroy();
-});
-
-const vp0 = (viewer: Viewer): ViewportStateV1 | undefined => viewer.getState().viewports[0];
+destroyViewersAfterEach();
 
 describe('a new viewer', () => {
   it('starts empty, with one viewport, and becomes ready when the engine is up', async () => {
@@ -62,7 +25,7 @@ describe('a new viewer', () => {
     const viewer = createViewerCore({ dataSource: fakeSource() }, () =>
       Promise.reject(new Error('no WebGL')),
     );
-    open.push(viewer);
+    track(viewer);
     await expect(viewer.ready).rejects.toThrow('no WebGL');
     viewer.viewports.attach('vp-0', document.createElement('div'));
     await expect(
@@ -209,6 +172,22 @@ describe('showing a series', () => {
     await viewer.loadStudy(STUDY);
     await viewer.setViewportSeries('vp-0', CT, { imageIndex: 99 });
     expect(vp0(viewer)?.imageIndex).toBe(9);
+  });
+
+  it('keeps a slice number the schema would refuse out of the state', async () => {
+    const { viewer, element } = harness();
+    viewer.viewports.attach('vp-0', element);
+    await viewer.loadStudy(STUDY);
+    for (const bad of [Number.NaN, 1.5, Number.POSITIVE_INFINITY]) {
+      await expect(viewer.setViewportSeries('vp-0', CT, { imageIndex: bad })).rejects.toThrow(
+        RangeError,
+      );
+    }
+    expect(vp0(viewer)).toEqual({ id: 'vp-0' });
+    // Below the first slice is the first, as above the last is the last.
+    await viewer.setViewportSeries('vp-0', CT, { imageIndex: -4 });
+    expect(vp0(viewer)?.imageIndex).toBe(0);
+    expect(parseViewerState(viewer.getState()).ok).toBe(true);
   });
 
   it('destroys the old stack before it draws the new series into the same element', async () => {

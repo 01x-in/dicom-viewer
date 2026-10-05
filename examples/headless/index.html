@@ -12,6 +12,8 @@
       #series button[aria-pressed='true'] { outline: 2px solid #4af; }
       #viewport { width: 512px; height: 512px; background: #000; }
       #files { margin-bottom: 8px; }
+      #tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+      #tools button[aria-pressed='true'] { outline: 2px solid #4af; }
     </style>
   </head>
   <body>
@@ -19,6 +21,7 @@
       <aside>
         <input id="files" type="file" multiple accept=".dcm,application/dicom" />
         <div id="series"></div>
+        <div id="tools"></div>
         <p id="position"></p>
       </aside>
       <div id="viewport"></div>

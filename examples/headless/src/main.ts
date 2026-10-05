@@ -25,20 +25,30 @@ declare global {
     __refreshToken?: () => Promise<string>;
     __dvRefreshes?: number;
     __dvSkipped?: readonly { name: string; reason: string }[];
+    /** The data source of the DICOMweb page, so the test can ask which instances a series has. */
+    __dvSource?: DataSource;
   }
 }
 
 const params = new URLSearchParams(location.search);
 const viewportElement = document.querySelector<HTMLElement>('#viewport');
 const seriesList = document.querySelector<HTMLElement>('#series');
+const toolsList = document.querySelector<HTMLElement>('#tools');
 const position = document.querySelector<HTMLElement>('#position');
 const fileInput = document.querySelector<HTMLInputElement>('#files');
-if (viewportElement === null || seriesList === null || position === null || fileInput === null) {
+if (
+  viewportElement === null ||
+  seriesList === null ||
+  toolsList === null ||
+  position === null ||
+  fileInput === null
+) {
   throw new Error('missing page elements');
 }
 const mount = viewportElement;
 const filePicker = fileInput;
 const seriesPane = seriesList;
+const toolsPane = toolsList;
 const positionLabel = position;
 const status = (value: string): void => {
   document.documentElement.dataset['dvStatus'] = value;
@@ -53,6 +63,8 @@ const assetsBaseUrl = params.get('assets');
 const viewerSettings = {
   ...(assetsBaseUrl === null ? {} : { assets: { mode: 'url', baseUrl: assetsBaseUrl } as const }),
   ...(params.has('cpu') ? { cpuRendering: true } : {}),
+  // `prefetch=0` loads only the slices that are asked for, which keeps fault-injection scenarios deterministic.
+  ...(params.get('prefetch') === '0' ? { prefetch: false as const } : {}),
 };
 
 function restoredState(): ViewerStateV1 | undefined {
@@ -69,7 +81,7 @@ function dicomWebSource(): DataSource {
   const wadoRoot = params.get('wadoRoot');
   if (wadoRoot === null) throw new Error('wadoRoot is required');
   let token = params.get('token');
-  return createDicomWebDataSource({
+  const source = createDicomWebDataSource({
     wadoRoot,
     // A new token is read on every request, so a refresh takes effect at once.
     getRequestHeaders: () => (token === null ? {} : { Authorization: `Bearer ${token}` }),
@@ -81,6 +93,8 @@ function dicomWebSource(): DataSource {
     },
     retry: { retries: 2, baseDelayMs: 20 },
   });
+  window.__dvSource = source;
+  return source;
 }
 
 let localSource: LocalFileDataSource | undefined;
@@ -107,11 +121,69 @@ function renderSeriesList(current: Viewer, study: StudyData): void {
   });
 }
 
+/** One button per tool, window preset, and action the viewer offers, so the page can be driven without the keyboard. */
+function renderTools(current: Viewer): void {
+  toolsPane.replaceChildren();
+  const add = (
+    label: string,
+    onClick: () => Promise<void> | void,
+    data: Record<string, string>,
+  ): void => {
+    const button = document.createElement('button');
+    button.textContent = label;
+    Object.assign(button.dataset, data);
+    button.addEventListener('click', () => {
+      Promise.resolve(onClick()).catch(fail);
+    });
+    toolsPane.append(button);
+  };
+  const viewport = (): ViewportApi | undefined => current.viewports.get('vp-0');
+  for (const tool of current.tools.list()) {
+    add(tool.label, () => current.tools.setActive(tool.id), { tool: tool.id });
+  }
+  for (const preset of current.tools.windowPresets()) {
+    add(preset.label, () => viewport()?.applyWindowPreset(preset.id), { preset: preset.id });
+  }
+  add('Invert', () => viewport()?.toggleInvert(), { action: 'invert' });
+  add('Reset', () => viewport()?.resetView(), { action: 'reset' });
+  add(
+    'Play',
+    () => {
+      const cine = viewport()?.cine;
+      if (cine?.playing === true) cine.stop();
+      else return cine?.play({ fps: 15 });
+    },
+    { action: 'cine' },
+  );
+  const reflectTool = (active: string): void => {
+    for (const button of toolsPane.querySelectorAll<HTMLButtonElement>('button[data-tool]')) {
+      button.setAttribute('aria-pressed', String(button.dataset['tool'] === active));
+    }
+  };
+  reflectTool(current.tools.getActive());
+  current.on('tool:active', ({ tool }) => {
+    reflectTool(tool);
+  });
+  current.on('viewport:cine', ({ playing }) => {
+    const button = toolsPane.querySelector<HTMLButtonElement>('button[data-action="cine"]');
+    if (button !== null) button.textContent = playing ? 'Stop' : 'Play';
+  });
+}
+
 function reflectSelection(state: ViewerStateV1): void {
   const shown = state.viewports[0]?.seriesInstanceUID;
   for (const button of seriesPane.querySelectorAll<HTMLButtonElement>('button')) {
     button.setAttribute('aria-pressed', String(button.dataset['series'] === shown));
   }
+}
+
+let addressTimer: ReturnType<typeof setTimeout> | undefined;
+
+function scheduleAddressUpdate(current: Viewer): void {
+  clearTimeout(addressTimer);
+  addressTimer = setTimeout(() => {
+    history.replaceState(null, '', `#${encodeViewerState(current.getState())}`);
+  }, 200);
 }
 
 /** Starts a viewer on `dataSource`, restores what the link says, and wires the page to it. */
@@ -141,14 +213,16 @@ async function start(
 
 async function show(created: Viewer, studyUid: string, seriesUid: string | null): Promise<void> {
   created.viewports.attach('vp-0', mount);
+  renderTools(created);
 
   created.on('error', (event) => {
     fail(event.error);
   });
   created.on('state:changed', ({ state, origin }) => {
     reflectSelection(state);
-    // The page's own address always describes the viewer, so a copied link restores it.
-    if (origin !== 'url') history.replaceState(null, '', `#${encodeViewerState(state)}`);
+    // The page's own address always describes the viewer, so a copied link restores it. A drag
+    // changes the state on every mouse move, and browsers limit how often the address may change.
+    if (origin !== 'url') scheduleAddressUpdate(created);
   });
   created.on('viewport:image', ({ imageIndex, imageCount }) => {
     positionLabel.textContent = `${(imageIndex + 1).toString()} / ${imageCount.toString()}`;
@@ -169,6 +243,28 @@ async function show(created: Viewer, studyUid: string, seriesUid: string | null)
   window.__dv = created.viewports.get('vp-0');
   reflectSelection(created.getState());
   status('ready');
+}
+
+/** Waits until the engine holds nothing, or five seconds have passed. */
+async function settled(): Promise<void> {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    await new Promise((done) => setTimeout(done, 25));
+    const held = getEngineDiagnostics();
+    // No diagnostics means the engine was never loaded: nothing to wait for.
+    if (held === undefined) return;
+    if (
+      held.cacheBytes +
+        held.workers +
+        held.renderingEngines +
+        held.viewports +
+        held.activeEngines ===
+      0
+    ) {
+      return;
+    }
+    if (Date.now() > deadline) return;
+  }
 }
 
 /** Mounts and unmounts a viewer many times and records what is left behind, for the leak test. */
@@ -209,8 +305,9 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
       cycleViewer.destroy();
       host.remove();
     }
-    // Let teardown finish before the next cycle.
-    await new Promise((done) => setTimeout(done, 50));
+    // Teardown finishes once the images still on their way have landed. Wait for that, not for a
+    // fixed time, then record what is left.
+    await settled();
     results.push({ cycle: index + 1, diagnostics: getEngineDiagnostics() });
     window.__dvCycles = results;
   }

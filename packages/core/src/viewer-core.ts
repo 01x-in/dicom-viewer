@@ -1,14 +1,45 @@
 import type { DataSource, LoadedSeriesData, SeriesStack, StudyData } from './data/types';
 import { assertDicomUid } from './data/uid';
-import type { RenderingPort, SegmentationHandle, StackPort } from './rendering-port';
+import type {
+  RenderingPort,
+  SegmentationHandle,
+  StackPort,
+  ViewSnapshot,
+  WindowLevel,
+} from './rendering-port';
 import { createEmitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
 import {
+  compactViewport,
   createInitialState,
   parseViewerState,
   type ViewerStateV1,
   type ViewportStateV1,
 } from './state/viewer-state';
+import {
+  DEFAULT_PRIMARY_TOOL,
+  isPrimaryTool,
+  PRIMARY_TOOLS,
+  type PrimaryTool,
+  type ToolInfo,
+} from './tools';
+import { assertWindowPresets, DEFAULT_WINDOW_PRESETS, type WindowPreset } from './window-presets';
+import {
+  buildKeymap,
+  chordOf,
+  isTypingTarget,
+  type KeyAction,
+  type KeybindingOverrides,
+} from './keyboard';
+import {
+  createOverlayView,
+  describeOverlay,
+  overlayLines,
+  type OverlayOptions,
+  type OverlayView,
+} from './overlay';
+import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
+import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 
 export interface ViewerEvents {
   'study:loaded': { readonly study: StudyData };
@@ -19,13 +50,31 @@ export interface ViewerEvents {
     readonly sopInstanceUID: string | undefined;
     readonly origin: StateOrigin;
   };
+  /** The window or the inversion changed. */
+  'viewport:voi': {
+    readonly viewportId: string;
+    readonly window: WindowLevel;
+    readonly defaultWindow: WindowLevel;
+    readonly invert: boolean;
+    readonly origin: StateOrigin;
+  };
+  /** The zoom changed. */
+  'viewport:camera': {
+    readonly viewportId: string;
+    readonly zoom: number;
+    readonly origin: StateOrigin;
+  };
+  /** The tool the left mouse button drives changed. */
+  'tool:active': { readonly tool: PrimaryTool; readonly previous: PrimaryTool };
+  /** Cine started or stopped, or changed its rate. */
+  'viewport:cine': { readonly viewportId: string; readonly playing: boolean; readonly fps: number };
   'state:changed': {
     readonly state: ViewerStateV1;
     readonly previous: ViewerStateV1;
     readonly origin: StateOrigin;
   };
   /** A failure that no call is waiting for, such as restoring `initialState` once an element is attached. */
-  error: { readonly error: Error; readonly context: 'attach' };
+  error: { readonly error: Error; readonly context: 'attach' | 'cine' | 'keyboard' };
 }
 
 /** Fields to change. Viewports are matched by id; a field you leave out stays as it is. */
@@ -47,6 +96,23 @@ export interface ViewportSeriesInfo {
   readonly imageCount: number;
 }
 
+export interface NavigateTarget {
+  readonly seriesInstanceUID: string;
+  readonly sopInstanceUID: string;
+  /** 1-based. Only frame 1 exists until multi-frame images are supported. */
+  readonly frameNumber?: number;
+  /** Default `vp-0`. */
+  readonly viewportId?: string;
+}
+
+export interface NavigateResult {
+  readonly viewportId: string;
+  readonly seriesInstanceUID: string;
+  readonly stackIndex: number;
+  readonly imageIndex: number;
+  readonly sopInstanceUID: string;
+}
+
 export interface ViewportApi {
   readonly id: string;
   /** What the viewport shows now. `undefined` until a series is displayed. */
@@ -58,6 +124,21 @@ export interface ViewportApi {
   setImageIndex(index: number): Promise<void>;
   /** Moves by a number of slices and stops at the first or last one. */
   scrollBy(delta: number): Promise<void>;
+  readonly cine: CineApi;
+  /** What the viewport looks like now. `undefined` until a series is displayed. */
+  getView(): ViewSnapshot | undefined;
+  /** Rejects with a `RangeError` unless `center` is finite and `width` is finite and above zero. */
+  setWindow(center: number, width: number): Promise<void>;
+  setInvert(invert: boolean): Promise<void>;
+  toggleInvert(): Promise<void>;
+  /** 1 fits the image to the viewport. Values outside 0.1 to 32 are clamped. Rejects with a `RangeError` unless `zoom` is above zero. */
+  setZoom(zoom: number): Promise<void>;
+  /** Multiplies the zoom, within the same limits. */
+  zoomBy(factor: number): Promise<void>;
+  /** Sets the window to one of `viewer.tools.windowPresets()`. Rejects with a `RangeError` for an id that is not one. */
+  applyWindowPreset(presetId: string): Promise<void>;
+  /** Back to the default window, no inversion, fit to the viewport, and centred. */
+  resetView(): Promise<void>;
   /** Decodes one slice and returns the Hounsfield value of one pixel. */
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
   /** M1 spike: retrieves a SEG of the study and parses it against the displayed series. Replaced in M6. */
@@ -73,18 +154,35 @@ export interface ViewportsApi {
   list(): ViewportApi[];
 }
 
+export interface ToolsApi {
+  /** The tools the left mouse button can drive. The middle button always pans, the right zooms, and the wheel scrolls. */
+  list(): readonly ToolInfo[];
+  getActive(): PrimaryTool;
+  /** Rejects with a `RangeError` for a tool that does not exist. */
+  setActive(tool: PrimaryTool): Promise<void>;
+  /** The window presets of this viewer. */
+  windowPresets(): readonly WindowPreset[];
+}
+
 export interface Viewer {
   /** Resolves once the engine is ready. Rejects if it cannot start. */
   readonly ready: Promise<void>;
   /** Lists the series of a study and makes it the current one. Loading another study empties the viewports. */
   loadStudy(studyInstanceUID: string): Promise<StudyData>;
   readonly viewports: ViewportsApi;
+  readonly tools: ToolsApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
   setViewportSeries(
     viewportId: string,
     seriesInstanceUID: string,
     options?: SetViewportSeriesOptions,
   ): Promise<void>;
+  /**
+   * Shows one instance: the series it is in, in its stack, at its slice. The slice is loaded before
+   * anything else, and its neighbours follow, nearest first. Rejects, and changes nothing, if the
+   * series does not have the instance.
+   */
+  navigateTo(target: NavigateTarget): Promise<NavigateResult>;
   getState(): ViewerStateV1;
   /** Applies a patch and resolves once everything it asks for is displayed. Rejects if the result is not a valid state. */
   setState(patch: ViewerStatePatch, options?: { readonly origin?: 'api' | 'url' }): Promise<void>;
@@ -104,6 +202,26 @@ export interface ViewerCoreOptions {
   readonly dataSource: DataSource;
   /** A state to restore, for example one decoded from the URL. It is validated. */
   readonly initialState?: ViewerStateV1;
+  readonly tools?: {
+    /** The tool the left mouse button drives at the start. Default: window / level. */
+    readonly active?: PrimaryTool;
+  };
+  /**
+   * Keyboard shortcuts, active while a viewport element has the focus: the defaults changed by these
+   * (`null` removes one), or `false` for none. The viewer gives its elements a `tabindex` of 0 unless
+   * they have one, and focuses them on a pointer press.
+   */
+  readonly keybindings?: false | KeybindingOverrides;
+  /**
+   * How far from the slice on screen images are loaded ahead of being asked for: `radius` slices
+   * either side, 64 by default. `false` loads only what is asked for. Cornerstone keeps one
+   * setting per page, so with several viewers the last one drawn decides.
+   */
+  readonly prefetch?: false | { readonly radius?: number };
+  /** The text drawn over each viewport (series, image size, window, slice number), or `false` for none. */
+  readonly overlay?: false | OverlayOptions;
+  /** Replaces the usual CT windows (lung, soft tissue, bone, brain, liver). */
+  readonly windowLevelPresets?: readonly WindowPreset[];
 }
 
 interface Shown {
@@ -114,18 +232,29 @@ interface Shown {
   off: Unsubscribe;
   /** The slice last reported, so a repeat is not announced twice. */
   lastIndex: number;
+  /** The view last reported, so only what changed is announced. */
+  view: ViewSnapshot;
+  readonly modality: string;
+  readonly description: string | undefined;
+  overlay: OverlayView | undefined;
 }
 
 interface Runtime {
   readonly id: string;
   /** The slice a call is moving this viewport to, and who asked, so the engine's change event can be told from the wheel. */
   pendingMove: { readonly index: number; readonly origin: StateOrigin } | undefined;
+  /** Who is changing the view while a call runs, so the engine's report can be told from the mouse. */
+  viewOrigin: StateOrigin | undefined;
   element: HTMLElement | undefined;
   shown: Shown | undefined;
   api: ViewportApi | undefined;
+  cine: CineController | undefined;
+  stopKeys: (() => void) | undefined;
 }
 
 const noop = (): void => undefined;
+
+const DEFAULT_PREFETCH_RADIUS = 64;
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -144,7 +273,9 @@ function withViewport(
     (key) => !Object.is(patch[key], current[key]),
   );
   if (!changed) return viewports;
-  return viewports.map((viewport, at) => (at === index ? { ...viewport, ...patch } : viewport));
+  return viewports.map((viewport, at) =>
+    at === index ? compactViewport({ ...viewport, ...patch }) : viewport,
+  );
 }
 
 /**
@@ -162,6 +293,26 @@ export function createViewerCore(
     throw new Error(`Invalid initialState: ${initial.error}`);
   }
   const { dataSource } = options;
+  const initialTool = options.tools?.active ?? DEFAULT_PRIMARY_TOOL;
+  if (!isPrimaryTool(initialTool)) {
+    throw new RangeError(`There is no tool ${String(initialTool)}.`);
+  }
+  let activeTool: PrimaryTool = initialTool;
+  const windowPresets = options.windowLevelPresets ?? DEFAULT_WINDOW_PRESETS;
+  assertWindowPresets(windowPresets);
+  const prefetchRadius =
+    options.prefetch === false ? 0 : (options.prefetch?.radius ?? DEFAULT_PREFETCH_RADIUS);
+  if (!Number.isInteger(prefetchRadius) || prefetchRadius < 0) {
+    throw new RangeError(
+      `The prefetch radius must be a whole number, 0 or more, not ${prefetchRadius.toString()}.`,
+    );
+  }
+  const overlayOptions: OverlayOptions | undefined =
+    options.overlay === false ? undefined : (options.overlay ?? {});
+  const keymap =
+    options.keybindings === false
+      ? undefined
+      : buildKeymap(windowPresets, options.keybindings ?? {});
   const store = createStore<ViewerStateV1>(initial?.state ?? createInitialState());
   const events = createEmitter<ViewerEvents>();
   store.onChange((state, previous, origin) => {
@@ -216,8 +367,30 @@ export function createViewerCore(
     const { shown } = runtime;
     if (shown === undefined) return;
     runtime.shown = undefined;
+    runtime.cine?.stop();
+    shown.overlay?.destroy();
     shown.off();
     shown.port.destroy();
+  }
+
+  /** Redraws the text over the picture from what is on screen now. */
+  function updateOverlay(shown: Shown): void {
+    if (shown.overlay === undefined || overlayOptions === undefined || shown.lastIndex < 0) return;
+    const metadata = shown.stack.instances[shown.lastIndex]?.metadata;
+    if (metadata === undefined) return;
+    shown.overlay.update(
+      overlayLines(
+        describeOverlay({
+          modality: shown.modality,
+          seriesDescription: shown.description,
+          metadata,
+          imageIndex: shown.lastIndex,
+          imageCount: shown.stack.imageIds.length,
+          view: shown.view,
+        }),
+        overlayOptions,
+      ),
+    );
   }
 
   function reportImage(
@@ -229,6 +402,7 @@ export function createViewerCore(
   ): void {
     if (shown.lastIndex === index) return;
     shown.lastIndex = index;
+    updateOverlay(shown);
     updateViewport(runtime.id, { ...alsoInState, imageIndex: index }, origin);
     events.emit('viewport:image', {
       viewportId: runtime.id,
@@ -236,6 +410,61 @@ export function createViewerCore(
       imageCount: shown.stack.imageIds.length,
       sopInstanceUID: shown.stack.instances[index]?.sopInstanceUID,
       origin,
+    });
+  }
+
+  /** Records a change of view in the state and announces what changed. */
+  function reportView(
+    runtime: Runtime,
+    shown: Shown,
+    view: ViewSnapshot,
+    origin: StateOrigin,
+  ): void {
+    const previous = shown.view;
+    shown.view = view;
+    updateOverlay(shown);
+    const changes = viewChanges(viewportState(runtime.id) ?? { id: runtime.id }, view);
+    if (Object.keys(changes).length > 0) updateViewport(runtime.id, changes, origin);
+    if (!sameWindow(previous.window, view.window) || previous.invert !== view.invert) {
+      events.emit('viewport:voi', {
+        viewportId: runtime.id,
+        window: view.window,
+        defaultWindow: view.defaultWindow,
+        invert: view.invert,
+        origin,
+      });
+    }
+    if (!sameZoom(previous.zoom, view.zoom)) {
+      events.emit('viewport:camera', { viewportId: runtime.id, zoom: view.zoom, origin });
+    }
+  }
+
+  /** Runs one change of the view, remembering who asked while the engine reports it. */
+  function changeView(
+    runtime: Runtime,
+    origin: StateOrigin,
+    change: (port: StackPort) => void,
+  ): void {
+    const { shown } = runtime;
+    if (shown === undefined) return;
+    runtime.viewOrigin = origin;
+    try {
+      change(shown.port);
+    } finally {
+      runtime.viewOrigin = undefined;
+    }
+  }
+
+  /** Makes the engine show the window, inversion, and zoom the state asks for. */
+  function applyView(runtime: Runtime, desired: ViewportStateV1, origin: StateOrigin): void {
+    const { shown } = runtime;
+    if (shown === undefined) return;
+    const have = shown.port.getView();
+    const want = desiredView(desired, have);
+    changeView(runtime, origin, (port) => {
+      if (!sameWindow(want.window, have.window)) port.setWindow(want.window);
+      if (want.invert !== have.invert) port.setInvert(want.invert);
+      if (!sameZoom(want.zoom, have.zoom)) port.setZoom(want.zoom);
     });
   }
 
@@ -300,6 +529,7 @@ export function createViewerCore(
         const index = Math.min(Math.max(0, Math.trunc(wanted)), shown.port.imageCount - 1);
         await moveTo(runtime, shown, index, origin);
       }
+      applyView(runtime, desired, origin);
       return;
     }
 
@@ -316,7 +546,10 @@ export function createViewerCore(
         );
       }
       const port = await portPromise;
-      const stackPort = await port.renderStack(element, stack, { imageIndex: desired.imageIndex });
+      const stackPort = await port.renderStack(element, stack, {
+        imageIndex: desired.imageIndex,
+        prefetchRadius,
+      });
       if (destroyed || runtime.element !== element) {
         // Detached or destroyed while the render was in flight.
         stackPort.destroy();
@@ -329,8 +562,12 @@ export function createViewerCore(
         port: stackPort,
         off: noop,
         lastIndex: -1,
+        view: stackPort.getView(),
+        modality: series.modality,
+        description: series.description,
+        overlay: overlayOptions === undefined ? undefined : createOverlayView(element),
       };
-      next.off = stackPort.onImageChange((index) => {
+      const offImage = stackPort.onImageChange((index) => {
         reportImage(
           runtime,
           next,
@@ -338,15 +575,32 @@ export function createViewerCore(
           runtime.pendingMove?.index === index ? runtime.pendingMove.origin : 'user',
         );
       });
+      const offView = stackPort.onViewChange((view) => {
+        reportView(runtime, next, view, runtime.viewOrigin ?? 'user');
+      });
+      next.off = (): void => {
+        offImage();
+        offView();
+      };
       runtime.shown = next;
+      stackPort.setPrimaryTool(activeTool);
       // The state describes what is on screen: the stack and the slice that are showing now.
       reportImage(runtime, next, stackPort.getImageIndex(), origin, { stackIndex: stack.index });
+      applyView(runtime, viewportState(id) ?? desired, origin);
     } catch (error) {
       // A viewport that failed shows nothing, and the state must not claim otherwise.
+      teardown(runtime);
       if (!destroyed) {
         updateViewport(
           id,
-          { seriesInstanceUID: undefined, stackIndex: undefined, imageIndex: undefined },
+          {
+            seriesInstanceUID: undefined,
+            stackIndex: undefined,
+            imageIndex: undefined,
+            window: undefined,
+            invert: undefined,
+            zoom: undefined,
+          },
           origin,
         );
       }
@@ -364,6 +618,35 @@ export function createViewerCore(
     };
     const moveApiTo = (index: number): Promise<void> =>
       enqueue(() => moveTo(runtime, requireShown(), index, 'api'));
+    const cine = createCine({
+      async step(loop): Promise<boolean> {
+        // Runs in the queue, like every call that moves the engine.
+        return enqueue(async () => {
+          const { shown } = runtime;
+          if (shown === undefined) return false;
+          const last = shown.stack.imageIds.length - 1;
+          const current = shown.port.getImageIndex();
+          if (current >= last && !loop) return false;
+          await moveTo(runtime, shown, current >= last ? 0 : current + 1, 'api');
+          return true;
+        });
+      },
+      changed: ({ playing, fps }) => {
+        events.emit('viewport:cine', { viewportId: runtime.id, playing, fps });
+      },
+      failed: (error) => {
+        events.emit('error', { error, context: 'cine' });
+      },
+    });
+    runtime.cine = cine;
+    // Counts calls to play and stop, so a stop can cancel a play that is still waiting in the queue.
+    let cineCalls = 0;
+    const viewApi = (change: (port: StackPort) => void): Promise<void> =>
+      enqueue(() => {
+        requireShown();
+        changeView(runtime, 'api', change);
+        return Promise.resolve();
+      });
     return {
       id: runtime.id,
       get series(): ViewportSeriesInfo | undefined {
@@ -404,6 +687,85 @@ export function createViewerCore(
           return moveTo(runtime, shown, target, 'api');
         });
       },
+      cine: {
+        play(cineOptions): Promise<void> {
+          try {
+            if (cineOptions?.fps !== undefined) assertCineFps(cineOptions.fps);
+          } catch (error) {
+            return Promise.reject(toError(error));
+          }
+          cineCalls += 1;
+          const mine = cineCalls;
+          return enqueue(() => {
+            const shown = requireShown();
+            // A stop, or a later play, made after this call supersedes it, even though it is still queued.
+            if (mine === cineCalls && shown.stack.imageIds.length > 1) cine.play(cineOptions);
+            return Promise.resolve();
+          });
+        },
+        stop: () => {
+          cineCalls += 1;
+          cine.stop();
+        },
+        get playing(): boolean {
+          return cine.playing;
+        },
+        get fps(): number {
+          return cine.fps;
+        },
+      },
+      getView: () => runtime.shown?.port.getView(),
+      setWindow(center, width): Promise<void> {
+        if (!Number.isFinite(center) || !Number.isFinite(width) || width <= 0) {
+          return Promise.reject(
+            new RangeError(
+              `A window needs a finite center and a width above zero, not ${String(center)}/${String(width)}.`,
+            ),
+          );
+        }
+        return viewApi((port) => {
+          port.setWindow({ center, width });
+        });
+      },
+      setInvert: (invert) =>
+        viewApi((port) => {
+          port.setInvert(invert);
+        }),
+      toggleInvert: () =>
+        viewApi((port) => {
+          port.setInvert(!port.getView().invert);
+        }),
+      setZoom(zoom): Promise<void> {
+        if (!Number.isFinite(zoom) || zoom <= 0) {
+          return Promise.reject(new RangeError(`A zoom must be above zero, not ${String(zoom)}.`));
+        }
+        return viewApi((port) => {
+          port.setZoom(clampZoom(zoom));
+        });
+      },
+      zoomBy(factor): Promise<void> {
+        if (!Number.isFinite(factor) || factor <= 0) {
+          return Promise.reject(
+            new RangeError(`A zoom factor must be above zero, not ${String(factor)}.`),
+          );
+        }
+        return viewApi((port) => {
+          port.setZoom(clampZoom(port.getView().zoom * factor));
+        });
+      },
+      applyWindowPreset(presetId): Promise<void> {
+        const preset = windowPresets.find((candidate) => candidate.id === presetId);
+        if (preset === undefined) {
+          return Promise.reject(new RangeError(`There is no window preset "${presetId}".`));
+        }
+        return viewApi((port) => {
+          port.setWindow({ center: preset.center, width: preset.width });
+        });
+      },
+      resetView: () =>
+        viewApi((port) => {
+          port.resetView();
+        }),
       sampleHu(imageIndex, row, column): Promise<number> {
         // Queued like every engine call, so a sample asked for after a series switch is taken from the new series.
         return enqueue(() => requireShown().port.sampleHu(imageIndex, row, column));
@@ -453,6 +815,36 @@ export function createViewerCore(
     });
   }
 
+  /** Records what a viewport should show and makes the engine show it. Runs inside the queue. */
+  async function applySeries(
+    viewportId: string,
+    seriesInstanceUID: string,
+    seriesOptions: SetViewportSeriesOptions,
+  ): Promise<void> {
+    requireViewport(viewportId);
+    if (store.getState().studyInstanceUID === undefined) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    // Asking for what is already on screen, without a slice, must not forget the slice.
+    const shown = runtimes.get(viewportId)?.shown;
+    const sameStack =
+      shown?.seriesInstanceUID === seriesInstanceUID &&
+      shown.stack.index === (seriesOptions.stackIndex ?? 0);
+    updateViewport(
+      viewportId,
+      {
+        seriesInstanceUID,
+        stackIndex: seriesOptions.stackIndex,
+        imageIndex:
+          seriesOptions.imageIndex ?? (sameStack ? shown.port.getImageIndex() : undefined),
+        // Another series starts with its own window, no inversion, and fit to the viewport.
+        ...(sameStack ? {} : { window: undefined, invert: undefined, zoom: undefined }),
+      },
+      'api',
+    );
+    await syncViewport(viewportId);
+  }
+
   function setViewportSeries(
     viewportId: string,
     seriesInstanceUID: string,
@@ -460,32 +852,78 @@ export function createViewerCore(
   ): Promise<void> {
     try {
       assertDicomUid(seriesInstanceUID, 'SeriesInstanceUID');
+      // The state must hold a slice number the schema accepts, whatever a host without types passes.
+      const { imageIndex } = seriesOptions;
+      if (imageIndex !== undefined && !Number.isInteger(imageIndex)) {
+        throw new RangeError(`A slice number is a whole number, not ${String(imageIndex)}.`);
+      }
     } catch (error) {
       return Promise.reject(toError(error));
     }
+    // Below the first slice is the first slice, as above the last is the last.
+    const wanted = seriesOptions.imageIndex;
+    const normalized =
+      wanted === undefined ? seriesOptions : { ...seriesOptions, imageIndex: Math.max(0, wanted) };
     // The state changes inside the queue, so each call is checked against, and applied on top of,
     // the calls made before it.
+    return enqueue(() => applySeries(viewportId, seriesInstanceUID, normalized));
+  }
+
+  function navigateTo(target: NavigateTarget): Promise<NavigateResult> {
+    const viewportId = target.viewportId ?? 'vp-0';
+    try {
+      assertDicomUid(target.seriesInstanceUID, 'SeriesInstanceUID');
+      assertDicomUid(target.sopInstanceUID, 'SOPInstanceUID');
+      const { frameNumber } = target;
+      if (frameNumber !== undefined) {
+        if (!Number.isInteger(frameNumber) || frameNumber < 1) {
+          throw new RangeError(
+            `A frame number is a whole number from 1, not ${frameNumber.toString()}.`,
+          );
+        }
+        if (frameNumber > 1) {
+          throw new RangeError(
+            `Frame ${frameNumber.toString()} was asked for, but multi-frame images are not supported yet.`,
+          );
+        }
+      }
+    } catch (error) {
+      return Promise.reject(toError(error));
+    }
     return enqueue(async () => {
       requireViewport(viewportId);
-      if (store.getState().studyInstanceUID === undefined) {
+      const { studyInstanceUID } = store.getState();
+      if (studyInstanceUID === undefined) {
         throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
       }
-      // Asking for what is already on screen, without a slice, must not forget the slice.
-      const shown = runtimes.get(viewportId)?.shown;
-      const sameStack =
-        shown?.seriesInstanceUID === seriesInstanceUID &&
-        shown.stack.index === (seriesOptions.stackIndex ?? 0);
-      updateViewport(
-        viewportId,
-        {
-          seriesInstanceUID,
-          stackIndex: seriesOptions.stackIndex,
-          imageIndex:
-            seriesOptions.imageIndex ?? (sameStack ? shown.port.getImageIndex() : undefined),
-        },
-        'api',
+      // Find the slice before changing anything, so a target that is not there leaves the viewport as it was.
+      const series = await getSeries(studyInstanceUID, target.seriesInstanceUID);
+      assertAlive();
+      if (series.stacks.length === 0) {
+        throw new Error(
+          `Series ${target.seriesInstanceUID} (${series.modality}) has no images to display.`,
+        );
+      }
+      const stackIndex = series.stacks.findIndex((stack) =>
+        stack.instances.some((instance) => instance.sopInstanceUID === target.sopInstanceUID),
       );
-      await syncViewport(viewportId);
+      const stack = series.stacks[stackIndex];
+      if (stack === undefined) {
+        throw new Error(
+          `Series ${target.seriesInstanceUID} has no instance ${target.sopInstanceUID}.`,
+        );
+      }
+      const imageIndex = stack.instances.findIndex(
+        (instance) => instance.sopInstanceUID === target.sopInstanceUID,
+      );
+      await applySeries(viewportId, target.seriesInstanceUID, { stackIndex, imageIndex });
+      return {
+        viewportId,
+        seriesInstanceUID: target.seriesInstanceUID,
+        stackIndex,
+        imageIndex: viewportState(viewportId)?.imageIndex ?? imageIndex,
+        sopInstanceUID: target.sopInstanceUID,
+      };
     });
   }
 
@@ -501,7 +939,16 @@ export function createViewerCore(
       const base = studyChanged ? emptyViewports(current) : current.viewports;
       const merged = base.map((viewport) => {
         const change = patch.viewports?.find((candidate) => candidate.id === viewport.id);
-        return change === undefined ? viewport : { ...viewport, ...change };
+        if (change === undefined) return viewport;
+        const sameStack =
+          (change.seriesInstanceUID ?? viewport.seriesInstanceUID) === viewport.seriesInstanceUID &&
+          (change.stackIndex ?? viewport.stackIndex ?? 0) === (viewport.stackIndex ?? 0);
+        // Another series starts with its own view, unless the patch says otherwise.
+        return compactViewport({
+          ...viewport,
+          ...(sameStack ? {} : { window: undefined, invert: undefined, zoom: undefined }),
+          ...change,
+        });
       });
       const unmatched = patch.viewports?.find(
         (change) => !merged.some((viewport) => viewport.id === change.id),
@@ -528,6 +975,83 @@ export function createViewerCore(
     });
   }
 
+  const tools: ToolsApi = {
+    list: () => PRIMARY_TOOLS,
+    getActive: () => activeTool,
+    windowPresets: () => windowPresets,
+    setActive(tool): Promise<void> {
+      if (!isPrimaryTool(tool)) {
+        return Promise.reject(new RangeError(`There is no tool ${String(tool)}.`));
+      }
+      return enqueue(() => {
+        const previous = activeTool;
+        if (tool === previous) return Promise.resolve();
+        activeTool = tool;
+        for (const runtime of runtimes.values()) runtime.shown?.port.setPrimaryTool(tool);
+        events.emit('tool:active', { tool, previous });
+        return Promise.resolve();
+      });
+    },
+  };
+
+  function perform(api: ViewportApi, action: KeyAction): Promise<void> {
+    switch (action.type) {
+      case 'scroll':
+        return api.scrollBy(action.by);
+      case 'scroll-to':
+        return api.setImageIndex(action.position === 'first' ? 0 : api.imageCount - 1);
+      case 'zoom':
+        return api.zoomBy(action.factor);
+      case 'invert':
+        return api.toggleInvert();
+      case 'reset':
+        return api.resetView();
+      case 'cine':
+        if (api.cine.playing) {
+          api.cine.stop();
+          return Promise.resolve();
+        }
+        return api.cine.play();
+      case 'tool':
+        return tools.setActive(action.tool);
+      case 'preset':
+        return api.applyWindowPreset(action.id);
+    }
+  }
+
+  // Keys held down repeat; scrolling and zooming should, a toggle should not.
+  const repeatable = new Set<KeyAction['type']>(['scroll', 'zoom']);
+
+  /** Listens for shortcuts on one viewport element. Returns what undoes it. */
+  function listenForKeys(runtime: Runtime, element: HTMLElement): () => void {
+    if (keymap === undefined) return noop;
+    const addedTabIndex = !element.hasAttribute('tabindex');
+    if (addedTabIndex) element.tabIndex = 0;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || isTypingTarget(event.target)) return;
+      const chord = chordOf(event);
+      const action = chord === undefined ? undefined : keymap.get(chord);
+      const { api } = runtime;
+      // With nothing on screen there is nothing to act on, and the key is not ours to swallow.
+      if (action === undefined || api === undefined || runtime.shown === undefined) return;
+      event.preventDefault();
+      if (event.repeat && !repeatable.has(action.type)) return;
+      perform(api, action).catch((error: unknown) => {
+        if (!destroyed) events.emit('error', { error: toError(error), context: 'keyboard' });
+      });
+    };
+    const onPointerDown = (): void => {
+      element.focus({ preventScroll: true });
+    };
+    element.addEventListener('keydown', onKeyDown);
+    element.addEventListener('pointerdown', onPointerDown);
+    return (): void => {
+      element.removeEventListener('keydown', onKeyDown);
+      element.removeEventListener('pointerdown', onPointerDown);
+      if (addedTabIndex) element.removeAttribute('tabindex');
+    };
+  }
+
   const viewports: ViewportsApi = {
     attach(viewportId, element): void {
       assertAlive();
@@ -537,14 +1061,19 @@ export function createViewerCore(
         runtime = {
           id: viewportId,
           pendingMove: undefined,
+          viewOrigin: undefined,
           element: undefined,
           shown: undefined,
           api: undefined,
+          cine: undefined,
+          stopKeys: undefined,
         };
         runtimes.set(viewportId, runtime);
       }
       if (runtime.element === element) return;
+      runtime.stopKeys?.();
       runtime.element = element;
+      runtime.stopKeys = listenForKeys(runtime, element);
       runtime.api ??= apiFor(runtime);
       // Anything drawn into a previous element is replaced when this runs.
       enqueue(() => syncViewport(viewportId)).catch((error: unknown) => {
@@ -555,6 +1084,8 @@ export function createViewerCore(
       const runtime = runtimes.get(viewportId);
       if (runtime === undefined) return;
       runtimes.delete(viewportId);
+      runtime.stopKeys?.();
+      runtime.stopKeys = undefined;
       runtime.element = undefined;
       runtime.api = undefined;
       if (!destroyed) {
@@ -573,7 +1104,9 @@ export function createViewerCore(
     ready,
     loadStudy,
     viewports,
+    tools,
     setViewportSeries,
+    navigateTo,
     getState: () => store.getState(),
     setState,
     subscribe: (selector, listener, subscribeOptions) =>
@@ -582,7 +1115,10 @@ export function createViewerCore(
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
-      for (const runtime of runtimes.values()) teardown(runtime);
+      for (const runtime of runtimes.values()) {
+        runtime.stopKeys?.();
+        teardown(runtime);
+      }
       runtimes.clear();
       seriesCache.clear();
       events.clear();

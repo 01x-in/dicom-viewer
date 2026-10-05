@@ -23,7 +23,12 @@ export {
   assertBrowserEnvironment,
   isBrowserEnvironment,
 } from './environment';
-export type { SegmentationHandle, SegmentInfo } from './rendering-port';
+export type {
+  SegmentationHandle,
+  SegmentInfo,
+  ViewSnapshot,
+  WindowLevel,
+} from './rendering-port';
 export { createEmitter } from './state/events';
 export type { Unsubscribe } from './state/events';
 export type { StateOrigin, SubscribeOptions } from './state/store';
@@ -34,10 +39,23 @@ export {
   viewerStateV1Schema,
 } from './state/viewer-state';
 export type { ParseResult, ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
+export { describeOverlay, overlayLines } from './overlay';
+export type { OverlayInfo, OverlayLines, OverlayOptions } from './overlay';
+export { DEFAULT_KEYBINDINGS } from './keyboard';
+export type { KeyAction, KeybindingOverrides } from './keyboard';
+export { DEFAULT_CINE_FPS, MAX_CINE_FPS } from './cine';
+export type { CineApi, CineOptions } from './cine';
+export { PRIMARY_TOOLS } from './tools';
+export type { PrimaryTool, ToolInfo } from './tools';
+export { DEFAULT_WINDOW_PRESETS } from './window-presets';
+export type { WindowPreset } from './window-presets';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
 export type {
+  NavigateResult,
+  NavigateTarget,
   SetViewportSeriesOptions,
+  ToolsApi,
   Viewer,
   ViewerEvents,
   ViewerStatePatch,
