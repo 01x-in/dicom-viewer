@@ -10,8 +10,9 @@ export interface PanelDefinition {
   readonly title: string;
   readonly placement: PanelPlacement;
   /**
-   * Fills `container` when the panel is shown. The return value, if any, runs when the panel is
-   * hidden, replaced, or unregistered, or the viewer goes away.
+   * Fills `container` the first time the panel is shown, and the content stays while the panel is
+   * on another tab. The return value, if any, runs when the panel is unregistered or the dock that
+   * shows it goes away.
    */
   // `void` in a union is how callbacks that may return a cleanup are usually typed (React's effects).
   // eslint-disable-next-line @typescript-eslint/no-invalid-void-type -- the usual way to type an optional cleanup
