@@ -51,9 +51,11 @@ export interface DicomViewerProps {
   readonly onStateChange?: ((state: ViewerStateV1, origin: string) => void) | undefined;
   /** Items for the toolbar, or `false` for none. Default: the built-in tools, actions and presets. */
   readonly toolbar?: readonly ToolbarItem[] | false | undefined;
-  /** Extra side panels, by id. The series browser is built in. */
+  /** Extra side panels, by id. The series browser and the measurements list are built in. */
   readonly panels?: Readonly<Record<string, ReactPanel>> | undefined;
   readonly hideSeriesPanel?: boolean | undefined;
+  /** Hides the built-in list of measurements, a tab in the right-hand dock. */
+  readonly hideMeasurementsPanel?: boolean | undefined;
   readonly theme?: ThemeName | undefined;
   /** Slots of the shell. `panelLeft` and `panelRight` are plain content beside the tabbed panels. */
   readonly banner?: ReactNode;
@@ -148,7 +150,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     element.seriesInstanceUid = seriesInstanceUID;
   }, [defined, options, studyInstanceUID, seriesInstanceUID]);
 
-  const { toolbar, hideSeriesPanel } = props;
+  const { toolbar, hideSeriesPanel, hideMeasurementsPanel } = props;
   useEffect(() => {
     const element = elementRef.current;
     if (!defined || element === null) return;
@@ -156,7 +158,8 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     element.hideToolbar = toolbar === false;
     element.toolbarItems = toolbar === undefined || toolbar === false ? undefined : toolbar;
     element.hideSeriesPanel = hideSeriesPanel === true;
-  }, [defined, theme, toolbar, hideSeriesPanel]);
+    element.hideMeasurementsPanel = hideMeasurementsPanel === true;
+  }, [defined, theme, toolbar, hideSeriesPanel, hideMeasurementsPanel]);
 
   useEffect(() => {
     const element = elementRef.current;

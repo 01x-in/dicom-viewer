@@ -1,4 +1,4 @@
-import type { Viewer, ViewerStateV1 } from '@scope/viewer-core';
+import type { Measurement, Viewer, ViewerStateV1 } from '@scope/viewer-core';
 import { type Context, createContext, useContext, useRef, useSyncExternalStore } from 'react';
 
 /** The viewer of the nearest `<DicomViewer>`, once it is ready. Set by the component, not by hosts. */
@@ -39,6 +39,50 @@ export function useViewerState<T>(selector: (state: ViewerStateV1) => T): T | un
     (notify) => {
       if (viewer === undefined) return () => undefined;
       return viewer.on('state:changed', notify);
+    },
+    read,
+    () => undefined,
+  );
+}
+
+const MEASUREMENT_EVENTS = [
+  'measurement:added',
+  'measurement:updated',
+  'measurement:removed',
+] as const;
+
+/**
+ * Every measurement the viewer holds, re-read when one is added, changed, or removed. `undefined`
+ * until the viewer is ready. Filter by `reference.studyInstanceUID` to keep to one study.
+ */
+export function useMeasurements(): readonly Measurement[] | undefined {
+  const viewer = useViewer();
+  // One list per change, so React's double check of the snapshot sees the same array.
+  const version = useRef(0);
+  const cache = useRef<
+    { viewer: Viewer; version: number; value: readonly Measurement[] } | undefined
+  >(undefined);
+  const read = (): readonly Measurement[] | undefined => {
+    if (viewer === undefined) return undefined;
+    if (cache.current?.viewer === viewer && cache.current.version === version.current) {
+      return cache.current.value;
+    }
+    const value = viewer.measurements.list();
+    cache.current = { viewer, version: version.current, value };
+    return value;
+  };
+  return useSyncExternalStore(
+    (notify) => {
+      if (viewer === undefined) return () => undefined;
+      const stops = MEASUREMENT_EVENTS.map((event) =>
+        viewer.on(event, () => {
+          version.current += 1;
+          notify();
+        }),
+      );
+      return (): void => {
+        for (const stop of stops) stop();
+      };
     },
     read,
     () => undefined,

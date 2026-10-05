@@ -1,4 +1,4 @@
-import type { Viewer, ViewerStateV1 } from '@scope/viewer-core';
+import type { Measurement, Viewer, ViewerStateV1 } from '@scope/viewer-core';
 import {
   type InjectionKey,
   inject,
@@ -51,6 +51,45 @@ export function useViewerState<T>(
         value.value = selector(state);
       });
       onCleanup(stop);
+    },
+    { immediate: true },
+  );
+  onScopeDispose(() => {
+    value.value = undefined;
+  });
+  return value;
+}
+
+const MEASUREMENT_EVENTS = [
+  'measurement:added',
+  'measurement:updated',
+  'measurement:removed',
+] as const;
+
+/**
+ * Every measurement the viewer holds, as a ref that follows it. `undefined` until the viewer is
+ * ready. Filter by `reference.studyInstanceUID` to keep to one study. The list is shallow: the
+ * measurements are plain data that is never changed in place.
+ */
+export function useMeasurements(): Readonly<Ref<readonly Measurement[] | undefined>> {
+  const viewer = useViewer();
+  const value = shallowRef<readonly Measurement[] | undefined>(undefined);
+  watch(
+    viewer,
+    (current, _previous, onCleanup) => {
+      if (current === undefined) {
+        value.value = undefined;
+        return;
+      }
+      value.value = current.measurements.list();
+      const stops = MEASUREMENT_EVENTS.map((event) =>
+        current.on(event, () => {
+          value.value = current.measurements.list();
+        }),
+      );
+      onCleanup(() => {
+        for (const stop of stops) stop();
+      });
     },
     { immediate: true },
   );

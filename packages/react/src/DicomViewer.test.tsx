@@ -5,7 +5,13 @@ import { type JSX, type RefObject, StrictMode, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DicomViewer, type DicomViewerProps, useViewer, useViewerState } from './index';
+import {
+  DicomViewer,
+  type DicomViewerProps,
+  useMeasurements,
+  useViewer,
+  useViewerState,
+} from './index';
 
 const made: FakeViewer[] = [];
 
@@ -282,6 +288,7 @@ describe('panels and hooks', () => {
   it('draws a React panel into the dock, with the host context', async () => {
     await render({
       hideSeriesPanel: true,
+      hideMeasurementsPanel: true,
       panels: { notes: { title: 'Notes', render: () => <Probe /> } },
     });
     const dock = element().shadowRoot?.querySelector('dv-panel-dock[placement="right"]');
@@ -293,6 +300,7 @@ describe('panels and hooks', () => {
   it('keeps the panel up to date as the state changes', async () => {
     await render({
       hideSeriesPanel: true,
+      hideMeasurementsPanel: true,
       panels: { notes: { title: 'Notes', render: () => <Probe /> } },
     });
     await act(async () => {
@@ -304,12 +312,66 @@ describe('panels and hooks', () => {
     );
   });
 
+  it('has the measurements list built in on the right, and hides it on request', async () => {
+    await render({ hideSeriesPanel: true });
+    expect(made[0]?.viewer.ui.panels().map((panel) => `${panel.id}:${panel.placement}`)).toEqual([
+      'measurements:right',
+    ]);
+    await render({ hideSeriesPanel: true, hideMeasurementsPanel: true });
+    expect(made[0]?.viewer.ui.panels()).toEqual([]);
+    await render({ hideSeriesPanel: true });
+    expect(made[0]?.viewer.ui.panels().map((panel) => panel.id)).toEqual(['measurements']);
+  });
+
+  it('gives useMeasurements the measurements, and follows them', async () => {
+    function Count(): JSX.Element {
+      const measurements = useMeasurements();
+      return (
+        <p data-count>
+          {measurements === undefined
+            ? 'no viewer'
+            : `${measurements.length.toString()} measurements`}
+        </p>
+      );
+    }
+    await render({
+      hideMeasurementsPanel: true,
+      panels: { notes: { title: 'Notes', render: () => <Count /> } },
+      hideSeriesPanel: true,
+    });
+    const text = (): string | null | undefined =>
+      element()
+        .shadowRoot?.querySelector('dv-panel-dock[placement="right"]')
+        ?.shadowRoot?.querySelector('[data-count]')?.textContent;
+    expect(text()).toBe('0 measurements');
+    await act(async () => {
+      await made[0]?.viewer.measurements.add({
+        type: 'length',
+        reference: {
+          studyInstanceUID: FAKE_IDS.study,
+          seriesInstanceUID: FAKE_IDS.ct,
+          sopInstanceUID: `${FAKE_IDS.ct}.0.5`,
+        },
+        points: [
+          [0, 0, 0],
+          [3, 4, 0],
+        ],
+      });
+    });
+    expect(text()).toBe('1 measurements');
+    await act(async () => {
+      await made[0]?.viewer.measurements.clear();
+    });
+    expect(text()).toBe('0 measurements');
+  });
+
   it('removes a panel when it is no longer in the props', async () => {
     await render({
       hideSeriesPanel: true,
+      hideMeasurementsPanel: true,
       panels: { notes: { title: 'Notes', render: () => <Probe /> } },
     });
-    await render({ hideSeriesPanel: true, panels: {} });
+    await render({ hideSeriesPanel: true, hideMeasurementsPanel: true, panels: {} });
     expect(made[0]?.viewer.ui.panels()).toEqual([]);
   });
 
