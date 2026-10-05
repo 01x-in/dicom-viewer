@@ -41,6 +41,8 @@ export {
 export type { ParseResult, ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
 export { PRIMARY_TOOLS } from './tools';
 export type { PrimaryTool, ToolInfo } from './tools';
+export { DEFAULT_WINDOW_PRESETS } from './window-presets';
+export type { WindowPreset } from './window-presets';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
 export type {

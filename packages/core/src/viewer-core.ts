@@ -23,6 +23,7 @@ import {
   type PrimaryTool,
   type ToolInfo,
 } from './tools';
+import { assertWindowPresets, DEFAULT_WINDOW_PRESETS, type WindowPreset } from './window-presets';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 
 export interface ViewerEvents {
@@ -99,6 +100,8 @@ export interface ViewportApi {
   setZoom(zoom: number): Promise<void>;
   /** Multiplies the zoom, within the same limits. */
   zoomBy(factor: number): Promise<void>;
+  /** Sets the window to one of `viewer.tools.windowPresets()`. Rejects with a `RangeError` for an id that is not one. */
+  applyWindowPreset(presetId: string): Promise<void>;
   /** Back to the default window, no inversion, fit to the viewport, and centred. */
   resetView(): Promise<void>;
   /** Decodes one slice and returns the Hounsfield value of one pixel. */
@@ -122,6 +125,8 @@ export interface ToolsApi {
   getActive(): PrimaryTool;
   /** Rejects with a `RangeError` for a tool that does not exist. */
   setActive(tool: PrimaryTool): Promise<void>;
+  /** The window presets of this viewer. */
+  windowPresets(): readonly WindowPreset[];
 }
 
 export interface Viewer {
@@ -160,6 +165,8 @@ export interface ViewerCoreOptions {
     /** The tool the left mouse button drives at the start. Default: window / level. */
     readonly active?: PrimaryTool;
   };
+  /** Replaces the usual CT windows (lung, soft tissue, bone, brain, liver). */
+  readonly windowLevelPresets?: readonly WindowPreset[];
 }
 
 interface Shown {
@@ -229,6 +236,8 @@ export function createViewerCore(
     throw new RangeError(`There is no tool ${String(initialTool)}.`);
   }
   let activeTool: PrimaryTool = initialTool;
+  const windowPresets = options.windowLevelPresets ?? DEFAULT_WINDOW_PRESETS;
+  assertWindowPresets(windowPresets);
   const store = createStore<ViewerStateV1>(initial?.state ?? createInitialState());
   const events = createEmitter<ViewerEvents>();
   store.onChange((state, previous, origin) => {
@@ -590,6 +599,15 @@ export function createViewerCore(
           port.setZoom(clampZoom(port.getView().zoom * factor));
         });
       },
+      applyWindowPreset(presetId): Promise<void> {
+        const preset = windowPresets.find((candidate) => candidate.id === presetId);
+        if (preset === undefined) {
+          return Promise.reject(new RangeError(`There is no window preset "${presetId}".`));
+        }
+        return viewApi((port) => {
+          port.setWindow({ center: preset.center, width: preset.width });
+        });
+      },
       resetView: () =>
         viewApi((port) => {
           port.resetView();
@@ -732,6 +750,7 @@ export function createViewerCore(
   const tools: ToolsApi = {
     list: () => PRIMARY_TOOLS,
     getActive: () => activeTool,
+    windowPresets: () => windowPresets,
     setActive(tool): Promise<void> {
       if (!isPrimaryTool(tool)) {
         return Promise.reject(new RangeError(`There is no tool ${String(tool)}.`));
