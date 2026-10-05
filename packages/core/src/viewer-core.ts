@@ -24,6 +24,7 @@ import {
   type ToolInfo,
 } from './tools';
 import { assertWindowPresets, DEFAULT_WINDOW_PRESETS, type WindowPreset } from './window-presets';
+import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 
 export interface ViewerEvents {
@@ -51,13 +52,15 @@ export interface ViewerEvents {
   };
   /** The tool the left mouse button drives changed. */
   'tool:active': { readonly tool: PrimaryTool; readonly previous: PrimaryTool };
+  /** Cine started or stopped, or changed its rate. */
+  'viewport:cine': { readonly viewportId: string; readonly playing: boolean; readonly fps: number };
   'state:changed': {
     readonly state: ViewerStateV1;
     readonly previous: ViewerStateV1;
     readonly origin: StateOrigin;
   };
   /** A failure that no call is waiting for, such as restoring `initialState` once an element is attached. */
-  error: { readonly error: Error; readonly context: 'attach' };
+  error: { readonly error: Error; readonly context: 'attach' | 'cine' };
 }
 
 /** Fields to change. Viewports are matched by id; a field you leave out stays as it is. */
@@ -90,6 +93,7 @@ export interface ViewportApi {
   setImageIndex(index: number): Promise<void>;
   /** Moves by a number of slices and stops at the first or last one. */
   scrollBy(delta: number): Promise<void>;
+  readonly cine: CineApi;
   /** What the viewport looks like now. `undefined` until a series is displayed. */
   getView(): ViewSnapshot | undefined;
   /** Rejects with a `RangeError` unless `center` is finite and `width` is finite and above zero. */
@@ -190,6 +194,7 @@ interface Runtime {
   element: HTMLElement | undefined;
   shown: Shown | undefined;
   api: ViewportApi | undefined;
+  cine: CineController | undefined;
 }
 
 const noop = (): void => undefined;
@@ -292,6 +297,7 @@ export function createViewerCore(
     const { shown } = runtime;
     if (shown === undefined) return;
     runtime.shown = undefined;
+    runtime.cine?.stop();
     shown.off();
     shown.port.destroy();
   }
@@ -512,6 +518,27 @@ export function createViewerCore(
     };
     const moveApiTo = (index: number): Promise<void> =>
       enqueue(() => moveTo(runtime, requireShown(), index, 'api'));
+    const cine = createCine({
+      async step(loop): Promise<boolean> {
+        // Runs in the queue, like every call that moves the engine.
+        return enqueue(async () => {
+          const { shown } = runtime;
+          if (shown === undefined) return false;
+          const last = shown.stack.imageIds.length - 1;
+          const current = shown.port.getImageIndex();
+          if (current >= last && !loop) return false;
+          await moveTo(runtime, shown, current >= last ? 0 : current + 1, 'api');
+          return true;
+        });
+      },
+      changed: ({ playing, fps }) => {
+        events.emit('viewport:cine', { viewportId: runtime.id, playing, fps });
+      },
+      failed: (error) => {
+        events.emit('error', { error, context: 'cine' });
+      },
+    });
+    runtime.cine = cine;
     const viewApi = (change: (port: StackPort) => void): Promise<void> =>
       enqueue(() => {
         requireShown();
@@ -557,6 +584,29 @@ export function createViewerCore(
           );
           return moveTo(runtime, shown, target, 'api');
         });
+      },
+      cine: {
+        play(cineOptions): Promise<void> {
+          try {
+            if (cineOptions?.fps !== undefined) assertCineFps(cineOptions.fps);
+          } catch (error) {
+            return Promise.reject(toError(error));
+          }
+          return enqueue(() => {
+            const shown = requireShown();
+            if (shown.stack.imageIds.length > 1) cine.play(cineOptions);
+            return Promise.resolve();
+          });
+        },
+        stop: () => {
+          cine.stop();
+        },
+        get playing(): boolean {
+          return cine.playing;
+        },
+        get fps(): number {
+          return cine.fps;
+        },
       },
       getView: () => runtime.shown?.port.getView(),
       setWindow(center, width): Promise<void> {
@@ -779,6 +829,7 @@ export function createViewerCore(
           element: undefined,
           shown: undefined,
           api: undefined,
+          cine: undefined,
         };
         runtimes.set(viewportId, runtime);
       }
