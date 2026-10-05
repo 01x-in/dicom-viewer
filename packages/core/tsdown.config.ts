@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 
 export default defineConfig([
   {
-    entry: { index: 'src/index.ts', local: 'src/local.ts' },
+    entry: { index: 'src/index.ts', local: 'src/local.ts', testing: 'src/testing.ts' },
     format: 'esm',
     platform: 'browser',
     target: 'es2022',
