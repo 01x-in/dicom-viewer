@@ -10,60 +10,36 @@ import {
   RectangleROITool,
   type Types,
 } from '@cornerstonejs/tools';
+import type { MeasurementType } from '../measurements/model';
 import type { EngineMeasurement, MeasurementChange } from '../rendering-port';
-import type { MeasurementType, Point3 } from '../measurements/model';
+import { HANDLE_COUNT, hydrateInputOf, shapeOfAnnotation } from './annotation-shape';
 import { MEASUREMENT_OF_TOOL } from './tools';
 
 type Annotation = Types.Annotation;
+type Handles = [number, number, number][];
 
-/** What `hydrate` of every tool wants: where, which image, and the id to keep. */
+/** What `hydrate` of every tool wants besides the handles: which image, and the id to keep. */
 interface HydrateOptions {
   readonly annotationUID: string;
   readonly referencedImageId: string;
 }
 
-type Hydrate = (viewportId: string, points: Point3[], options: HydrateOptions) => unknown;
-
-function mutable([x, y, z]: Point3): [number, number, number] {
-  return [x, y, z];
-}
-
-function copy(points: readonly Point3[]): [number, number, number][] {
-  return points.map(mutable);
-}
-
-/** Tools that take their handles as they are draw them: a list of points. */
-const POINT_HYDRATORS: Readonly<Record<Exclude<MeasurementType, 'bidirectional'>, Hydrate>> = {
-  length: (viewportId, points, options) => LengthTool.hydrate(viewportId, copy(points), options),
-  ellipse: (viewportId, points, options) =>
-    EllipticalROITool.hydrate(viewportId, copy(points), options),
-  rectangle: (viewportId, points, options) =>
-    RectangleROITool.hydrate(viewportId, copy(points), options),
-  probe: (viewportId, points, options) => ProbeTool.hydrate(viewportId, copy(points), options),
-  angle: (viewportId, points, options) => AngleTool.hydrate(viewportId, copy(points), options),
+/** Tools that take their handles as a list of points. A bidirectional measurement takes two axes. */
+const HANDLE_HYDRATORS: Readonly<
+  Record<Exclude<MeasurementType, 'bidirectional'>, (...args: HydrateArguments) => unknown>
+> = {
+  length: (viewportId, points, options) => LengthTool.hydrate(viewportId, points, options),
+  ellipse: (viewportId, points, options) => EllipticalROITool.hydrate(viewportId, points, options),
+  rectangle: (viewportId, points, options) => RectangleROITool.hydrate(viewportId, points, options),
+  probe: (viewportId, points, options) => ProbeTool.hydrate(viewportId, points, options),
+  angle: (viewportId, points, options) => AngleTool.hydrate(viewportId, points, options),
 };
 
-/** The number of handles each shape has once it is complete. */
-const HANDLE_COUNT: Readonly<Record<MeasurementType, number>> = {
-  length: 2,
-  bidirectional: 4,
-  ellipse: 4,
-  rectangle: 4,
-  probe: 1,
-  angle: 3,
-};
+type HydrateArguments = [viewportId: string, points: Handles, options: HydrateOptions];
 
 /** Cornerstone's types say a lookup always finds something. It does not. */
 function lookup(id: string): Annotation | undefined {
   return annotationApi.state.getAnnotation(id);
-}
-
-function isPoint(value: unknown): value is Point3 {
-  return (
-    Array.isArray(value) &&
-    value.length === 3 &&
-    value.every((item) => typeof item === 'number' && Number.isFinite(item))
-  );
 }
 
 export interface StackMeasurements {
@@ -105,21 +81,8 @@ export function trackMeasurements(options: {
     for (const listener of [...listeners]) listener(change);
   };
 
-  /** The shape as plain data, or `undefined` if it is not on this stack or is not a shape we know. */
-  function describe(annotation: Annotation): EngineMeasurement | undefined {
-    const imageId = annotation.metadata?.referencedImageId;
-    const toolName = annotation.metadata?.toolName;
-    const id = annotation.annotationUID;
-    if (imageId === undefined || toolName === undefined || id === undefined) return undefined;
-    const imageIndex = indexOf.get(imageId);
-    const type = MEASUREMENT_OF_TOOL.get(toolName);
-    if (imageIndex === undefined || type === undefined) return undefined;
-    const handles: unknown = annotation.data.handles?.points;
-    if (!Array.isArray(handles) || !handles.every(isPoint)) return undefined;
-    // An angle has two points until the third is placed: not a measurement yet.
-    if (handles.length !== HANDLE_COUNT[type]) return undefined;
-    return { id, type, imageIndex, points: handles.map(([x, y, z]): Point3 => [x, y, z]) };
-  }
+  const describe = (annotation: Annotation): EngineMeasurement | undefined =>
+    shapeOfAnnotation(annotation, indexOf, MEASUREMENT_OF_TOOL);
 
   const detail = (event: Event): Annotation | undefined => {
     const { annotation } = (event as CustomEvent<{ annotation?: Annotation }>).detail;
@@ -147,21 +110,6 @@ export function trackMeasurements(options: {
       emit({ kind: 'removed', id });
     }
   };
-  const onSelection = (event: Event): void => {
-    if (quiet > 0) return;
-    const { selection } = (event as CustomEvent<{ selection: string[] }>).detail;
-    const mine = selection.find((id) => {
-      const annotation = lookup(id);
-      const imageId = annotation?.metadata?.referencedImageId;
-      return imageId !== undefined && indexOf.has(imageId);
-    });
-    if (mine !== undefined || selection.length === 0) emit({ kind: 'selected', id: mine });
-  };
-
-  eventTarget.addEventListener(Enums.Events.ANNOTATION_COMPLETED, onCompleted);
-  eventTarget.addEventListener(Enums.Events.ANNOTATION_MODIFIED, onModified);
-  eventTarget.addEventListener(Enums.Events.ANNOTATION_REMOVED, onRemoved);
-  eventTarget.addEventListener(Enums.Events.ANNOTATION_SELECTION_CHANGE, onSelection);
 
   const mine = (id: string): Annotation | undefined => {
     const found = lookup(id);
@@ -169,31 +117,33 @@ export function trackMeasurements(options: {
     return imageId !== undefined && indexOf.has(imageId) ? found : undefined;
   };
 
+  const onSelection = (event: Event): void => {
+    if (quiet > 0) return;
+    const { selection } = (event as CustomEvent<{ selection: string[] }>).detail;
+    const picked = selection.find((id) => mine(id) !== undefined);
+    if (picked !== undefined || selection.length === 0) emit({ kind: 'selected', id: picked });
+  };
+
+  eventTarget.addEventListener(Enums.Events.ANNOTATION_COMPLETED, onCompleted);
+  eventTarget.addEventListener(Enums.Events.ANNOTATION_MODIFIED, onModified);
+  eventTarget.addEventListener(Enums.Events.ANNOTATION_REMOVED, onRemoved);
+  eventTarget.addEventListener(Enums.Events.ANNOTATION_SELECTION_CHANGE, onSelection);
+
   return {
     add(measurement): void {
       if (destroyed || mine(measurement.id) !== undefined) return;
       const imageId = options.imageIds[measurement.imageIndex];
-      if (imageId === undefined || measurement.points.length !== HANDLE_COUNT[measurement.type]) {
-        return;
-      }
+      const input = hydrateInputOf(measurement);
+      if (imageId === undefined || input === undefined) return;
       const hydrateOptions: HydrateOptions = {
         annotationUID: measurement.id,
         referencedImageId: imageId,
       };
       quietly(() => {
-        if (measurement.type === 'bidirectional') {
-          const [a, b, c, d] = measurement.points;
-          if (a === undefined || b === undefined || c === undefined || d === undefined) return;
-          BidirectionalTool.hydrate(
-            viewportId,
-            [
-              [mutable(a), mutable(b)],
-              [mutable(c), mutable(d)],
-            ],
-            hydrateOptions,
-          );
-        } else {
-          POINT_HYDRATORS[measurement.type](viewportId, [...measurement.points], hydrateOptions);
+        if (input.kind === 'axes') {
+          BidirectionalTool.hydrate(viewportId, input.axes, hydrateOptions);
+        } else if (measurement.type !== 'bidirectional') {
+          HANDLE_HYDRATORS[measurement.type](viewportId, input.points, hydrateOptions);
         }
         // Not every tool's `hydrate` makes the place its statistics go, and drawing needs it.
         const created = lookup(measurement.id);
@@ -206,7 +156,7 @@ export function trackMeasurements(options: {
       if (found === undefined || handles === undefined) return;
       if (measurement.points.length !== HANDLE_COUNT[measurement.type]) return;
       quietly(() => {
-        handles.points = copy(measurement.points);
+        handles.points = measurement.points.map(([x, y, z]): [number, number, number] => [x, y, z]);
         // Its numbers are worked out again the next time it is drawn.
         annotationApi.state.invalidateAnnotation(found);
       });

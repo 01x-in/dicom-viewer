@@ -1,9 +1,10 @@
 import { optionalString } from '../data/dicom-json';
 import type { SeriesStack } from '../data/types';
-import type { EngineMeasurement, MeasurementChange, StackPort } from '../rendering-port';
+import type { MeasurementChange, StackPort } from '../rendering-port';
 import { measurementValues, type MeasurementValues } from './describe';
 import { planeOf } from './geometry';
 import { newId } from './ids';
+import { fromEngineShape, toEngineShape } from './mappers';
 import {
   MAX_LABEL_LENGTH,
   MEASUREMENTS_FORMAT,
@@ -224,21 +225,17 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     return undefined;
   }
 
-  function shape(measurement: Measurement, imageIndex: number): EngineMeasurement {
-    return { id: measurement.id, type: measurement.type, imageIndex, points: measurement.points };
-  }
-
   function draw(measurement: Measurement): void {
     for (const shown of attached) {
       const imageIndex = indexIn(shown, measurement);
-      if (imageIndex >= 0) shown.port.addMeasurement(shape(measurement, imageIndex));
+      if (imageIndex >= 0) shown.port.addMeasurement(toEngineShape(measurement, imageIndex));
     }
   }
 
   function redraw(measurement: Measurement): void {
     for (const shown of attached) {
       const imageIndex = indexIn(shown, measurement);
-      if (imageIndex >= 0) shown.port.updateMeasurement(shape(measurement, imageIndex));
+      if (imageIndex >= 0) shown.port.updateMeasurement(toEngineShape(measurement, imageIndex));
     }
   }
 
@@ -345,17 +342,19 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     if (destroyed) return;
     switch (change.kind) {
       case 'completed': {
-        const { id, type, imageIndex, points } = change.measurement;
+        const { id, imageIndex } = change.measurement;
         if (items.has(id)) return;
         const reference = referenceFor(shown, imageIndex);
         if (reference === undefined) return;
-        const parsed = parseMeasurement({ id, type, reference, points });
-        if (!parsed.ok) {
-          deps.fail(new Error(`The engine drew a measurement that is not valid: ${parsed.error}`));
+        const measurement = fromEngineShape(change.measurement, reference);
+        if (measurement === undefined) {
+          deps.fail(
+            new Error(`The engine drew a shape that is not a valid ${change.measurement.type}.`),
+          );
           return;
         }
-        items.set(id, parsed.measurement);
-        deps.emit('measurement:added', { measurement: parsed.measurement, origin: 'user' });
+        items.set(id, measurement);
+        deps.emit('measurement:added', { measurement, origin: 'user' });
         schedulePixels(id, 'user', 0);
         return;
       }
@@ -391,7 +390,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     attached.add(shown);
     for (const measurement of items.values()) {
       if (indexIn(shown, measurement) < 0) continue;
-      shown.port.addMeasurement(shape(measurement, indexIn(shown, measurement)));
+      shown.port.addMeasurement(toEngineShape(measurement, indexIn(shown, measurement)));
       if (needsPixels(measurement)) schedulePixels(measurement.id, 'api', 0);
     }
     if (selected !== undefined) shown.port.selectMeasurement(selected);
