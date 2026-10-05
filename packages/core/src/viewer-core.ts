@@ -40,6 +40,7 @@ import {
 } from './overlay';
 import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
+import { createUiRegistry, type PanelDefinition, type UiApi } from './ui';
 
 export interface ViewerEvents {
   'study:loaded': { readonly study: StudyData };
@@ -68,6 +69,8 @@ export interface ViewerEvents {
   'tool:active': { readonly tool: PrimaryTool; readonly previous: PrimaryTool };
   /** Cine started or stopped, or changed its rate. */
   'viewport:cine': { readonly viewportId: string; readonly playing: boolean; readonly fps: number };
+  /** A panel was registered or removed. */
+  'ui:panels': { readonly panels: readonly PanelDefinition[] };
   'state:changed': {
     readonly state: ViewerStateV1;
     readonly previous: ViewerStateV1;
@@ -169,8 +172,12 @@ export interface Viewer {
   readonly ready: Promise<void>;
   /** Lists the series of a study and makes it the current one. Loading another study empties the viewports. */
   loadStudy(studyInstanceUID: string): Promise<StudyData>;
+  /** The series list of the study last loaded, or `undefined` before any. */
+  getStudy(): StudyData | undefined;
   readonly viewports: ViewportsApi;
   readonly tools: ToolsApi;
+  /** Side panels for the styled shell, and for a host that draws its own. */
+  readonly ui: UiApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
   setViewportSeries(
     viewportId: string,
@@ -324,6 +331,10 @@ export function createViewerCore(
   // A host that never reads `ready` must not get an unhandled rejection when the engine fails.
   ready.catch(noop);
 
+  const ui = createUiRegistry((panels) => {
+    events.emit('ui:panels', { panels });
+  });
+  let study: StudyData | undefined;
   const runtimes = new Map<string, Runtime>();
   const seriesCache = new Map<string, Promise<LoadedSeriesData>>();
   let destroyed = false;
@@ -803,15 +814,16 @@ export function createViewerCore(
     assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
     return enqueue(async () => {
       // Fetch first: if it fails, nothing has changed.
-      const study = await dataSource.getStudy(studyInstanceUID);
+      const loaded = await dataSource.getStudy(studyInstanceUID);
       assertAlive();
       if (store.getState().studyInstanceUID !== studyInstanceUID) {
         for (const runtime of runtimes.values()) teardown(runtime);
         seriesCache.clear();
         store.update((state) => ({ studyInstanceUID, viewports: emptyViewports(state) }), 'api');
       }
-      events.emit('study:loaded', { study });
-      return study;
+      study = loaded;
+      events.emit('study:loaded', { study: loaded });
+      return loaded;
     });
   }
 
@@ -1103,8 +1115,19 @@ export function createViewerCore(
   return {
     ready,
     loadStudy,
+    getStudy: () =>
+      study !== undefined && study.studyInstanceUID === store.getState().studyInstanceUID
+        ? study
+        : undefined,
     viewports,
     tools,
+    ui: {
+      registerPanel(panel): Unsubscribe {
+        assertAlive();
+        return ui.api.registerPanel(panel);
+      },
+      panels: () => ui.api.panels(),
+    },
     setViewportSeries,
     navigateTo,
     getState: () => store.getState(),
@@ -1121,6 +1144,7 @@ export function createViewerCore(
       }
       runtimes.clear();
       seriesCache.clear();
+      ui.clear();
       events.clear();
       // If the engine never started there is nothing to destroy; the failure reached `ready`.
       portPromise.then((port) => {

@@ -49,6 +49,7 @@ export { PRIMARY_TOOLS } from './tools';
 export type { PrimaryTool, ToolInfo } from './tools';
 export { DEFAULT_WINDOW_PRESETS } from './window-presets';
 export type { WindowPreset } from './window-presets';
+export type { PanelDefinition, PanelPlacement, UiApi } from './ui';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
 export type {
