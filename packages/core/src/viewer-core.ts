@@ -639,6 +639,8 @@ export function createViewerCore(
       },
     });
     runtime.cine = cine;
+    // Counts calls to play and stop, so a stop can cancel a play that is still waiting in the queue.
+    let cineCalls = 0;
     const viewApi = (change: (port: StackPort) => void): Promise<void> =>
       enqueue(() => {
         requireShown();
@@ -692,13 +694,17 @@ export function createViewerCore(
           } catch (error) {
             return Promise.reject(toError(error));
           }
+          cineCalls += 1;
+          const mine = cineCalls;
           return enqueue(() => {
             const shown = requireShown();
-            if (shown.stack.imageIds.length > 1) cine.play(cineOptions);
+            // A stop, or a later play, made after this call supersedes it, even though it is still queued.
+            if (mine === cineCalls && shown.stack.imageIds.length > 1) cine.play(cineOptions);
             return Promise.resolve();
           });
         },
         stop: () => {
+          cineCalls += 1;
           cine.stop();
         },
         get playing(): boolean {

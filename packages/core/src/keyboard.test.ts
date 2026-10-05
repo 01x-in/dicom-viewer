@@ -56,6 +56,13 @@ describe('normalizeChord', () => {
     expect(normalizeChord('PageDown')).toBe('PageDown');
   });
 
+  it('drops Shift where chordOf does, so a binding written with it can be pressed', () => {
+    expect(normalizeChord('Shift+1')).toBe('1');
+    expect(normalizeChord('Shift+Plus')).toBe('Plus');
+    expect(normalizeChord('Ctrl+Shift+-')).toBe('Ctrl+-');
+    expect(normalizeChord('Shift+i')).toBe('Shift+i');
+  });
+
   it.each(['', '+', 'Ctrl+', 'Ctrl+Ctrl+a', 'Banana+a', 'Ctrl+ab'])('rejects "%s"', (spec) => {
     expect(() => normalizeChord(spec)).toThrow(RangeError);
   });
@@ -86,7 +93,9 @@ describe('the default keymap', () => {
   });
 
   it('is what DEFAULT_KEYBINDINGS lists, so a host can show it', () => {
-    expect(Object.keys(DEFAULT_KEYBINDINGS)).toContain('ArrowDown');
+    for (const [chord, action] of Object.entries(DEFAULT_KEYBINDINGS)) {
+      expect(keymap.get(chord)).toEqual(action);
+    }
   });
 });
 

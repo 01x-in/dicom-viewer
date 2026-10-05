@@ -137,6 +137,8 @@ export function createOverlayView(element: HTMLElement): OverlayView {
     root.append(corner);
     corners.set(key, corner);
   }
+  // Kept exactly as the host wrote it (even `static`), so detaching gives the element back as it was.
+  const inlinePosition = element.style.position;
   const positioned =
     element.ownerDocument.defaultView?.getComputedStyle(element).position !== 'static';
   if (!positioned) element.style.position = 'relative';
@@ -155,7 +157,7 @@ export function createOverlayView(element: HTMLElement): OverlayView {
     },
     destroy(): void {
       root.remove();
-      if (!positioned) element.style.removeProperty('position');
+      if (!positioned) element.style.position = inlinePosition;
     },
   };
 }

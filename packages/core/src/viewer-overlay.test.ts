@@ -104,4 +104,14 @@ describe('the overlay', () => {
     await show(positioned);
     expect(positioned.element.style.position).toBe('absolute');
   });
+
+  it('gives back an inline position: static exactly, not an absent one', async () => {
+    const h = harness();
+    h.element.style.position = 'static';
+    await show(h);
+    expect(h.element.style.position).toBe('relative');
+    h.viewer.viewports.detach('vp-0');
+    await h.viewer.loadStudy(STUDY);
+    expect(h.element.style.position).toBe('static');
+  });
 });

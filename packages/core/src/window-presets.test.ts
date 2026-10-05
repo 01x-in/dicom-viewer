@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertWindowPresets, DEFAULT_WINDOW_PRESETS } from './window-presets';
+import { assertWindowPresets, DEFAULT_WINDOW_PRESETS, type WindowPreset } from './window-presets';
 
 describe('the default window presets', () => {
   it('are the five usual CT windows', () => {
@@ -31,6 +31,19 @@ describe('assertWindowPresets', () => {
     expect(() => {
       assertWindowPresets(presets);
     }).toThrow(RangeError);
+  });
+
+  it('rejects what is not a preset at all, with a RangeError and not a TypeError', () => {
+    // A host without types can pass anything; the cast is the point of the test.
+    const anything = (value: unknown): WindowPreset => value as WindowPreset;
+    for (const bad of [null, undefined, 'lung', 7, [], { ...ok, id: 3 }, { ...ok, label: 4 }]) {
+      expect(() => {
+        assertWindowPresets([anything(bad)]);
+      }).toThrow(RangeError);
+    }
+    expect(() => {
+      assertWindowPresets([anything({ ...ok, width: '400' })]);
+    }).toThrow(/numbers/);
   });
 
   it('accepts none at all', () => {

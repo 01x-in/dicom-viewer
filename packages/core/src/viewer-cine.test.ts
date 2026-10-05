@@ -106,6 +106,39 @@ describe('cine', () => {
     expect(api.cine.playing).toBe(false);
   });
 
+  it('refuses a rate from JavaScript that is not a number at all, with a RangeError', async () => {
+    const h = harness();
+    const api = await show(h);
+    // A host without types can pass null; reporting it must not throw a TypeError of its own.
+    const notANumber = (value: unknown): number => value as number;
+    await expect(api.cine.play({ fps: notANumber(null) })).rejects.toThrow(RangeError);
+    await expect(api.cine.play({ fps: notANumber('fast') })).rejects.toThrow(RangeError);
+  });
+
+  it('is not started by a play that was still queued when stop was called', async () => {
+    const h = harness();
+    const api = await show(h);
+    const starting = api.cine.play({ fps: 10 });
+    api.cine.stop();
+    await starting;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(api.cine.playing).toBe(false);
+    expect(h.events['viewport:cine']).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('lets the last of several quick calls win', async () => {
+    const h = harness();
+    const api = await show(h);
+    const first = api.cine.play({ fps: 10 });
+    api.cine.stop();
+    const second = api.cine.play({ fps: 20 });
+    await Promise.all([first, second]);
+    expect(api.cine.playing).toBe(true);
+    expect(api.cine.fps).toBe(20);
+    api.cine.stop();
+  });
+
   it('needs a series on screen', async () => {
     const h = harness();
     h.viewer.viewports.attach('vp-0', h.element);

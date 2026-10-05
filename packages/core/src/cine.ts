@@ -20,7 +20,7 @@ export const MAX_CINE_FPS = 60;
 export function assertCineFps(fps: number): void {
   if (!Number.isFinite(fps) || fps <= 0 || fps > MAX_CINE_FPS) {
     throw new RangeError(
-      `Cine plays between 0 and ${MAX_CINE_FPS.toString()} slices per second, not ${fps.toString()}.`,
+      `Cine plays between 0 and ${MAX_CINE_FPS.toString()} slices per second, not ${String(fps)}.`,
     );
   }
 }

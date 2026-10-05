@@ -112,10 +112,16 @@ export function normalizeChord(spec: string): string {
     if (modifier === undefined || modifiers.has(modifier)) return fail();
     modifiers.add(modifier);
   }
+  // The same rule as `chordOf`: Shift is already in the character it produced, except for letters.
   const named = NAMED_KEYS.get(keyPart.toLowerCase());
-  if (named !== undefined) return assemble(modifiers, named);
+  if (named !== undefined) {
+    if (named === 'Plus') modifiers.delete('Shift');
+    return assemble(modifiers, named);
+  }
   if (keyPart.length !== 1) return fail();
-  return assemble(modifiers, keyPart.toLowerCase());
+  const key = keyPart.toLowerCase();
+  if (!isLetter(key)) modifiers.delete('Shift');
+  return assemble(modifiers, key);
 }
 
 function assertAction(action: KeyAction, presets: readonly WindowPreset[]): void {
