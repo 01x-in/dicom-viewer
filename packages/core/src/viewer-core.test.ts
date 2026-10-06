@@ -355,8 +355,8 @@ describe('scrolling', () => {
   it('loads a SEG against the displayed stack, retrieving it with its own modality', async () => {
     const { api, port, source } = await shown();
     const handle = await api.loadSegmentation(SEG);
-    expect(handle.segments).toEqual([{ number: 1, label: 'Body' }]);
-    expect(port.segmentationCalls[0]?.imageIds).toHaveLength(10);
+    expect(handle.index.segments.map((segment) => segment.number)).toEqual([1, 2]);
+    expect(port.segmentationLoads[0]?.imageIds).toHaveLength(10);
     expect(source.calls).toContain(`getInstanceBytes ${SEG} SEG`);
   });
 });

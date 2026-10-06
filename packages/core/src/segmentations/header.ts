@@ -23,6 +23,14 @@ export interface FrameHeader {
   readonly position?: Point3 | undefined;
 }
 
+/** Where the pixels of a SEG are in its file, and how they are stored. */
+export interface PixelDataHeader {
+  /** Bytes from the start of the file to the first byte of the pixel data. */
+  readonly offset: number;
+  readonly length: number;
+  readonly bitsAllocated: number;
+}
+
 /** What a SEG says about itself and about the images it segments, read before any pixel is. */
 export interface SegmentationHeader {
   readonly sopInstanceUID: string;
@@ -32,6 +40,9 @@ export interface SegmentationHeader {
   readonly frameOfReferenceUID?: string | undefined;
   readonly rows: number;
   readonly columns: number;
+  /** `BINARY`, `FRACTIONAL`, or `LABELMAP`. Absent when the file does not say, or says something else. */
+  readonly segmentationType?: 'BINARY' | 'FRACTIONAL' | 'LABELMAP' | undefined;
+  readonly pixelData?: PixelDataHeader | undefined;
   readonly segments: readonly SegmentHeader[];
   /** The series the SEG segments. */
   readonly referencedSeriesInstanceUID?: string | undefined;
@@ -71,6 +82,14 @@ export const segmentationHeaderSchema: z.ZodType<SegmentationHeader> = z.object(
   frameOfReferenceUID: uid.optional(),
   rows: z.number().int().min(1),
   columns: z.number().int().min(1),
+  segmentationType: z.enum(['BINARY', 'FRACTIONAL', 'LABELMAP']).optional(),
+  pixelData: z
+    .object({
+      offset: z.number().int().min(0),
+      length: z.number().int().min(0),
+      bitsAllocated: z.number().int().min(1),
+    })
+    .optional(),
   segments: z.array(segmentSchema).min(1, 'The SEG has no segments.'),
   referencedSeriesInstanceUID: uid.optional(),
   referencedSopInstanceUIDs: z.array(uid),

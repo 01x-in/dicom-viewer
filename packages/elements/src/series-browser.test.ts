@@ -98,11 +98,11 @@ describe('<dv-series-browser>', () => {
   });
 
   it('lists the series of the study as options of a named listbox', async () => {
-    const { browser } = await mount();
+    const { browser, fake } = await mount();
     expect(browser.shadowRoot?.querySelector('[role="listbox"]')?.getAttribute('aria-label')).toBe(
       'Series',
     );
-    expect(rows(browser)).toHaveLength(4);
+    expect(rows(browser)).toHaveLength(fake.viewer.getStudy()?.series.length ?? 0);
     expect(row(browser, FAKE_IDS.ct).textContent).toContain('CT');
   });
 
@@ -110,7 +110,8 @@ describe('<dv-series-browser>', () => {
     const { browser, fake } = await mount({ study: false });
     await fake.viewer.loadStudy(FAKE_IDS.study);
     await settle(browser);
-    expect(rows(browser)).toHaveLength(4);
+    expect(rows(browser)).toHaveLength(fake.viewer.getStudy()?.series.length ?? 0);
+    expect(rows(browser).length).toBeGreaterThan(0);
   });
 
   it('marks the series on screen as selected, and follows the viewport', async () => {
@@ -222,8 +223,8 @@ describe('<dv-series-browser>', () => {
     press(nth(all, 0), 'ArrowDown');
     expect(browser.shadowRoot?.activeElement).toBe(all[1]);
     press(nth(all, 1), 'End');
-    expect(browser.shadowRoot?.activeElement).toBe(all[3]);
-    press(nth(all, 3), 'ArrowDown');
+    expect(browser.shadowRoot?.activeElement).toBe(all.at(-1));
+    press(nth(all, -1), 'ArrowDown');
     expect(browser.shadowRoot?.activeElement).toBe(all[0]);
     await settle(browser);
     expect(fake.viewer.getState().viewports[0]?.seriesInstanceUID).toBeUndefined();

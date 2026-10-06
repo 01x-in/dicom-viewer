@@ -23,12 +23,7 @@ export {
   assertBrowserEnvironment,
   isBrowserEnvironment,
 } from './environment';
-export type {
-  SegmentationHandle,
-  SegmentInfo,
-  ViewSnapshot,
-  WindowLevel,
-} from './rendering-port';
+export type { SegmentationHandle, ViewSnapshot, WindowLevel } from './rendering-port';
 export { createEmitter } from './state/events';
 export type { Unsubscribe } from './state/events';
 export type { StateOrigin, SubscribeOptions } from './state/store';

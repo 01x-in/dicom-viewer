@@ -28,6 +28,10 @@ const REFERENCED_SOP_INSTANCE_UID = 'x00081155';
 const IMAGE_POSITION = 'x00200032';
 const IMAGE_ORIENTATION = 'x00200037';
 const PIXEL_SPACING = 'x00280030';
+const SEGMENTATION_TYPE = 'x00620001';
+const BITS_ALLOCATED = 'x00280100';
+const PIXEL_DATA = 'x7fe00010';
+const SEGMENTATION_TYPES = ['BINARY', 'FRACTIONAL', 'LABELMAP'];
 
 function text(dataSet: DataSet, tag: string): string | undefined {
   const value = dataSet.string(tag);
@@ -66,7 +70,8 @@ function segmentOf(dataSet: DataSet): SegmentHeader | undefined {
   };
 }
 
-function frameOf(dataSet: DataSet): FrameHeader {
+/** `sharedSegment` is the segment the SEG names once for all its frames, which a SEG of one segment does. */
+function frameOf(dataSet: DataSet, sharedSegment: number | undefined): FrameHeader {
   const [position] = items(dataSet, PLANE_POSITION);
   const [identification] = items(dataSet, SEGMENT_IDENTIFICATION);
   const [derivation] = items(dataSet, DERIVATION_IMAGE);
@@ -74,7 +79,7 @@ function frameOf(dataSet: DataSet): FrameHeader {
   const [x, y, z] =
     (position === undefined ? undefined : numbersOf(position, IMAGE_POSITION, 3)) ?? [];
   return {
-    segmentNumber: identification?.uint16(REFERENCED_SEGMENT_NUMBER),
+    segmentNumber: identification?.uint16(REFERENCED_SEGMENT_NUMBER) ?? sharedSegment,
     referencedSopInstanceUID:
       source === undefined ? undefined : text(source, REFERENCED_SOP_INSTANCE_UID),
     position: x === undefined || y === undefined || z === undefined ? undefined : [x, y, z],
@@ -96,6 +101,8 @@ export function readSegmentationHeader(bytes: ArrayBuffer): SegmentationHeader {
     );
   }
   const [shared] = items(dataSet, SHARED_GROUPS);
+  const [sharedIdentification] = shared === undefined ? [] : items(shared, SEGMENT_IDENTIFICATION);
+  const sharedSegment = sharedIdentification?.uint16(REFERENCED_SEGMENT_NUMBER);
   const [sharedOrientation] = shared === undefined ? [] : items(shared, PLANE_ORIENTATION);
   const [sharedMeasures] = shared === undefined ? [] : items(shared, PIXEL_MEASURES);
   const orientation =
@@ -104,6 +111,9 @@ export function readSegmentationHeader(bytes: ArrayBuffer): SegmentationHeader {
       : numbersOf(sharedOrientation, IMAGE_ORIENTATION, 6);
   const pixelSpacing =
     sharedMeasures === undefined ? undefined : numbersOf(sharedMeasures, PIXEL_SPACING, 2);
+  const segmentationType = text(dataSet, SEGMENTATION_TYPE);
+  const bitsAllocated = dataSet.uint16(BITS_ALLOCATED);
+  const pixelElement = dataSet.elements[PIXEL_DATA];
   const [referencedSeries] = items(dataSet, REFERENCED_SERIES);
   const referencedInstances =
     referencedSeries === undefined ? [] : items(referencedSeries, REFERENCED_INSTANCE);
@@ -116,6 +126,14 @@ export function readSegmentationHeader(bytes: ArrayBuffer): SegmentationHeader {
     frameOfReferenceUID: text(dataSet, 'x00200052'),
     rows: dataSet.uint16('x00280010'),
     columns: dataSet.uint16('x00280011'),
+    segmentationType:
+      segmentationType !== undefined && SEGMENTATION_TYPES.includes(segmentationType)
+        ? segmentationType
+        : undefined,
+    pixelData:
+      pixelElement === undefined || bitsAllocated === undefined
+        ? undefined
+        : { offset: pixelElement.dataOffset, length: pixelElement.length, bitsAllocated },
     segments: items(dataSet, SEGMENT_SEQUENCE).flatMap((item) => {
       const segment = segmentOf(item);
       return segment === undefined ? [] : [segment];
@@ -126,7 +144,7 @@ export function readSegmentationHeader(bytes: ArrayBuffer): SegmentationHeader {
       const sop = text(item, REFERENCED_SOP_INSTANCE_UID);
       return sop === undefined ? [] : [sop];
     }),
-    frames: items(dataSet, PER_FRAME_GROUPS).map(frameOf),
+    frames: items(dataSet, PER_FRAME_GROUPS).map((frame) => frameOf(frame, sharedSegment)),
     orientation,
     pixelSpacing,
   });

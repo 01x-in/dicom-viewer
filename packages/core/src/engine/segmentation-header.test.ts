@@ -56,6 +56,13 @@ describe('readSegmentationHeader', () => {
     expect(inserts.frames.every((frame) => frame.position?.[0] === -95.25)).toBe(true);
   });
 
+  it('gives each frame of a SEG of one segment that segment, which the file names once for all of them', () => {
+    const mismatch = header('seg-mismatch');
+    expect(mismatch.segments).toHaveLength(1);
+    expect(mismatch.frames).toHaveLength(21);
+    expect(mismatch.frames.every((frame) => frame.segmentNumber === 1)).toBe(true);
+  });
+
   it('reads how the SEG lies in space, and the frame of reference it names', () => {
     const body = header('seg-body-bone');
     expect(body.orientation).toEqual([1, 0, 0, 0, 1, 0]);
@@ -69,6 +76,16 @@ describe('readSegmentationHeader', () => {
     const mismatch = header('seg-mismatch');
     expect(mismatch.frameOfReferenceUID).not.toBe(body.frameOfReferenceUID);
     expect(mismatch.frames.every((frame) => frame.position?.[0] === -95.25 + 12)).toBe(true);
+  });
+
+  it('reads how the pixels are stored and where they are in the file', () => {
+    const file = readFileSync(`${PHANTOM}/seg-body-bone/0001.dcm`);
+    const body = header('seg-body-bone');
+    expect(body.segmentationType).toBe('BINARY');
+    expect(body.pixelData?.bitsAllocated).toBe(1);
+    // One bit a pixel, for each of the 112 frames, and the pixel data is the last element of the file.
+    expect(body.pixelData?.length).toBe((112 * 128 * 128) / 8);
+    expect((body.pixelData?.offset ?? 0) + (body.pixelData?.length ?? 0)).toBe(file.byteLength);
   });
 
   it('has no colour for a segment the SEG gave none', () => {

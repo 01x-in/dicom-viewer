@@ -845,7 +845,12 @@ export function createViewerCore(
             segSeries.modality,
           );
           assertAlive();
-          return (await portPromise).loadSegmentation(shown.stack.imageIds, bytes);
+          const port = await portPromise;
+          return port.loadSegmentation(
+            shown.stack.imageIds,
+            bytes,
+            port.readSegmentationHeader(bytes),
+          );
         });
       },
     };

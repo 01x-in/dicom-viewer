@@ -12,6 +12,7 @@ import highdicom as hd
 from phantom import (
     CT_SPEC,
     INSERTS,
+    FRACTIONAL_SEG_SERIES,
     INSERTS_SEG_SERIES,
     LEFT_MARKER_HU,
     MISMATCH_SEG_SERIES,
@@ -246,3 +247,23 @@ def test_mismatch_seg_names_the_right_instances_with_the_wrong_planes(out_dir: P
         for frame, sop in zip(seg.PerFrameFunctionalGroupsSequence, referenced, strict=True)
     }
     assert offsets == {MISMATCH_SHIFT_MM}
+
+
+def test_fractional_seg_is_a_fractional_type_with_two_segments_on_the_partial_slices(
+    out_dir: Path,
+) -> None:
+    ds = pydicom.dcmread(out_dir / FRACTIONAL_SEG_SERIES / "0001.dcm")
+    seg = _seg(out_dir, FRACTIONAL_SEG_SERIES)
+    pixels = seg.get_pixels_by_source_instance(
+        _source_sops(out_dir, PARTIAL_SLICES), segment_numbers=[1, 2]
+    )
+
+    assert ds.SegmentationType == "FRACTIONAL"
+    assert int(ds.MaximumFractionalValue) == 255
+    assert _labels(seg) == {1: "Water", 2: "Fat"}
+    # The fractions are only ever 0 or 1, so the SEG is binary in all but its type, and the water
+    # insert's centre belongs to segment 1 alone.
+    water = next(i.center_rc for i in INSERTS if i.name == "water")
+    assert set(np.unique(pixels)) == {0.0, 1.0}
+    assert pixels[0, water[0], water[1], 0] == 1
+    assert pixels[0, water[0], water[1], 1] == 0

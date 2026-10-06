@@ -2,9 +2,9 @@
 
 The same CT volume is written twice, as Explicit VR Little Endian and as JPEG 2000 lossless,
 which are the two transfer syntaxes the viewer must decode first (see docs/plan.md).
-Four binary DICOM SEG series reference the JPEG 2000 series (see SEG_SERIES below): the body and
-the bone insert, the four inserts, two overlapping segments, and a SEG whose geometry does not
-match the CT it names.
+Five DICOM SEG series reference the JPEG 2000 series (see SEG_SERIES below): the body and the
+bone insert, the four inserts, two overlapping segments, a SEG whose geometry does not match the
+CT it names, and one of the fractional type (the other four are binary).
 
 Contents of every slice (LPS coordinates, orientation [1,0,0,0,1,0], so columns run toward
 the patient's left and rows toward the patient's back):
@@ -188,6 +188,7 @@ SEG_SERIES = "seg-body-bone"
 INSERTS_SEG_SERIES = "seg-inserts"
 OVERLAP_SEG_SERIES = "seg-overlap"
 MISMATCH_SEG_SERIES = "seg-mismatch"
+FRACTIONAL_SEG_SERIES = "seg-fractional"
 
 # The slices (0-based) the smaller SEGs cover. A tumour covers a few slices, not the whole series.
 PARTIAL_SLICES = range(20, 41)
@@ -215,8 +216,9 @@ class SegSpec:
     # The 0-based slices of the CT that the SEG covers, in order.
     slices: range
     # (slices, rows, columns) segment numbers, or (slices, rows, columns, segments) booleans when segments overlap.
-    pixels: NDArray[np.uint8] | NDArray[np.bool_]
+    pixels: NDArray[np.uint8] | NDArray[np.bool_] | NDArray[np.float32]
     description: str
+    fractional: bool = False
 
 
 TISSUE = Code("85756007", "SCT", "Tissue")
@@ -277,6 +279,16 @@ def mismatch_labelmap(spec: CtSpec) -> NDArray[np.uint8]:
     return labelmap
 
 
+def fractional_pixels(spec: CtSpec) -> NDArray[np.float32]:
+    """Two segments with a fraction for each pixel, which here is only ever 0 or 1: the water insert (1) and the fat insert (2)."""
+    water = _insert_disc(spec, "water")
+    fat = _insert_disc(spec, "fat")
+    pixels = np.zeros((len(PARTIAL_SLICES), spec.rows, spec.columns, 2), dtype=np.float32)
+    pixels[:, :, :, 0] = water
+    pixels[:, :, :, 1] = fat
+    return pixels
+
+
 def seg_specs(spec: CtSpec) -> tuple[SegSpec, ...]:
     return (
         SegSpec(
@@ -322,6 +334,18 @@ def seg_specs(spec: CtSpec) -> tuple[SegSpec, ...]:
             pixels=mismatch_labelmap(spec),
             description=f"Phantom SEG ({MISMATCH_SEG_SERIES})",
         ),
+        SegSpec(
+            series=FRACTIONAL_SEG_SERIES,
+            series_number=7,
+            segments=(
+                SegmentSpec(1, "Water", Code("181414000", "SCT", "Kidney")),
+                SegmentSpec(2, "Fat", Code("23416004", "SCT", "Adipose tissue")),
+            ),
+            slices=PARTIAL_SLICES,
+            pixels=fractional_pixels(spec),
+            description=f"Phantom SEG ({FRACTIONAL_SEG_SERIES})",
+            fractional=True,
+        ),
     )
 
 
@@ -353,7 +377,19 @@ def seg_dataset(spec: CtSpec, seg: SegSpec | None = None) -> Dataset:
     dataset = hd.seg.Segmentation(
         source_images=seg_sources(spec, seg),
         pixel_array=seg.pixels,
-        segmentation_type=hd.seg.SegmentationTypeValues.BINARY,
+        segmentation_type=(
+            hd.seg.SegmentationTypeValues.FRACTIONAL
+            if seg.fractional
+            else hd.seg.SegmentationTypeValues.BINARY
+        ),
+        **(
+            {
+                "fractional_type": hd.seg.SegmentationFractionalTypeValues.PROBABILITY,
+                "max_fractional_value": 255,
+            }
+            if seg.fractional
+            else {}
+        ),
         segment_descriptions=descriptions,
         series_instance_uid=uid(f"{seg.series}/series"),
         series_number=seg.series_number,
