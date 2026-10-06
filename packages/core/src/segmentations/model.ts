@@ -94,16 +94,13 @@ export function parseColor(input: unknown): Rgb {
       Number.parseInt(full.slice(4, 6), 16),
     ];
   }
-  if (
-    Array.isArray(input) &&
-    input.length === 3 &&
-    input.every(
-      (channel: unknown) =>
-        typeof channel === 'number' && Number.isInteger(channel) && channel >= 0 && channel <= 255,
-    )
-  ) {
-    const [red, green, blue] = input as number[];
-    return [red ?? 0, green ?? 0, blue ?? 0];
+  if (Array.isArray(input) && input.length === 3) {
+    // `Array.from` turns the holes of a sparse array into `undefined`, which `every` would skip.
+    const channels: unknown[] = Array.from(input as unknown[]);
+    const [red, green, blue] = channels;
+    const whole = (channel: unknown): channel is number =>
+      typeof channel === 'number' && Number.isInteger(channel) && channel >= 0 && channel <= 255;
+    if (whole(red) && whole(green) && whole(blue)) return [red, green, blue];
   }
   throw new RangeError(
     `A colour is [red, green, blue] with whole numbers from 0 to 255, or #rrggbb, not ${JSON.stringify(input)}.`,

@@ -46,6 +46,16 @@ describe('parseColor', () => {
     ['hex with a bad digit', '#gg0000'],
     ['hex of a wrong length', '#ff00'],
     ['nothing', undefined],
+    ['an array of three holes', new Array<number>(3)],
+    [
+      'an array with a hole',
+      (() => {
+        const holey = new Array<number>(3);
+        holey[0] = 1;
+        holey[2] = 3;
+        return holey;
+      })(),
+    ],
   ])('refuses %s', (_name, input) => {
     expect(() => parseColor(input)).toThrow(RangeError);
   });

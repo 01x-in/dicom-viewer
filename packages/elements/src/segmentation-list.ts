@@ -344,8 +344,9 @@ export class DvSegmentationListElement extends LitElement {
   }
 
   #endSlide(key: string): void {
+    // The coalescer stays: a gesture started while the last one's writes are still going joins its
+    // queue and replaces the waiting value, so an old value is never sent after a newer one.
     this.#dragging.delete(key);
-    this.#pushers.delete(key);
     this.requestUpdate();
   }
 

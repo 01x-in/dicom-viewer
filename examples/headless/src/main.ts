@@ -190,6 +190,14 @@ function scheduleAddressUpdate(current: Viewer): void {
   }, 200);
 }
 
+/** The state with a `vp-1` in it, keeping everything a restored link said. */
+function withSecondViewport(state: ViewerStateV1 | undefined): ViewerStateV1 {
+  const base: ViewerStateV1 = state ?? { version: 1, layout: '1x1', viewports: [{ id: 'vp-0' }] };
+  return base.viewports.some((viewport) => viewport.id === 'vp-1')
+    ? base
+    : { ...base, viewports: [...base.viewports, { id: 'vp-1' }] };
+}
+
 /** Starts a viewer on `dataSource`, restores what the link says, and wires the page to it. */
 async function start(
   dataSource: DataSource,
@@ -198,11 +206,10 @@ async function start(
 ): Promise<void> {
   viewer?.destroy();
   // `second` asks for a second viewport on the same series, to see that what a SEG looks like follows it.
-  const initialState =
-    restoredState() ??
-    (params.has('second')
-      ? ({ version: 1, layout: '1x1', viewports: [{ id: 'vp-0' }, { id: 'vp-1' }] } as const)
-      : undefined);
+  const restored = restoredState();
+  const initialState: ViewerStateV1 | undefined = params.has('second')
+    ? withSecondViewport(restored)
+    : restored;
   const created = createViewer({
     dataSource,
     ...viewerSettings,
@@ -251,6 +258,8 @@ async function show(created: Viewer, studyUid: string, seriesUid: string | null)
   }
   window.__dv = created.viewports.get('vp-0');
   if (params.has('second')) {
+    // A viewer started again (local files picked again) must not leave the last one's viewport behind.
+    document.querySelector('#viewport2')?.remove();
     const second = document.createElement('div');
     second.id = 'viewport2';
     second.style.cssText = 'width:512px;height:512px;background:#000';

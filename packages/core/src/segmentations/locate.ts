@@ -76,14 +76,20 @@ function planeAt(stack: SeriesStack, imageIndex: number): ImagePlane | undefined
  */
 export function centroidMm(entry: SegmentIndexEntry, stack: SeriesStack): Point3 | undefined {
   if (entry.voxelCount === 0) return undefined;
-  const { row, column, imageIndex } = centroidInVoxels(entry);
-  const below = Math.floor(imageIndex);
-  const above = Math.min(Math.ceil(imageIndex), stack.instances.length - 1);
-  const lower = planeAt(stack, below);
-  const upper = planeAt(stack, above);
-  if (lower === undefined || upper === undefined) return undefined;
-  const a = pixelToWorld(lower, { row, column });
-  const b = pixelToWorld(upper, { row, column });
-  const share = above === below ? 0 : imageIndex - below;
-  return [a[0] + (b[0] - a[0]) * share, a[1] + (b[1] - a[1]) * share, a[2] + (b[2] - a[2]) * share];
+  const { row, column } = centroidInVoxels(entry);
+  // The mean of where each image's pixels are, weighted by how many the segment has on it: a mean
+  // of image numbers would be wrong between images that are not evenly spaced.
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const [at, imageIndex] of entry.imageIndices.entries()) {
+    const plane = planeAt(stack, imageIndex);
+    if (plane === undefined) return undefined;
+    const weight = entry.imageVoxelCounts[at] ?? 0;
+    const point = pixelToWorld(plane, { row, column });
+    x += point[0] * weight;
+    y += point[1] * weight;
+    z += point[2] * weight;
+  }
+  return [x / entry.voxelCount, y / entry.voxelCount, z / entry.voxelCount];
 }

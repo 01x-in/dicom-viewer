@@ -354,7 +354,9 @@ export async function parseSegmentation(
     const handle: SegmentationHandle = {
       referencedImageIds: [...imageIds],
       layerCount: decoded.layers.length,
-      labelmapFrameCount: decoded.layers[0]?.imageIds.length ?? 0,
+      // Images that received pixels, not the empty ones made so Cornerstone stops drawing the last labelmap.
+      labelmapFrameCount:
+        decoded.layers[0]?.frames.filter((frame) => frame !== undefined).length ?? 0,
       index,
       sample: (stackIndex, row, column) => sampleAll(stackIndex, row, column)[0] ?? 0,
       sampleAll,

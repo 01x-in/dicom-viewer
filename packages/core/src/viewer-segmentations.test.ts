@@ -266,6 +266,56 @@ describe('segmentation warnings', () => {
   });
 });
 
+describe('a draw the engine fails', () => {
+  it('leaves nothing loaded when the first draw fails, and loads again once it works', async () => {
+    const h = harness();
+    await show(h);
+    const stack = stackOf(h);
+    const draw = stack.drawSegmentation.bind(stack);
+    stack.drawSegmentation = () => {
+      throw new Error('the engine failed');
+    };
+    await expect(h.viewer.segmentations.load(SEG)).rejects.toThrow('the engine failed');
+    expect(h.viewer.segmentations.list()).toEqual([]);
+    expect(h.viewer.segmentations.get(SEG)).toBeUndefined();
+    expect(handleOf(h).disposed).toBe(true);
+    expect(h.events['segmentation:loaded']).toEqual([]);
+    stack.drawSegmentation = draw;
+    const info = await h.viewer.segmentations.load(SEG);
+    expect(info.seriesInstanceUID).toBe(SEG);
+    expect(h.viewer.segmentations.list()).toHaveLength(1);
+    expect(h.port.segmentationHandles).toHaveLength(2);
+    expect(h.port.segmentationHandles[1]?.disposed).toBe(false);
+  });
+
+  it('keeps the settings it had when a change is refused, and says nothing of it', async () => {
+    const h = harness();
+    await show(h);
+    await h.viewer.segmentations.load(SEG);
+    const before = h.viewer.segmentations.get(SEG);
+    const stack = stackOf(h);
+    const draw = stack.drawSegmentation.bind(stack);
+    let failures = 1;
+    stack.drawSegmentation = (handle, display) => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error('the engine failed');
+      }
+      return draw(handle, display);
+    };
+    await expect(h.viewer.segmentations.setVisible(SEG, false)).rejects.toThrow(
+      'the engine failed',
+    );
+    expect(h.viewer.segmentations.get(SEG)).toBe(before);
+    expect(h.events['segmentation:updated']).toEqual([]);
+    expect(h.events['segmentation:visibility']).toEqual([]);
+    // What is on screen went back too.
+    expect(drawn(stack, handleOf(h))[1]?.visible).toBe(true);
+    await h.viewer.segmentations.setVisible(SEG, false);
+    expect(h.viewer.segmentations.get(SEG)?.visible).toBe(false);
+  });
+});
+
 describe('a SEG the engine will not draw', () => {
   it('says so in the SEG and by event, as part of loading it', async () => {
     const h = harness();

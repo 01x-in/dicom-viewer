@@ -44,3 +44,12 @@ def test_writes_a_ct_stack_and_a_seg_that_names_every_slice(out_dir: Path) -> No
     assert {int(item.SegmentNumber) for item in seg.SegmentSequence} == set(range(1, SMALL.segments + 1))
     first = pydicom.dcmread(ct[0])
     assert (int(first.Rows), int(first.Columns)) == (SMALL.rows, SMALL.columns)
+
+
+def test_generating_again_with_fewer_slices_leaves_only_those_slices(tmp_path: Path) -> None:
+    generate(tmp_path, SMALL)
+    fewer = PerfSpec(rows=64, columns=64, slices=12, segments=4)
+    generate(tmp_path, fewer)
+
+    assert len(list((tmp_path / PERF_CT_SERIES).glob("*.dcm"))) == fewer.slices
+    assert len(list((tmp_path / PERF_SEG_SERIES).glob("*.dcm"))) == 1

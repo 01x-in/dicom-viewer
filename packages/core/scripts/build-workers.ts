@@ -65,7 +65,10 @@ function workerPlugin(embedded: Record<string, Buffer>): Plugin {
         return { id: join(packageDir, 'workers/comlink-expose.ts'), moduleSideEffects: true };
       }
       if (source === 'dv-real-comlink') {
-        return this.resolve('comlink', join(toolsDist, 'workers/computeWorker.js'));
+        // `skipSelf`: this hook must not answer its own question, or the wrapper would import itself.
+        return this.resolve('comlink', join(toolsDist, 'workers/computeWorker.js'), {
+          skipSelf: true,
+        });
       }
       // package.json says `sideEffects: false`, but the shim exists only for its side effect.
       if (source === './wasm-shim.ts') {

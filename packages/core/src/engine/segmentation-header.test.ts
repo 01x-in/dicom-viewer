@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parseDicom } from 'dicom-parser';
 import { describe, expect, it } from 'vitest';
 import { readSegmentationHeader } from './segmentation-header';
 
@@ -86,6 +87,20 @@ describe('readSegmentationHeader', () => {
     // One bit a pixel, for each of the 112 frames, and the pixel data is the last element of the file.
     expect(body.pixelData?.length).toBe((112 * 128 * 128) / 8);
     expect((body.pixelData?.offset ?? 0) + (body.pixelData?.length ?? 0)).toBe(file.byteLength);
+  });
+
+  it('does not call encapsulated pixel data native: it has no length to read as bits', () => {
+    // The check in the reader is on this flag, which a compressed file has and a native one does not.
+    const parsed = (series: string): boolean | undefined => {
+      const file = readFileSync(`${PHANTOM}/${series}/0001.dcm`);
+      const dataSet = parseDicom(new Uint8Array(file.buffer, file.byteOffset, file.byteLength), {
+        untilTag: 'x7fe00010',
+      });
+      return dataSet.elements['x7fe00010']?.hadUndefinedLength;
+    };
+    expect(parsed('ct-j2k')).toBe(true);
+    expect(parsed('ct-evrle')).not.toBe(true);
+    expect(parsed('seg-body-bone')).not.toBe(true);
   });
 
   it('has no colour for a segment the SEG gave none', () => {

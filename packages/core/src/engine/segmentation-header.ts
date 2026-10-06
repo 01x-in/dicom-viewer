@@ -131,7 +131,10 @@ export function readSegmentationHeader(bytes: ArrayBuffer): SegmentationHeader {
         ? segmentationType
         : undefined,
     pixelData:
-      pixelElement === undefined || bitsAllocated === undefined
+      // Encapsulated pixel data has no length to read as bits: the adapters take those.
+      pixelElement === undefined ||
+      bitsAllocated === undefined ||
+      pixelElement.hadUndefinedLength === true
         ? undefined
         : { offset: pixelElement.dataOffset, length: pixelElement.length, bitsAllocated },
     segments: items(dataSet, SEGMENT_SEQUENCE).flatMap((item) => {

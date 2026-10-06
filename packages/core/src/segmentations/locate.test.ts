@@ -122,6 +122,25 @@ describe('centroidMm', () => {
     expect(point?.[2]).toBeCloseTo(1.25);
   });
 
+  it('takes the middle from where the images are, not from their numbers', () => {
+    // Images 0, 1, 2, and 3 are at 0, 1, 2, and 10 mm. A segment with the same pixels on images 0
+    // and 3 is at 5 mm, not on the planes of the images between them.
+    const uneven: SeriesStack = {
+      ...stack(4),
+      instances: stack(4).instances.map((instance, at) => ({
+        ...instance,
+        metadata: {
+          ...instance.metadata,
+          '00200032': { vr: 'DS', Value: [-10, -20, [0, 1, 2, 10][at] ?? 0] },
+        },
+      })),
+    };
+    const ends: SegmentIndexEntry = { ...entry({ 0: 4, 3: 4 }), sumRow: 0, sumColumn: 0 };
+    expect(centroidMm(ends, uneven)?.[2]).toBeCloseTo(5);
+    const weighted: SegmentIndexEntry = { ...entry({ 0: 3, 3: 1 }), sumRow: 0, sumColumn: 0 };
+    expect(centroidMm(weighted, uneven)?.[2]).toBeCloseTo(2.5);
+  });
+
   it('is undefined when the images do not say where they are, or the segment is empty', () => {
     const bare: SeriesStack = {
       ...stack(2),

@@ -88,6 +88,9 @@ def generate(out_dir: Path, spec: PerfSpec = FULL) -> list[Path]:
     written: list[Path] = []
     ct_dir = out_dir / PERF_CT_SERIES
     ct_dir.mkdir(parents=True, exist_ok=True)
+    # The mock serves every file in a series directory, so slices of an earlier run would join the stack.
+    for stale in ct_dir.glob("*.dcm"):
+        stale.unlink()
     sources = []
     for index in range(spec.slices):
         ds = ct_dataset(ct, index, PERF_CT_SERIES, 1)
@@ -128,6 +131,8 @@ def generate(out_dir: Path, spec: PerfSpec = FULL) -> list[Path]:
     )
     seg_dir = out_dir / PERF_SEG_SERIES
     seg_dir.mkdir(parents=True, exist_ok=True)
+    for stale in seg_dir.glob("*.dcm"):
+        stale.unlink()
     seg_path = seg_dir / "0001.dcm"
     seg.save_as(seg_path, enforce_file_format=True)
     written.append(seg_path)

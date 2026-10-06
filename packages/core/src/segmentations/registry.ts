@@ -310,7 +310,18 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
     const previous = entry.info;
     if (previous === next) return;
     entry.info = next;
-    draw(entry);
+    try {
+      draw(entry);
+    } catch (error) {
+      // The engine did not take it: the settings go back, and so does what is on screen, as far as it can.
+      entry.info = previous;
+      try {
+        draw(entry);
+      } catch {
+        // Nothing more can be done; the original failure is the one to report.
+      }
+      throw error;
+    }
     deps.emit('segmentation:updated', { segmentation: next, previous });
     if (!sameVisibility(previous, next)) {
       deps.emit('segmentation:visibility', {
@@ -435,7 +446,11 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
       }
       return entry.info;
     } catch (error) {
-      handle.dispose();
+      // A failure after the SEG was registered must not leave it listed: take it off every stack
+      // and give it back, so `list`, `get`, and a later `load` do not see a SEG that is gone.
+      const registered = entries.get(seriesInstanceUID);
+      if (registered?.handle === handle) drop(registered);
+      else handle.dispose();
       throw error;
     }
   }
