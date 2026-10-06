@@ -51,11 +51,13 @@ export interface DicomViewerProps {
   readonly onStateChange?: ((state: ViewerStateV1, origin: string) => void) | undefined;
   /** Items for the toolbar, or `false` for none. Default: the built-in tools, actions and presets. */
   readonly toolbar?: readonly ToolbarItem[] | false | undefined;
-  /** Extra side panels, by id. The series browser and the measurements list are built in. */
+  /** Extra side panels, by id. The series browser, the measurements list, and the segments list are built in. */
   readonly panels?: Readonly<Record<string, ReactPanel>> | undefined;
   readonly hideSeriesPanel?: boolean | undefined;
   /** Hides the built-in list of measurements, a tab in the right-hand dock. */
   readonly hideMeasurementsPanel?: boolean | undefined;
+  /** Hides the built-in list of SEGs and their segments, a tab in the right-hand dock. */
+  readonly hideSegmentationsPanel?: boolean | undefined;
   readonly theme?: ThemeName | undefined;
   /** Slots of the shell. `panelLeft` and `panelRight` are plain content beside the tabbed panels. */
   readonly banner?: ReactNode;
@@ -150,7 +152,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     element.seriesInstanceUid = seriesInstanceUID;
   }, [defined, options, studyInstanceUID, seriesInstanceUID]);
 
-  const { toolbar, hideSeriesPanel, hideMeasurementsPanel } = props;
+  const { toolbar, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel } = props;
   useEffect(() => {
     const element = elementRef.current;
     if (!defined || element === null) return;
@@ -159,7 +161,8 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     element.toolbarItems = toolbar === undefined || toolbar === false ? undefined : toolbar;
     element.hideSeriesPanel = hideSeriesPanel === true;
     element.hideMeasurementsPanel = hideMeasurementsPanel === true;
-  }, [defined, theme, toolbar, hideSeriesPanel, hideMeasurementsPanel]);
+    element.hideSegmentationsPanel = hideSegmentationsPanel === true;
+  }, [defined, theme, toolbar, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel]);
 
   useEffect(() => {
     const element = elementRef.current;

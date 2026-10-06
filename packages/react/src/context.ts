@@ -1,4 +1,4 @@
-import type { Measurement, Viewer, ViewerStateV1 } from '@scope/viewer-core';
+import type { Measurement, SegmentationInfo, Viewer, ViewerStateV1 } from '@scope/viewer-core';
 import { type Context, createContext, useContext, useRef, useSyncExternalStore } from 'react';
 
 /** The viewer of the nearest `<DicomViewer>`, once it is ready. Set by the component, not by hosts. */
@@ -96,6 +96,51 @@ export function useMeasurements(): readonly Measurement[] | undefined {
           notify();
         }),
       ];
+      return (): void => {
+        for (const stop of stops) stop();
+      };
+    },
+    read,
+    () => undefined,
+  );
+}
+
+const SEGMENTATION_EVENTS = [
+  'segmentation:loaded',
+  'segmentation:unloaded',
+  'segmentation:updated',
+] as const;
+
+/**
+ * The SEGs that are loaded, re-read when one is loaded, unloaded, or changed (shown, hidden,
+ * recoloured, made more or less opaque, highlighted). They belong to the study on screen: loading
+ * another study unloads them. `undefined` until the viewer is ready.
+ */
+export function useSegmentations(): readonly SegmentationInfo[] | undefined {
+  const viewer = useViewer();
+  // One list per change, so React's double check of the snapshot sees the same array.
+  const version = useRef(0);
+  const cache = useRef<
+    { viewer: Viewer; version: number; value: readonly SegmentationInfo[] } | undefined
+  >(undefined);
+  const read = (): readonly SegmentationInfo[] | undefined => {
+    if (viewer === undefined) return undefined;
+    if (cache.current?.viewer === viewer && cache.current.version === version.current) {
+      return cache.current.value;
+    }
+    const value = viewer.segmentations.list();
+    cache.current = { viewer, version: version.current, value };
+    return value;
+  };
+  return useSyncExternalStore(
+    (notify) => {
+      if (viewer === undefined) return () => undefined;
+      const stops = SEGMENTATION_EVENTS.map((event) =>
+        viewer.on(event, () => {
+          version.current += 1;
+          notify();
+        }),
+      );
       return (): void => {
         for (const stop of stops) stop();
       };
