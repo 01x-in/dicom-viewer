@@ -57,6 +57,7 @@ interface ViewerHandle {
   measurements: {
     add(measurement: object): Promise<MeasurementSummary>;
     list(): MeasurementSummary[];
+    getSelected(): string | undefined;
     get(id: string): MeasurementSummary | undefined;
     clear(): Promise<number>;
     remove(id: string): Promise<boolean>;
@@ -1148,6 +1149,11 @@ async function scenarioMeasurements(browser: Browser, input: HeadlessInput): Pro
       if (moved?.length !== 1)
         failures.push(`reshaping with window / level made ${String(moved?.length)} measurements`);
       within(run, 'the handle moved by (image pixels)', movedBy, 4, 1);
+      // Pressing on a handle also picks the measurement, which a list can then show.
+      const picked = await page.evaluate(() => window.__dvViewer?.measurements.getSelected());
+      if (picked !== moved?.[0]?.id) {
+        failures.push(`pressing on a handle picked ${String(picked)}, not the measurement`);
+      }
       const windowAfterPassive = await view(page);
       if (
         windowBeforePassive !== undefined &&
