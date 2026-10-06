@@ -210,6 +210,8 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
   let destroyed = false;
 
   function indexIn(shown: ShownStack, measurement: Measurement): number {
+    // A measurement of another study is kept, but never drawn or read on this study's images.
+    if (measurement.reference.studyInstanceUID !== deps.study()) return -1;
     if (shown.seriesInstanceUID !== measurement.reference.seriesInstanceUID) return -1;
     return shown.stack.instances.findIndex(
       (instance) => instance.sopInstanceUID === measurement.reference.sopInstanceUID,

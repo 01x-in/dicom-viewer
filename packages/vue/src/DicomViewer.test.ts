@@ -397,6 +397,9 @@ describe('panels and composables', () => {
       ],
     });
     await settle();
+    expect(
+      made[0]?.viewer.measurements.list().some((item) => item.reference.studyInstanceUID === '9.9'),
+    ).toBe(true);
     expect(text()).toBe('1 measurements');
     // And another study on screen starts the count again.
     await made[0]?.viewer.loadStudy('1.2.4');

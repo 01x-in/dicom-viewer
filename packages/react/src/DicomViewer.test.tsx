@@ -374,6 +374,9 @@ describe('panels and hooks', () => {
         ],
       });
     });
+    expect(
+      made[0]?.viewer.measurements.list().some((item) => item.reference.studyInstanceUID === '9.9'),
+    ).toBe(true);
     expect(text()).toBe('1 measurements');
     // And another study on screen starts the count again.
     await act(async () => {

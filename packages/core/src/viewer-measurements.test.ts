@@ -203,6 +203,26 @@ describe('the pixels of a measurement', () => {
   });
 });
 
+describe('measurements of another study', () => {
+  it('are kept, but not drawn or read on the images of the study on screen', async () => {
+    const h = harness();
+    await show(h);
+    // The same series and instance UIDs, but made on another study.
+    const other: Measurement = {
+      ...rectangle('other'),
+      reference: { ...reference(5), studyInstanceUID: '9.9' },
+    };
+    await h.viewer.measurements.add(other);
+    expect(h.viewer.measurements.get('other')).toEqual(other);
+    expect(stackOf(h).measurements.size).toBe(0);
+    expect(stackOf(h).slicesRead).toEqual([]);
+    await h.viewer.measurements.update('other', {
+      points: [p(0, 0), p(9, 0), p(0, 1), p(9, 1)],
+    });
+    expect(stackOf(h).measurementCalls).toEqual([]);
+  });
+});
+
 describe('what the person draws', () => {
   beforeEach(() => {
     vi.useFakeTimers();
