@@ -2,7 +2,9 @@
 
 The same CT volume is written twice, as Explicit VR Little Endian and as JPEG 2000 lossless,
 which are the two transfer syntaxes the viewer must decode first (see docs/plan.md).
-A binary DICOM SEG with two segments (body, bone insert) references the JPEG 2000 series.
+Four binary DICOM SEG series reference the JPEG 2000 series (see SEG_SERIES below): the body and
+the bone insert, the four inserts, two overlapping segments, and a SEG whose geometry does not
+match the CT it names.
 
 Contents of every slice (LPS coordinates, orientation [1,0,0,0,1,0], so columns run toward
 the patient's left and rows toward the patient's back):
@@ -175,26 +177,69 @@ SERIES: tuple[tuple[str, int, UID], ...] = (
 )
 
 
-SEG_SERIES = "seg-body-bone"
-SEG_SERIES_NUMBER = 3
 SEG_SOURCE_SERIES = "ct-j2k"
-BODY_SEGMENT = 1
-BONE_SEGMENT = 2
-# Fixed so that regenerating the phantom reproduces the SEG byte for byte.
+# Fixed so that regenerating the phantom reproduces every SEG byte for byte.
 SEG_DATE = "20260101"
 SEG_TIME = "090500"
+
+BODY_SEGMENT = 1
+BONE_SEGMENT = 2
+SEG_SERIES = "seg-body-bone"
+INSERTS_SEG_SERIES = "seg-inserts"
+OVERLAP_SEG_SERIES = "seg-overlap"
+MISMATCH_SEG_SERIES = "seg-mismatch"
+
+# The slices (0-based) the smaller SEGs cover. A tumour covers a few slices, not the whole series.
+PARTIAL_SLICES = range(20, 41)
+# How far the mismatch SEG's planes are from the CT's, along the columns, and the frame of reference it names.
+MISMATCH_SHIFT_MM = 12.0
+MISMATCH_FRAME_OF_REFERENCE = "other-frame-of-reference"
+# Where the overlap SEG's two segments meet: a horizontal slab and a disc that crosses it.
+OVERLAP_SLAB_ROWS = slice(56, 73)
+OVERLAP_DISC_CENTER_RC = (64, 64)
+OVERLAP_DISC_RADIUS_PX = 20.0
+
+
+@dataclass(frozen=True)
+class SegmentSpec:
+    number: int
+    label: str
+    type_code: Code
+
+
+@dataclass(frozen=True)
+class SegSpec:
+    series: str
+    series_number: int
+    segments: tuple[SegmentSpec, ...]
+    # The 0-based slices of the CT that the SEG covers, in order.
+    slices: range
+    # (slices, rows, columns) segment numbers, or (slices, rows, columns, segments) booleans when segments overlap.
+    pixels: NDArray[np.uint8] | NDArray[np.bool_]
+    description: str
+
+
+TISSUE = Code("85756007", "SCT", "Tissue")
+
+
+def _disc(spec: CtSpec, center_rc: tuple[int, int], radius: float) -> NDArray[np.bool_]:
+    rows, cols = np.mgrid[0 : spec.rows, 0 : spec.columns]
+    return (rows - center_rc[0]) ** 2 + (cols - center_rc[1]) ** 2 <= radius**2
+
+
+def _body(spec: CtSpec) -> NDArray[np.bool_]:
+    return _disc(spec, ((spec.rows - 1) / 2, (spec.columns - 1) / 2), spec.body_radius_px)  # type: ignore[arg-type]
+
+
+def _insert_disc(spec: CtSpec, name: str) -> NDArray[np.bool_]:
+    insert = next(item for item in INSERTS if item.name == name)
+    return _disc(spec, insert.center_rc, spec.insert_radius_px)
 
 
 def seg_labelmap(spec: CtSpec) -> NDArray[np.uint8]:
     """Per-slice segment numbers: the body disc is 1, and the bone insert inside it is 2."""
-    rows, cols = np.mgrid[0 : spec.rows, 0 : spec.columns]
-    center_r = (spec.rows - 1) / 2
-    center_c = (spec.columns - 1) / 2
-    body = (rows - center_r) ** 2 + (cols - center_c) ** 2 <= spec.body_radius_px**2
-    bone_insert = next(insert for insert in INSERTS if insert.name == "bone")
-    bone_r, bone_c = bone_insert.center_rc
-    bone = (rows - bone_r) ** 2 + (cols - bone_c) ** 2 <= spec.insert_radius_px**2
-
+    body = _body(spec)
+    bone = _insert_disc(spec, "bone")
     labelmap = np.zeros((spec.slices, spec.rows, spec.columns), dtype=np.uint8)
     for index in range(spec.slices):
         labelmap[index][body] = BODY_SEGMENT
@@ -203,57 +248,139 @@ def seg_labelmap(spec: CtSpec) -> NDArray[np.uint8]:
     return labelmap
 
 
-def seg_dataset(spec: CtSpec) -> Dataset:
-    """A binary DICOM SEG with two segments, referencing every slice of the J2K series."""
-    sources = [ct_dataset(spec, index, SEG_SOURCE_SERIES, 2) for index in range(spec.slices)]
-    tissue = Code("85756007", "SCT", "Tissue")
+def inserts_labelmap(spec: CtSpec) -> NDArray[np.uint8]:
+    """One segment per insert, on the slices that have inserts: air 1, water 2, fat 3, bone 4."""
+    labelmap = np.zeros((len(spec.insert_slices), spec.rows, spec.columns), dtype=np.uint8)
+    for offset in range(len(spec.insert_slices)):
+        for number, insert in enumerate(INSERTS, start=1):
+            labelmap[offset][_insert_disc(spec, insert.name)] = number
+    return labelmap
+
+
+def overlap_pixels(spec: CtSpec) -> NDArray[np.bool_]:
+    """Two segments that share pixels, so they cannot be one labelmap: a slab (1) and a disc (2)."""
+    body = _body(spec)
+    slab = np.zeros((spec.rows, spec.columns), dtype=bool)
+    slab[OVERLAP_SLAB_ROWS, :] = True
+    slab &= body
+    disc = _disc(spec, OVERLAP_DISC_CENTER_RC, OVERLAP_DISC_RADIUS_PX) & body
+    pixels = np.zeros((len(PARTIAL_SLICES), spec.rows, spec.columns, 2), dtype=bool)
+    pixels[:, :, :, 0] = slab
+    pixels[:, :, :, 1] = disc
+    return pixels
+
+
+def mismatch_labelmap(spec: CtSpec) -> NDArray[np.uint8]:
+    """A single disc on the partial slices. Where it sits is right: only the planes it names are not."""
+    labelmap = np.zeros((len(PARTIAL_SLICES), spec.rows, spec.columns), dtype=np.uint8)
+    labelmap[:, _disc(spec, (64, 64), 16.0)] = 1
+    return labelmap
+
+
+def seg_specs(spec: CtSpec) -> tuple[SegSpec, ...]:
+    return (
+        SegSpec(
+            series=SEG_SERIES,
+            series_number=3,
+            segments=(
+                SegmentSpec(BODY_SEGMENT, "Body", Code("38266002", "SCT", "Entire body")),
+                SegmentSpec(BONE_SEGMENT, "Bone insert", Code("272673000", "SCT", "Bone")),
+            ),
+            slices=range(spec.slices),
+            pixels=seg_labelmap(spec),
+            description=f"Phantom SEG ({SEG_SERIES})",
+        ),
+        SegSpec(
+            series=INSERTS_SEG_SERIES,
+            series_number=4,
+            segments=(
+                SegmentSpec(1, "Air", Code("39607008", "SCT", "Lung")),
+                SegmentSpec(2, "Water", Code("181414000", "SCT", "Kidney")),
+                SegmentSpec(3, "Fat", Code("23416004", "SCT", "Adipose tissue")),
+                SegmentSpec(4, "Bone", Code("272673000", "SCT", "Bone")),
+            ),
+            slices=spec.insert_slices,
+            pixels=inserts_labelmap(spec),
+            description=f"Phantom SEG ({INSERTS_SEG_SERIES})",
+        ),
+        SegSpec(
+            series=OVERLAP_SEG_SERIES,
+            series_number=5,
+            segments=(
+                SegmentSpec(1, "Slab", Code("85756007", "SCT", "Tissue")),
+                SegmentSpec(2, "Disc", Code("85756007", "SCT", "Tissue")),
+            ),
+            slices=PARTIAL_SLICES,
+            pixels=overlap_pixels(spec),
+            description=f"Phantom SEG ({OVERLAP_SEG_SERIES})",
+        ),
+        SegSpec(
+            series=MISMATCH_SEG_SERIES,
+            series_number=6,
+            segments=(SegmentSpec(1, "Shifted disc", Code("85756007", "SCT", "Tissue")),),
+            slices=PARTIAL_SLICES,
+            pixels=mismatch_labelmap(spec),
+            description=f"Phantom SEG ({MISMATCH_SEG_SERIES})",
+        ),
+    )
+
+
+def seg_sources(spec: CtSpec, seg: SegSpec) -> list[Dataset]:
+    """The CT instances a SEG says it segments. The mismatch SEG names the right instances with the wrong planes."""
+    sources = [ct_dataset(spec, index, SEG_SOURCE_SERIES, 2) for index in seg.slices]
+    if seg.series == MISMATCH_SEG_SERIES:
+        for source in sources:
+            position = [float(value) for value in source.ImagePositionPatient]
+            position[0] += MISMATCH_SHIFT_MM
+            source.ImagePositionPatient = position
+            source.FrameOfReferenceUID = uid(MISMATCH_FRAME_OF_REFERENCE)
+    return sources
+
+
+def seg_dataset(spec: CtSpec, seg: SegSpec | None = None) -> Dataset:
+    """A binary DICOM SEG, referencing instances of the J2K series."""
+    seg = seg if seg is not None else seg_specs(spec)[0]
     descriptions = [
         hd.seg.SegmentDescription(
-            segment_number=BODY_SEGMENT,
-            segment_label="Body",
-            segmented_property_category=tissue,
-            segmented_property_type=Code("38266002", "SCT", "Entire body"),
+            segment_number=segment.number,
+            segment_label=segment.label,
+            segmented_property_category=TISSUE,
+            segmented_property_type=segment.type_code,
             algorithm_type=hd.seg.SegmentAlgorithmTypeValues.MANUAL,
-        ),
-        hd.seg.SegmentDescription(
-            segment_number=BONE_SEGMENT,
-            segment_label="Bone insert",
-            segmented_property_category=tissue,
-            segmented_property_type=Code("272673000", "SCT", "Bone"),
-            algorithm_type=hd.seg.SegmentAlgorithmTypeValues.MANUAL,
-        ),
+        )
+        for segment in seg.segments
     ]
-    seg = hd.seg.Segmentation(
-        source_images=sources,
-        pixel_array=seg_labelmap(spec),
+    dataset = hd.seg.Segmentation(
+        source_images=seg_sources(spec, seg),
+        pixel_array=seg.pixels,
         segmentation_type=hd.seg.SegmentationTypeValues.BINARY,
         segment_descriptions=descriptions,
-        series_instance_uid=uid(f"{SEG_SERIES}/series"),
-        series_number=SEG_SERIES_NUMBER,
-        sop_instance_uid=uid(f"{SEG_SERIES}/instance"),
+        series_instance_uid=uid(f"{seg.series}/series"),
+        series_number=seg.series_number,
+        sop_instance_uid=uid(f"{seg.series}/instance"),
         instance_number=1,
         manufacturer="dicom-viewer phantom",
         manufacturer_model_name="phantom.py",
         software_versions="0.1.0",
         device_serial_number="0",
-        series_description=f"Phantom SEG ({SEG_SERIES})",
+        series_description=seg.description,
         content_label="PHANTOM",
         content_creator_name="Phantom^Generator",
     )
     for keyword in ("InstanceCreationDate", "ContentDate", "SeriesDate"):
-        if keyword in seg:
-            setattr(seg, keyword, SEG_DATE)
+        if keyword in dataset:
+            setattr(dataset, keyword, SEG_DATE)
     for keyword in ("InstanceCreationTime", "ContentTime", "SeriesTime"):
-        if keyword in seg:
-            setattr(seg, keyword, SEG_TIME)
+        if keyword in dataset:
+            setattr(dataset, keyword, SEG_TIME)
     # highdicom stamps the wall clock and a random UID. Replace both so the file is reproducible.
-    for item in seg.ContributingEquipmentSequence:
+    for item in dataset.ContributingEquipmentSequence:
         if "ContributionDateTime" in item:
             item.ContributionDateTime = f"{SEG_DATE}{SEG_TIME}.000000"
-    organization_uid = uid(f"{SEG_SERIES}/dimension-organization")
-    for item in [*seg.DimensionOrganizationSequence, *seg.DimensionIndexSequence]:
+    organization_uid = uid(f"{seg.series}/dimension-organization")
+    for item in [*dataset.DimensionOrganizationSequence, *dataset.DimensionIndexSequence]:
         item.DimensionOrganizationUID = organization_uid
-    return seg
+    return dataset
 
 
 def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
@@ -273,13 +400,14 @@ def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
             ds.save_as(path, enforce_file_format=True)
             written.append(path)
 
-    seg_dir = out_dir / SEG_SERIES
-    seg_dir.mkdir(parents=True, exist_ok=True)
-    for stale in seg_dir.glob("*.dcm"):
-        stale.unlink()
-    seg_path = seg_dir / "0001.dcm"
-    seg_dataset(spec).save_as(seg_path, enforce_file_format=True)
-    written.append(seg_path)
+    for seg in seg_specs(spec):
+        seg_dir = out_dir / seg.series
+        seg_dir.mkdir(parents=True, exist_ok=True)
+        for stale in seg_dir.glob("*.dcm"):
+            stale.unlink()
+        seg_path = seg_dir / "0001.dcm"
+        seg_dataset(spec, seg).save_as(seg_path, enforce_file_format=True)
+        written.append(seg_path)
     return written
 
 

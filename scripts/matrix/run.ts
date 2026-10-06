@@ -236,7 +236,9 @@ async function runVariant(
     await waitForServer(pageUrl, server);
     const study = mock.fixtures.studyUids[0] ?? '';
     const series = mock.fixtures.series.find((item) => item.description.includes('ct-j2k'));
-    const segSeries = mock.fixtures.series.find((item) => item.modality === 'SEG');
+    const segSeries = mock.fixtures.series.find((item) =>
+      item.description.includes('seg-body-bone'),
+    );
     if (series === undefined || segSeries === undefined) throw new Error('phantom series missing');
     const evrle = mock.fixtures.series.find((item) => item.description.includes('ct-evrle'));
     for (const mode of ['inline', 'url'] as const) {
