@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type CDPSession, type ConsoleMessage, type Page } from 'playwright';
 import type { MockServer } from '../../tools/dicomweb-mock/src/server.ts';
+import type { Values } from './page-types.ts';
 import {
   type AssetsMode,
   EXPECTED_HU,
@@ -32,52 +33,6 @@ export interface ScenarioResult {
   readonly failures: string[];
 }
 
-interface ViewerHandle {
-  getState(): {
-    studyInstanceUID?: string;
-    viewports: {
-      id: string;
-      seriesInstanceUID?: string;
-      stackIndex?: number;
-      imageIndex?: number;
-      window?: { center: number; width: number };
-      invert?: boolean;
-      zoom?: number;
-    }[];
-  };
-  navigateTo(target: {
-    seriesInstanceUID: string;
-    sopInstanceUID: string;
-  }): Promise<{ imageIndex: number; stackIndex: number; sopInstanceUID: string }>;
-  thumbnails: {
-    get(seriesInstanceUID: string, options?: { size?: number }): Promise<string | undefined>;
-  };
-  tools: { setActive(tool: string): Promise<void> };
-  setViewportSeries(viewportId: string, seriesInstanceUID: string): Promise<void>;
-  measurements: {
-    add(measurement: object): Promise<MeasurementSummary>;
-    list(): MeasurementSummary[];
-    getSelected(): string | undefined;
-    get(id: string): MeasurementSummary | undefined;
-    clear(): Promise<number>;
-    remove(id: string): Promise<boolean>;
-    exportJson(): { format: string; measurements: (MeasurementSummary & { values: Values })[] };
-    importJson(input: string): Promise<{ added: number; replaced: number }>;
-  };
-  on(event: string, handler: (payload: { origin?: string }) => void): () => void;
-}
-
-type Values = Record<string, number | undefined>;
-
-interface MeasurementSummary {
-  id: string;
-  type: string;
-  reference: { sopInstanceUID: string; seriesInstanceUID: string; frameOfReferenceUID?: string };
-  points: number[][];
-  stats?: { pixelCount: number; meanHu: number; stdDevHu: number; minHu: number; maxHu: number };
-  hu?: number;
-}
-
 interface SourceHandle {
   getSeries(
     study: string,
@@ -99,7 +54,6 @@ interface DiagnosticsSample {
 
 declare global {
   interface Window {
-    __dvViewer?: ViewerHandle;
     __dvCycles?: { cycle: number; diagnostics: DiagnosticsSample | undefined }[];
     __dvRefreshes?: number;
     __dvSkipped?: { name: string; reason: string }[];
@@ -251,8 +205,14 @@ async function scenarioDicomWeb(browser: Browser, input: HeadlessInput): Promise
         disabled: (node as HTMLButtonElement).disabled,
       })),
     );
-    if (buttons.length !== 3)
-      failures.push(`expected 3 series in the list, got ${buttons.length.toString()}`);
+    // The study has the two CT series and every SEG of the phantom.
+    const seriesInStudy = input.mock.fixtures.series.length;
+    if (buttons.length !== seriesInStudy)
+      failures.push(
+        `expected ${seriesInStudy.toString()} series in the list, got ${buttons.length.toString()}`,
+      );
+    if (buttons.filter((button) => button.disabled).length !== seriesInStudy - 2)
+      failures.push('every SEG should be listed but not selectable, and the two CTs selectable');
     const seg = buttons.find((button) => button.series === input.segSeriesUid);
     if (seg?.disabled !== true) failures.push('the SEG series should be listed but not selectable');
     if ((await page.evaluate(() => window.__dv?.imageCount)) !== 64)
@@ -304,8 +264,8 @@ async function scenarioDicomWeb(browser: Browser, input: HeadlessInput): Promise
 
     // SEG through the same viewer.
     const labels = await page.evaluate(async (uid) => {
-      const handle = await window.__dv?.loadSegmentation(uid);
-      return handle?.segments
+      const info = await window.__dvViewer?.segmentations.load(uid);
+      return info?.segments
         .map((segment) => `${segment.number.toString()}:${segment.label}`)
         .join(',');
     }, input.segSeriesUid);
@@ -1314,18 +1274,22 @@ async function scenarioLocalFiles(browser: Browser, input: HeadlessInput): Promi
     if ((await page.evaluate(() => window.__dv?.getImageIndex())) !== 12)
       failures.push('scrolling local files did not work');
     const seg = await page.evaluate(async (uid) => {
-      const handle = await window.__dv?.loadSegmentation(uid);
-      return handle === undefined
+      const info = await window.__dvViewer?.segmentations.load(uid);
+      return info === undefined
         ? undefined
         : {
-            labels: handle.segments
+            labels: info.segments
               .map((segment) => `${segment.number.toString()}:${segment.label}`)
               .join(','),
-            frames: handle.labelmapFrameCount,
-            bone: handle.sample(31, 64, 92),
+            voxels: info.segments.map((segment) => segment.voxelCount).join(','),
+            images: info.segments.map((segment) => segment.imageCount).join(','),
           };
     }, input.segSeriesUid);
-    if (seg?.labels !== '1:Body,2:Bone insert' || seg.frames !== 64 || seg.bone !== 2) {
+    if (
+      seg?.labels !== '1:Body,2:Bone insert' ||
+      seg.voxels !== '618640,12144' ||
+      seg.images !== '64,48'
+    ) {
       failures.push(`local SEG came out as ${JSON.stringify(seg)}`);
     }
     if (input.mock.requestLog.length > 0) failures.push('local files made DICOMweb requests');

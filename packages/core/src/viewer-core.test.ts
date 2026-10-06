@@ -351,14 +351,6 @@ describe('scrolling', () => {
     const { api } = await shown();
     await expect(api.sampleHu(2, 3, 4)).resolves.toBe(2034);
   });
-
-  it('loads a SEG against the displayed stack, retrieving it with its own modality', async () => {
-    const { api, port, source } = await shown();
-    const handle = await api.loadSegmentation(SEG);
-    expect(handle.index.segments.map((segment) => segment.number)).toEqual([1, 2]);
-    expect(port.segmentationLoads[0]?.imageIds).toHaveLength(10);
-    expect(source.calls).toContain(`getInstanceBytes ${SEG} SEG`);
-  });
 });
 
 describe('a viewport without a series', () => {

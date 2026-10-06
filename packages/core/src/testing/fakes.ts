@@ -325,6 +325,8 @@ export interface FakePort extends RenderingPort {
   readonly segmentationLoads: { imageIds: readonly string[]; header: SegmentationHeader }[];
   /** The handles the engine gave out, in order. */
   readonly segmentationHandles: FakeSegmentationHandle[];
+  /** What the engine says is in a SEG. By default `fakeIndexOf`. */
+  segmentationIndexOf: (header: SegmentationHeader) => SegmentIndexResult;
   /** Makes the next `loadSegmentation` fail. */
   failNextSegmentationLoad(): void;
   /** Holds every `loadSegmentation` until `release()`. */
@@ -364,6 +366,7 @@ export function fakePort(): FakePort {
     destroyed: false,
     segmentationLoads,
     segmentationHandles,
+    segmentationIndexOf: fakeIndexOf,
     failNextSegmentationLoad(): void {
       segmentationFailure = true;
     },
@@ -594,7 +597,7 @@ export function fakePort(): FakePort {
         segmentationFailure = false;
         throw new Error('The SEG could not be parsed.');
       }
-      const index = fakeIndexOf(header);
+      const index = port.segmentationIndexOf(header);
       const handle: FakeSegmentationHandle = {
         id: `seg-${(segmentationHandles.length + 1).toString()}`,
         header,

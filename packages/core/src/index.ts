@@ -23,7 +23,7 @@ export {
   assertBrowserEnvironment,
   isBrowserEnvironment,
 } from './environment';
-export type { SegmentationHandle, ViewSnapshot, WindowLevel } from './rendering-port';
+export type { ViewSnapshot, WindowLevel } from './rendering-port';
 export { createEmitter } from './state/events';
 export type { Unsubscribe } from './state/events';
 export type { StateOrigin, SubscribeOptions } from './state/store';
@@ -79,6 +79,34 @@ export type {
   MeasurementsExportV1,
   NewMeasurement,
 } from './measurements/registry';
+export type {
+  HighlightOptions,
+  JumpToSegmentOptions,
+  JumpToSegmentResult,
+  NavigateSegmentation,
+  SegmentationEvents,
+  SegmentationsApi,
+} from './segmentations/registry';
+export {
+  colorToHex,
+  DEFAULT_SEGMENT_OPACITY,
+  DEFAULT_SEGMENTATION_OPACITY,
+  HIGHLIGHT_MODES,
+  parseColor,
+} from './segmentations/model';
+export type {
+  Highlight,
+  HighlightMode,
+  Rgb,
+  SegmentationInfo,
+  SegmentInfo,
+} from './segmentations/model';
+export { JUMP_STRATEGIES } from './segmentations/locate';
+export type { JumpStrategy } from './segmentations/locate';
+export type {
+  SegmentationWarning,
+  SegmentationWarningCode,
+} from './segmentations/validate';
 export { PRIMARY_TOOLS } from './tools';
 export type { PrimaryTool, ToolInfo } from './tools';
 export { DEFAULT_WINDOW_PRESETS } from './window-presets';

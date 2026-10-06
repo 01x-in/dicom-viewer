@@ -1,6 +1,11 @@
 'use client';
 
-import { createDicomWebDataSource, type ViewportApi, type ViewerOptions } from '@scope/viewer-core';
+import {
+  createDicomWebDataSource,
+  type Viewer,
+  type ViewportApi,
+  type ViewerOptions,
+} from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-react';
 import { type JSX, useEffect, useState } from 'react';
 import { z } from 'zod';
@@ -10,6 +15,7 @@ import { z } from 'zod';
 declare global {
   interface Window {
     __dv?: ViewportApi | undefined;
+    __dvViewer?: Viewer | undefined;
     __dvError?: string;
   }
 }
@@ -68,8 +74,9 @@ export function Viewer(): JSX.Element {
           options={config.options}
           studyInstanceUID={config.study}
           seriesInstanceUID={config.series}
-          onReady={(_viewer, viewport) => {
+          onReady={(viewer, viewport) => {
             window.__dv = viewport;
+            window.__dvViewer = viewer;
             document.documentElement.dataset['dvStatus'] = 'ready';
           }}
           onError={(error) => {

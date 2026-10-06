@@ -1,4 +1,4 @@
-import type { ViewportApi } from '@scope/viewer-core';
+import type { Viewer, ViewportApi } from '@scope/viewer-core';
 import '@scope/viewer-elements/define';
 import type { DvViewerElement } from '@scope/viewer-elements';
 
@@ -7,6 +7,7 @@ import type { DvViewerElement } from '@scope/viewer-elements';
 declare global {
   interface Window {
     __dv?: ViewportApi | undefined;
+    __dvViewer?: Viewer | undefined;
     __dvError?: string;
   }
 }
@@ -17,6 +18,7 @@ if (viewer === null) throw new Error('missing <dv-viewer>');
 
 viewer.addEventListener('dv-ready', (event) => {
   window.__dv = (event as CustomEvent<{ viewport: ViewportApi }>).detail.viewport;
+  window.__dvViewer = viewer.viewer;
   document.documentElement.dataset['dvStatus'] = 'ready';
 });
 viewer.addEventListener('dv-error', (event) => {
