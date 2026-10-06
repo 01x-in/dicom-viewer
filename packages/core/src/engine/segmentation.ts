@@ -185,9 +185,9 @@ async function decodeOnWorker(
       );
       const frames: (ArrayLike<number> | undefined)[] = [];
       const layerImageIds: string[] = [];
-      for (const stackIndex of [...here].sort((a, b) => a - b)) {
-        const referenced = imageIds[stackIndex];
-        if (referenced === undefined) continue;
+      // An image for every image of the stack, empty ones too: where there is none, Cornerstone
+      // goes on drawing the labelmap of the last image that had one.
+      for (const [stackIndex, referenced] of imageIds.entries()) {
         // Segment numbers above 255 need 16 bits, which the labelmap helper does not make.
         const image =
           buffer instanceof Uint16Array
@@ -196,6 +196,8 @@ async function decodeOnWorker(
               })
             : imageLoader.createAndCacheDerivedLabelmapImage(referenced);
         created.push(image.imageId);
+        layerImageIds.push(image.imageId);
+        if (!here.has(stackIndex)) continue;
         const target = image.voxelManager?.getWritableScalarData();
         if (target === undefined) throw new Error('A labelmap image has no pixel data.');
         if (target.length !== pixels) {
@@ -205,7 +207,6 @@ async function decodeOnWorker(
         }
         target.set(buffer.subarray(stackIndex * pixels, (stackIndex + 1) * pixels));
         frames[stackIndex] = target;
-        layerImageIds.push(image.imageId);
       }
       return { imageIds: layerImageIds, frames };
     });

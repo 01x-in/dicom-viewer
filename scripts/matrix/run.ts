@@ -8,6 +8,7 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
+import { existsSync } from 'node:fs';
 import { startMockServer } from '../../tools/dicomweb-mock/src/server.ts';
 import { smokeHeadless } from './headless.ts';
 import { smokeShell } from './shell.ts';
@@ -181,11 +182,24 @@ interface Measurement {
 
 type Mock = Awaited<ReturnType<typeof startMockServer>>;
 
+const PERF_FIXTURES = join(root, '.matrix/perf-fixtures');
+
+/** The SEG of the performance budget is 300 MB, so it is generated here, once, and never committed. */
+async function ensurePerfFixtures(): Promise<void> {
+  if (existsSync(join(PERF_FIXTURES, 'seg-perf/0001.dcm'))) return;
+  console.log('== generating the large SEG of the performance budget (tools/phantom/perf.py)');
+  await exec('uv', ['run', '--frozen', 'python', 'perf.py', PERF_FIXTURES], {
+    cwd: join(root, 'tools/phantom'),
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
 async function runVariant(
   variant: Variant,
   tarballs: Tarballs,
   mock: Mock,
   authMock: Mock,
+  perfMock: Mock | undefined,
 ): Promise<{ rows: Row[]; measurement: Measurement }> {
   console.log(`\n== ${variant.name}: install`);
   const dir = await prepare(variant, tarballs);
@@ -245,8 +259,18 @@ async function runVariant(
       console.log(`== ${variant.name}: smoke (${mode})`);
       mock.requestLog.length = 0;
       if (variant.scenarios === 'headless') {
-        if (evrle === undefined) throw new Error('phantom series missing');
+        if (evrle === undefined || perfMock === undefined)
+          throw new Error('phantom series missing');
+        const perfCt = perfMock.fixtures.series.find((item) => item.modality === 'CT');
+        const perfSeg = perfMock.fixtures.series.find((item) => item.modality === 'SEG');
+        if (perfCt === undefined || perfSeg === undefined) throw new Error('perf series missing');
         const results = await smokeHeadless(browser, {
+          perf: {
+            mock: perfMock,
+            studyUid: perfCt.studyUid,
+            ctSeriesUid: perfCt.seriesUid,
+            segSeriesUid: perfSeg.seriesUid,
+          },
           pageUrl,
           mock,
           authMock,
@@ -335,15 +359,21 @@ const authMock = await startMockServer({
 });
 const rows: Row[] = [];
 const measurements: Measurement[] = [];
+let perfMock: Mock | undefined;
 try {
+  if (selected.some((item) => item.scenarios === 'headless')) {
+    await ensurePerfFixtures();
+    perfMock = await startMockServer({ fixturesDir: PERF_FIXTURES, mode: 'open', port: 8044 });
+  }
   for (const variant of selected) {
-    const result = await runVariant(variant, tarballs, mock, authMock);
+    const result = await runVariant(variant, tarballs, mock, authMock, perfMock);
     rows.push(...result.rows);
     measurements.push(result.measurement);
   }
 } finally {
   await mock.close();
   await authMock.close();
+  await perfMock?.close();
 }
 
 async function writeSizeReport(): Promise<void> {

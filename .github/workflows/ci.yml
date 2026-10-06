@@ -32,11 +32,16 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: astral-sh/setup-uv@v6
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm generate && pnpm build
       # Packs the tarballs, installs each example from them, builds it, and runs the browser smoke test.
+      # The SEG of the performance budget (3 s on a developer machine) is generated here with uv. A
+      # shared runner is several times slower than that machine, so it gets a looser limit.
       - run: pnpm matrix
+        env:
+          DV_SEG_BUDGET_MS: 9000
 
   phantom:
     name: Phantom tests and fixture drift

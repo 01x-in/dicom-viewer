@@ -17,7 +17,18 @@ export interface ViewerHandle {
   navigateTo(target: {
     seriesInstanceUID: string;
     sopInstanceUID: string;
-  }): Promise<{ imageIndex: number; stackIndex: number; sopInstanceUID: string }>;
+    segmentations?: { seriesInstanceUID: string; visible: boolean; highlightSegments?: number[] }[];
+  }): Promise<{
+    imageIndex: number;
+    stackIndex: number;
+    sopInstanceUID: string;
+    failedSegmentations?: { seriesInstanceUID: string; error: { message: string } }[];
+  }>;
+  viewports: {
+    attach(viewportId: string, element: HTMLElement): void;
+    detach(viewportId: string): void;
+    get(viewportId: string): { setImageIndex(index: number): Promise<void> } | undefined;
+  };
   thumbnails: {
     get(seriesInstanceUID: string, options?: { size?: number }): Promise<string | undefined>;
   };
@@ -35,15 +46,50 @@ export interface ViewerHandle {
   };
   segmentations: {
     load(seriesInstanceUID: string): Promise<SegmentationSummary>;
+    unload(seriesInstanceUID: string): Promise<boolean>;
+    list(): SegmentationSummary[];
+    get(seriesInstanceUID: string): SegmentationSummary | undefined;
     setVisible(seriesInstanceUID: string, visible: boolean): Promise<void>;
+    setSegmentVisible(seriesInstanceUID: string, segment: number, visible: boolean): Promise<void>;
+    setSegmentColor(
+      seriesInstanceUID: string,
+      segment: number,
+      color: number[] | string,
+    ): Promise<void>;
+    setSegmentOpacity(seriesInstanceUID: string, segment: number, opacity: number): Promise<void>;
+    setOpacity(seriesInstanceUID: string, opacity: number): Promise<void>;
+    highlight(
+      seriesInstanceUID: string,
+      segments: number[] | undefined,
+      options?: { mode?: string },
+    ): Promise<void>;
+    jumpToSegment(
+      seriesInstanceUID: string,
+      segment: number,
+      options?: { strategy?: string; viewportId?: string },
+    ): Promise<{ imageIndex: number; sopInstanceUID: string; viewportId: string }>;
   };
   on(event: string, handler: (payload: { origin?: string }) => void): () => void;
 }
 
 export interface SegmentationSummary {
+  seriesInstanceUID: string;
   label: string;
-  segments: { number: number; label: string; voxelCount: number; imageCount: number }[];
-  warnings: unknown[];
+  visible: boolean;
+  opacity: number;
+  referencedStackIndex: number;
+  segments: {
+    number: number;
+    label: string;
+    color: number[];
+    opacity: number;
+    visible: boolean;
+    voxelCount: number;
+    imageCount: number;
+    centroid?: number[];
+  }[];
+  highlight?: { mode: string; segments: number[] };
+  warnings: { code: string; message: string }[];
 }
 
 export type Values = Record<string, number | undefined>;
@@ -60,5 +106,8 @@ export interface MeasurementSummary {
 declare global {
   interface Window {
     __dvViewer?: ViewerHandle;
+    __dvDiagnostics?: () =>
+      | { annotations: number; segmentations: number; cacheBytes: number }
+      | undefined;
   }
 }
