@@ -216,10 +216,12 @@ describe('measurements of another study', () => {
     expect(h.viewer.measurements.get('other')).toEqual(other);
     expect(stackOf(h).measurements.size).toBe(0);
     expect(stackOf(h).slicesRead).toEqual([]);
-    await h.viewer.measurements.update('other', {
-      points: [p(0, 0), p(9, 0), p(0, 1), p(9, 1)],
-    });
+    const moved = [p(0, 0), p(9, 0), p(0, 1), p(9, 1)];
+    await h.viewer.measurements.update('other', { points: moved });
+    // The new handles are kept, and still nothing is drawn or read for them.
+    expect(h.viewer.measurements.get('other')?.points).toEqual(moved);
     expect(stackOf(h).measurementCalls).toEqual([]);
+    expect(stackOf(h).slicesRead).toEqual([]);
   });
 });
 
