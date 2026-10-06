@@ -263,8 +263,11 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
       'The SEG is not drawn on screen: the engine could not draw it, which happens when it renders without WebGL.',
   };
 
-  /** Makes every stack on screen draw the SEG as its settings say. */
-  function draw(entry: Entry): void {
+  /**
+   * Makes every stack on screen draw the SEG as its settings say. Says whether a stack refused. It
+   * changes nothing in the registry, so a rollback can call it without side effects.
+   */
+  function draw(entry: Entry): boolean {
     const display = displayOf(entry.info);
     let refused = false;
     for (const shown of attached) {
@@ -272,6 +275,11 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
         refused = true;
       }
     }
+    return refused;
+  }
+
+  /** Records, once, that a stack refused to draw the SEG, and says so as an update once the SEG is announced. */
+  function noteRefused(entry: Entry, refused: boolean): void {
     if (refused && !entry.info.warnings.some((warning) => warning.code === 'not-drawn')) {
       const previous = entry.info;
       entry.info = { ...previous, warnings: [...previous.warnings, NOT_DRAWN] };
@@ -310,8 +318,9 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
     const previous = entry.info;
     if (previous === next) return;
     entry.info = next;
+    let refused: boolean;
     try {
-      draw(entry);
+      refused = draw(entry);
     } catch (error) {
       // The engine did not take it: the settings go back, and so does what is on screen, as far as it can.
       entry.info = previous;
@@ -330,6 +339,7 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
         segments: next.segments.map(({ number, visible }) => ({ number, visible })),
       });
     }
+    noteRefused(entry, refused);
   }
 
   function withSegment(
@@ -438,7 +448,7 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
       };
       const entry: Entry = { info, handle, stack, located, announced: false };
       entries.set(seriesInstanceUID, entry);
-      draw(entry);
+      noteRefused(entry, draw(entry));
       entry.announced = true;
       deps.emit('segmentation:loaded', { segmentation: entry.info });
       for (const warning of entry.info.warnings) {
@@ -611,8 +621,17 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
     api,
     attach(shown): () => void {
       attached.add(shown);
-      for (const entry of entries.values()) {
-        if (belongsTo(entry, shown)) draw(entry);
+      try {
+        for (const entry of entries.values()) {
+          if (belongsTo(entry, shown)) noteRefused(entry, draw(entry));
+        }
+      } catch (error) {
+        // The stack is about to be given back by the viewer: it must not stay in the list, nor keep what was drawn on it.
+        attached.delete(shown);
+        for (const entry of entries.values()) {
+          if (belongsTo(entry, shown)) shown.port.hideSegmentation(entry.handle);
+        }
+        throw error;
       }
       return (): void => {
         if (!attached.delete(shown)) return;

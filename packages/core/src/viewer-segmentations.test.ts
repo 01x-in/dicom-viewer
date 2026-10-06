@@ -297,11 +297,13 @@ describe('a draw the engine fails', () => {
     const draw = stack.drawSegmentation.bind(stack);
     let failures = 1;
     stack.drawSegmentation = (handle, display) => {
+      // The engine takes the new look, and then fails: only a redraw of the old one puts it right.
+      const result = draw(handle, display);
       if (failures > 0) {
         failures -= 1;
         throw new Error('the engine failed');
       }
-      return draw(handle, display);
+      return result;
     };
     await expect(h.viewer.segmentations.setVisible(SEG, false)).rejects.toThrow(
       'the engine failed',
@@ -313,6 +315,68 @@ describe('a draw the engine fails', () => {
     expect(drawn(stack, handleOf(h))[1]?.visible).toBe(true);
     await h.viewer.segmentations.setVisible(SEG, false);
     expect(h.viewer.segmentations.get(SEG)?.visible).toBe(false);
+  });
+});
+
+describe('a stack that fails its first draw of a SEG', () => {
+  it('is not kept: later changes do not reach the stack that was given back', async () => {
+    const h = harness();
+    await show(h);
+    await h.viewer.segmentations.load(SEG);
+    await h.viewer.setViewportSeries('vp-0', CT_TWO_STACKS);
+    h.port.throwOnSegmentationDraw = true;
+    await expect(h.viewer.setViewportSeries('vp-0', CT)).rejects.toThrow(
+      'the engine failed to draw',
+    );
+    const dead = h.port.stacks.at(-1);
+    expect(dead?.destroyed).toBe(true);
+    const calls = dead?.segmentationCalls.length;
+    h.port.throwOnSegmentationDraw = false;
+    // Nothing is on screen, and a change is not sent to the stack that failed.
+    await h.viewer.segmentations.setVisible(SEG, false);
+    await h.viewer.segmentations.setOpacity(SEG, 0.2);
+    expect(dead?.segmentationCalls).toHaveLength(calls ?? -1);
+  });
+});
+
+describe('a change that is refused by one stack and fails on another', () => {
+  it('leaves the warnings and the events as they were', async () => {
+    const element = document.createElement('div');
+    const h = harness({
+      initialState: {
+        version: 1,
+        layout: '1x1',
+        viewports: [
+          { id: 'vp-0', seriesInstanceUID: CT },
+          { id: 'vp-1', seriesInstanceUID: CT },
+        ],
+      },
+    });
+    h.viewer.viewports.attach('vp-0', h.element);
+    h.viewer.viewports.attach('vp-1', element);
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.setViewportSeries('vp-0', CT);
+    await h.viewer.setViewportSeries('vp-1', CT);
+    await h.viewer.segmentations.load(SEG);
+    const before = h.viewer.segmentations.get(SEG);
+    const [first, second] = h.port.stacks;
+    if (first === undefined || second === undefined) throw new Error('two stacks were expected');
+    first.drawSegmentation = () => false;
+    // It fails once, so the redraw that puts the old look back succeeds, and finds the first stack refusing.
+    let failures = 1;
+    second.drawSegmentation = () => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error('the engine failed');
+      }
+      return true;
+    };
+    await expect(h.viewer.segmentations.setVisible(SEG, false)).rejects.toThrow(
+      'the engine failed',
+    );
+    expect(h.viewer.segmentations.get(SEG)).toBe(before);
+    expect(h.events['segmentation:updated']).toEqual([]);
+    expect(h.events['segmentation:warning']).toEqual([]);
   });
 });
 

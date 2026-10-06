@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseDicom } from 'dicom-parser';
 import { describe, expect, it } from 'vitest';
-import { readSegmentationHeader } from './segmentation-header';
+import { pixelDataHeader, readSegmentationHeader } from './segmentation-header';
 
 const PHANTOM = fileURLToPath(new URL('../../../../fixtures/phantom', import.meta.url));
 
@@ -101,6 +101,18 @@ describe('readSegmentationHeader', () => {
     expect(parsed('ct-j2k')).toBe(true);
     expect(parsed('ct-evrle')).not.toBe(true);
     expect(parsed('seg-body-bone')).not.toBe(true);
+  });
+
+  it('gives the pixel data of a native file, and none for encapsulated data or a missing size', () => {
+    const native = { dataOffset: 100, length: 4096 };
+    expect(pixelDataHeader(native, 1)).toEqual({ offset: 100, length: 4096, bitsAllocated: 1 });
+    // What dicom-parser gives for encapsulated data: an undefined length, read as 0xffffffff.
+    expect(
+      pixelDataHeader({ dataOffset: 100, length: 0xffffffff, hadUndefinedLength: true }, 8),
+    ).toBeUndefined();
+    expect(pixelDataHeader({ ...native, hadUndefinedLength: false }, 8)).toBeDefined();
+    expect(pixelDataHeader(undefined, 1)).toBeUndefined();
+    expect(pixelDataHeader(native, undefined)).toBeUndefined();
   });
 
   it('has no colour for a segment the SEG gave none', () => {

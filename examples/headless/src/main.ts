@@ -397,6 +397,8 @@ async function main(): Promise<void> {
       // The viewer goes before the source it reads from, or it could ask for a file that is gone.
       viewer?.destroy();
       viewer = undefined;
+      // Its second viewport goes with it, even if the new selection turns out not to be a study.
+      document.querySelector('#viewport2')?.remove();
       localSource?.dispose();
       localSource = undefined;
       void (async (): Promise<void> => {

@@ -1,4 +1,4 @@
-import { type DataSet, parseDicom } from 'dicom-parser';
+import { type DataSet, type Element, parseDicom } from 'dicom-parser';
 import {
   cielabToRgb,
   type FrameHeader,
@@ -70,6 +70,20 @@ function segmentOf(dataSet: DataSet): SegmentHeader | undefined {
   };
 }
 
+/**
+ * Where the pixels are in the file, if they are native: encapsulated (compressed) pixel data has no
+ * length to read as bits, and is left to the adapters.
+ */
+export function pixelDataHeader(
+  element: Pick<Element, 'dataOffset' | 'length' | 'hadUndefinedLength'> | undefined,
+  bitsAllocated: number | undefined,
+): { offset: number; length: number; bitsAllocated: number } | undefined {
+  if (element === undefined || bitsAllocated === undefined || element.hadUndefinedLength === true) {
+    return undefined;
+  }
+  return { offset: element.dataOffset, length: element.length, bitsAllocated };
+}
+
 /** `sharedSegment` is the segment the SEG names once for all its frames, which a SEG of one segment does. */
 function frameOf(dataSet: DataSet, sharedSegment: number | undefined): FrameHeader {
   const [position] = items(dataSet, PLANE_POSITION);
@@ -132,11 +146,7 @@ export function readSegmentationHeader(bytes: ArrayBuffer): SegmentationHeader {
         : undefined,
     pixelData:
       // Encapsulated pixel data has no length to read as bits: the adapters take those.
-      pixelElement === undefined ||
-      bitsAllocated === undefined ||
-      pixelElement.hadUndefinedLength === true
-        ? undefined
-        : { offset: pixelElement.dataOffset, length: pixelElement.length, bitsAllocated },
+      pixelDataHeader(pixelElement, bitsAllocated),
     segments: items(dataSet, SEGMENT_SEQUENCE).flatMap((item) => {
       const segment = segmentOf(item);
       return segment === undefined ? [] : [segment];

@@ -40,6 +40,7 @@ export function segmentationName(series: SeriesSummary): string {
 function latestWins<T>(
   apply: (value: T) => Promise<void>,
   fail: (error: unknown) => void,
+  idle: () => void,
 ): (value: T) => void {
   let running = false;
   let waiting: { value: T } | undefined;
@@ -52,6 +53,7 @@ function latestWins<T>(
         const next = waiting;
         waiting = undefined;
         if (next !== undefined) pump(next.value);
+        else idle();
       });
   };
   return (value: T): void => {
@@ -247,6 +249,9 @@ export class DvSegmentationListElement extends LitElement {
 
   override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has('viewer')) {
+      // Whatever was waiting to be sent was for the last viewer.
+      this.#pushers.clear();
+      this.#dragging.clear();
       this.#listen();
       this.#sync();
     }
@@ -334,9 +339,17 @@ export class DvSegmentationListElement extends LitElement {
     this.#dragging.set(key, value);
     let push = this.#pushers.get(key);
     if (push === undefined) {
-      push = latestWins(send, (error) => {
-        this.#fail(error);
-      });
+      const mine = latestWins(
+        send,
+        (error) => {
+          this.#fail(error);
+        },
+        () => {
+          // Idle: nothing is waiting, so the next gesture can start a new one without racing this.
+          if (this.#pushers.get(key) === mine) this.#pushers.delete(key);
+        },
+      );
+      push = mine;
       this.#pushers.set(key, push);
     }
     push(value);
@@ -391,7 +404,7 @@ export class DvSegmentationListElement extends LitElement {
             `${key}/color`,
             value,
             (picked) =>
-              viewer?.segmentations.setSegmentColor(
+              this.viewer?.segmentations.setSegmentColor(
                 uid,
                 segment.number,
                 parseColor(String(picked)),
@@ -453,8 +466,11 @@ export class DvSegmentationListElement extends LitElement {
               `${key}/opacity`,
               value,
               (sent) =>
-                viewer?.segmentations.setSegmentOpacity(uid, segment.number, Number(sent) / 100) ??
-                Promise.resolve(),
+                this.viewer?.segmentations.setSegmentOpacity(
+                  uid,
+                  segment.number,
+                  Number(sent) / 100,
+                ) ?? Promise.resolve(),
             );
           }}
           @change=${(): void => {
@@ -512,7 +528,7 @@ export class DvSegmentationListElement extends LitElement {
               key,
               value,
               (sent) =>
-                viewer?.segmentations.setOpacity(uid, Number(sent) / 100) ?? Promise.resolve(),
+                this.viewer?.segmentations.setOpacity(uid, Number(sent) / 100) ?? Promise.resolve(),
             );
           }}
           @change=${(): void => {
