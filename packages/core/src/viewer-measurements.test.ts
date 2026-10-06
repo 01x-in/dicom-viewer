@@ -535,6 +535,29 @@ describe('selecting and jumping', () => {
     const { viewer } = harness();
     await expect(viewer.measurements.jumpTo('nobody')).rejects.toThrow(RangeError);
   });
+
+  it('comes after the calls made before it: a measurement added and jumped to without waiting', async () => {
+    const h = harness();
+    await show(h);
+    const adding = h.viewer.measurements.add(length('m-1', 2));
+    const jumping = h.viewer.measurements.jumpTo('m-1');
+    await Promise.all([adding, jumping]);
+    expect(h.viewer.getState().viewports[0]?.imageIndex).toBe(2);
+    expect(h.viewer.measurements.getSelected()).toBe('m-1');
+  });
+
+  it('is one step: a removal made right after it cannot come between showing the image and picking', async () => {
+    const h = harness();
+    await show(h);
+    await h.viewer.measurements.add(length('m-1', 2));
+    const jumping = h.viewer.measurements.jumpTo('m-1');
+    const removing = h.viewer.measurements.remove('m-1');
+    await expect(jumping).resolves.toBeUndefined();
+    await removing;
+    // It was picked, then removed: nothing is left picked.
+    expect(h.viewer.measurements.getSelected()).toBeUndefined();
+    expect(h.viewer.getState().viewports[0]?.imageIndex).toBe(2);
+  });
 });
 
 describe('when the image goes away and comes back', () => {

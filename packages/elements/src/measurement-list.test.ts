@@ -283,8 +283,8 @@ describe('renaming', () => {
     expect(input(list).value).toBe('Aorta');
     row(list, 'b').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await settle(list);
-    // The field is for the row that was asked about.
-    expect(list.shadowRoot?.querySelector('input')).not.toBeNull();
+    // The field is for the row that was asked about, not the one that was open.
+    expect(input(list).value).toBe('Length 2');
   });
 
   it('is left with Escape or Cancel, and changes nothing', async () => {

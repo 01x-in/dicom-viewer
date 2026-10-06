@@ -118,7 +118,8 @@ export interface MeasurementDeps {
   emit<K extends keyof MeasurementEvents>(event: K, payload: MeasurementEvents[K]): void;
   /** The study on screen, which a measurement the person draws belongs to. */
   study(): string | undefined;
-  navigateTo(target: {
+  /** Shows an instance. Called from inside the queue, so it must not queue itself. */
+  navigateNow(target: {
     readonly seriesInstanceUID: string;
     readonly sopInstanceUID: string;
     readonly viewportId?: string;
@@ -248,6 +249,12 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     const previous = selected;
     selected = id;
     deps.emit('measurement:selected', { id, previous });
+  }
+
+  /** Picks one measurement on every stack and in the list. Runs in the queue. */
+  function pick(id: string | undefined): void {
+    for (const shown of attached) shown.port.selectMeasurement(id);
+    setSelected(id);
   }
 
   function replace(next: Measurement, origin: MeasurementOrigin): void {
@@ -493,21 +500,23 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     select(id): Promise<void> {
       return call(() => {
         if (id !== undefined) requireMeasurement(id);
-        for (const shown of attached) shown.port.selectMeasurement(id);
-        setSelected(id);
+        pick(id);
         return Promise.resolve();
       });
     },
-    async jumpTo(id, options = {}): Promise<void> {
-      deps.assertAlive();
-      const measurement = requireMeasurement(id);
-      // navigateTo is a call of its own in the queue, so this is not one.
-      await deps.navigateTo({
-        seriesInstanceUID: measurement.reference.seriesInstanceUID,
-        sopInstanceUID: measurement.reference.sopInstanceUID,
-        ...(options.viewportId === undefined ? {} : { viewportId: options.viewportId }),
+    jumpTo(id, options = {}): Promise<void> {
+      // One step in the queue: the lookup comes after the calls made before it, and nothing made
+      // after it can come between the navigation and the pick.
+      return call(async () => {
+        const measurement = requireMeasurement(id);
+        await deps.navigateNow({
+          seriesInstanceUID: measurement.reference.seriesInstanceUID,
+          sopInstanceUID: measurement.reference.sopInstanceUID,
+          ...(options.viewportId === undefined ? {} : { viewportId: options.viewportId }),
+        });
+        // The shape may have gone while the image was being shown.
+        if (items.has(id)) pick(id);
       });
-      await api.select(id);
     },
     exportJson(): MeasurementsExportV1 {
       deps.assertAlive();

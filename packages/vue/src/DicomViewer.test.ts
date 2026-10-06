@@ -383,6 +383,25 @@ describe('panels and composables', () => {
     });
     await settle();
     expect(text()).toBe('1 measurements');
+    // Another study's measurements are kept by the viewer but are not this study's.
+    await made[0]?.viewer.measurements.add({
+      type: 'length',
+      reference: {
+        studyInstanceUID: '9.9',
+        seriesInstanceUID: FAKE_IDS.ct,
+        sopInstanceUID: `${FAKE_IDS.ct}.0.5`,
+      },
+      points: [
+        [0, 0, 0],
+        [3, 4, 0],
+      ],
+    });
+    await settle();
+    expect(text()).toBe('1 measurements');
+    // And another study on screen starts the count again.
+    await made[0]?.viewer.loadStudy('1.2.4');
+    await settle();
+    expect(text()).toBe('0 measurements');
     await made[0]?.viewer.measurements.clear();
     await settle();
     expect(text()).toBe('0 measurements');

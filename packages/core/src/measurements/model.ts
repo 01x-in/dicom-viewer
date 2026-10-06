@@ -110,7 +110,8 @@ const referenceSchema: z.ZodType<MeasurementReference> = z.object({
 });
 
 const roiStatsSchema: z.ZodType<RoiStats> = z.object({
-  pixelCount: z.number().int().min(0),
+  // A statistic is of at least one pixel: a shape with none has no statistics at all.
+  pixelCount: z.number().int().min(1),
   meanHu: finite,
   stdDevHu: finite.min(0),
   minHu: finite,
@@ -119,7 +120,13 @@ const roiStatsSchema: z.ZodType<RoiStats> = z.object({
 
 const base = {
   id: z.string().min(1).max(128),
-  label: z.string().trim().max(MAX_LABEL_LENGTH).optional(),
+  // An empty name is no name.
+  label: z
+    .string()
+    .trim()
+    .max(MAX_LABEL_LENGTH)
+    .optional()
+    .transform((label) => (label === '' ? undefined : label)),
   reference: referenceSchema,
 };
 

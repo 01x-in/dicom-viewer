@@ -140,6 +140,13 @@ describe('parseMeasurement', () => {
     expect(parseMeasurement({ ...length, label: 'x'.repeat(MAX_LABEL_LENGTH + 1) }).ok).toBe(false);
   });
 
+  it('takes an empty or blank label for no label', () => {
+    for (const label of ['', '   ']) {
+      const parsed = parseMeasurement({ ...length, label });
+      expect(parsed.ok && parsed.measurement.label).toBeUndefined();
+    }
+  });
+
   it('wants the number of points the type has', () => {
     expect(parseMeasurement({ ...length, type: 'angle' }).ok).toBe(false);
     expect(parseMeasurement({ ...length, type: 'probe' }).ok).toBe(false);
@@ -148,5 +155,7 @@ describe('parseMeasurement', () => {
   it('refuses statistics that cannot be', () => {
     expect(parseMeasurement({ ...roi, stats: { ...roi.stats, stdDevHu: -1 } }).ok).toBe(false);
     expect(parseMeasurement({ ...roi, stats: { ...roi.stats, pixelCount: 1.5 } }).ok).toBe(false);
+    // No pixel, no statistics: such a shape is left to be read, not shown with numbers no pixel gave.
+    expect(parseMeasurement({ ...roi, stats: { ...roi.stats, pixelCount: 0 } }).ok).toBe(false);
   });
 });

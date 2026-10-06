@@ -378,7 +378,7 @@ export function createViewerCore(
       measurementEvents.emit(event, payload);
     },
     study: () => store.getState().studyInstanceUID,
-    navigateTo: (target) => navigateTo(target),
+    navigateNow: (target) => navigateNow(target),
     fail: (error) => {
       events.emit('error', { error, context: 'measurement' });
     },
@@ -928,62 +928,70 @@ export function createViewerCore(
     return enqueue(() => applySeries(viewportId, seriesInstanceUID, normalized));
   }
 
-  function navigateTo(target: NavigateTarget): Promise<NavigateResult> {
-    const viewportId = target.viewportId ?? 'vp-0';
-    try {
-      assertDicomUid(target.seriesInstanceUID, 'SeriesInstanceUID');
-      assertDicomUid(target.sopInstanceUID, 'SOPInstanceUID');
-      const { frameNumber } = target;
-      if (frameNumber !== undefined) {
-        if (!Number.isInteger(frameNumber) || frameNumber < 1) {
-          throw new RangeError(
-            `A frame number is a whole number from 1, not ${frameNumber.toString()}.`,
-          );
-        }
-        if (frameNumber > 1) {
-          throw new RangeError(
-            `Frame ${frameNumber.toString()} was asked for, but multi-frame images are not supported yet.`,
-          );
-        }
+  /** Checks a target before anything is queued, so a bad one rejects at once. Throws. */
+  function assertNavigateTarget(target: NavigateTarget): void {
+    assertDicomUid(target.seriesInstanceUID, 'SeriesInstanceUID');
+    assertDicomUid(target.sopInstanceUID, 'SOPInstanceUID');
+    const { frameNumber } = target;
+    if (frameNumber !== undefined) {
+      if (!Number.isInteger(frameNumber) || frameNumber < 1) {
+        throw new RangeError(
+          `A frame number is a whole number from 1, not ${frameNumber.toString()}.`,
+        );
       }
+      if (frameNumber > 1) {
+        throw new RangeError(
+          `Frame ${frameNumber.toString()} was asked for, but multi-frame images are not supported yet.`,
+        );
+      }
+    }
+  }
+
+  /** Shows the instance. Runs inside the queue, so a call that is already in it (a jump to a measurement) can use it. */
+  async function navigateNow(target: NavigateTarget): Promise<NavigateResult> {
+    const viewportId = target.viewportId ?? 'vp-0';
+    requireViewport(viewportId);
+    const { studyInstanceUID } = store.getState();
+    if (studyInstanceUID === undefined) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    // Find the slice before changing anything, so a target that is not there leaves the viewport as it was.
+    const series = await getSeries(studyInstanceUID, target.seriesInstanceUID);
+    assertAlive();
+    if (series.stacks.length === 0) {
+      throw new Error(
+        `Series ${target.seriesInstanceUID} (${series.modality}) has no images to display.`,
+      );
+    }
+    const stackIndex = series.stacks.findIndex((stack) =>
+      stack.instances.some((instance) => instance.sopInstanceUID === target.sopInstanceUID),
+    );
+    const stack = series.stacks[stackIndex];
+    if (stack === undefined) {
+      throw new Error(
+        `Series ${target.seriesInstanceUID} has no instance ${target.sopInstanceUID}.`,
+      );
+    }
+    const imageIndex = stack.instances.findIndex(
+      (instance) => instance.sopInstanceUID === target.sopInstanceUID,
+    );
+    await applySeries(viewportId, target.seriesInstanceUID, { stackIndex, imageIndex });
+    return {
+      viewportId,
+      seriesInstanceUID: target.seriesInstanceUID,
+      stackIndex,
+      imageIndex: viewportState(viewportId)?.imageIndex ?? imageIndex,
+      sopInstanceUID: target.sopInstanceUID,
+    };
+  }
+
+  function navigateTo(target: NavigateTarget): Promise<NavigateResult> {
+    try {
+      assertNavigateTarget(target);
     } catch (error) {
       return Promise.reject(toError(error));
     }
-    return enqueue(async () => {
-      requireViewport(viewportId);
-      const { studyInstanceUID } = store.getState();
-      if (studyInstanceUID === undefined) {
-        throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
-      }
-      // Find the slice before changing anything, so a target that is not there leaves the viewport as it was.
-      const series = await getSeries(studyInstanceUID, target.seriesInstanceUID);
-      assertAlive();
-      if (series.stacks.length === 0) {
-        throw new Error(
-          `Series ${target.seriesInstanceUID} (${series.modality}) has no images to display.`,
-        );
-      }
-      const stackIndex = series.stacks.findIndex((stack) =>
-        stack.instances.some((instance) => instance.sopInstanceUID === target.sopInstanceUID),
-      );
-      const stack = series.stacks[stackIndex];
-      if (stack === undefined) {
-        throw new Error(
-          `Series ${target.seriesInstanceUID} has no instance ${target.sopInstanceUID}.`,
-        );
-      }
-      const imageIndex = stack.instances.findIndex(
-        (instance) => instance.sopInstanceUID === target.sopInstanceUID,
-      );
-      await applySeries(viewportId, target.seriesInstanceUID, { stackIndex, imageIndex });
-      return {
-        viewportId,
-        seriesInstanceUID: target.seriesInstanceUID,
-        stackIndex,
-        imageIndex: viewportState(viewportId)?.imageIndex ?? imageIndex,
-        sopInstanceUID: target.sopInstanceUID,
-      };
-    });
+    return enqueue(() => navigateNow(target));
   }
 
   function setState(

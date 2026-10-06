@@ -298,11 +298,16 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
     await page.keyboard.press('Enter');
     if ((await focused(page)) !== 'menu:measure')
       failures.push(`the Measure menu returned the focus to ${await focused(page)}`);
-    if (
-      (await page.locator('dv-toolbar [data-menu-id="measure"]').getAttribute('data-active')) !==
-      'true'
-    )
-      failures.push('choosing Length did not show on the Measure menu');
+    // The choice is made in the viewer's queue, so the menu shows it a moment after Enter.
+    await waitFor(
+      page,
+      'the Measure menu to show Length',
+      async () =>
+        (await page.locator('dv-toolbar [data-menu-id="measure"]').getAttribute('data-active')) ===
+        'true',
+      failures,
+      5000,
+    );
     const measureBox = await page.locator(VIEWPORT).boundingBox();
     if (measureBox === null) throw new Error('the viewport has no box');
     const middle = {

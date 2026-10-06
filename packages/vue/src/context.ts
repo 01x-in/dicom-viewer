@@ -67,9 +67,10 @@ const MEASUREMENT_EVENTS = [
 ] as const;
 
 /**
- * Every measurement the viewer holds, as a ref that follows it. `undefined` until the viewer is
- * ready. Filter by `reference.studyInstanceUID` to keep to one study. The list is shallow: the
- * measurements are plain data that is never changed in place.
+ * The measurements of the study on screen, as a ref that follows the viewer: it changes when one is
+ * added, changed, or removed, and when another study is shown. `undefined` until the viewer is
+ * ready. Measurements of other studies are kept by the viewer: `viewer.measurements.list()` has
+ * all of them. The list is shallow: the measurements are plain data that is never changed in place.
  */
 export function useMeasurements(): Readonly<Ref<readonly Measurement[] | undefined>> {
   const viewer = useViewer();
@@ -81,12 +82,25 @@ export function useMeasurements(): Readonly<Ref<readonly Measurement[] | undefin
         value.value = undefined;
         return;
       }
-      value.value = current.measurements.list();
-      const stops = MEASUREMENT_EVENTS.map((event) =>
-        current.on(event, () => {
-          value.value = current.measurements.list();
+      const read = (): readonly Measurement[] => {
+        const study = current.getState().studyInstanceUID;
+        return study === undefined ? [] : current.measurements.list({ studyInstanceUID: study });
+      };
+      value.value = read();
+      let shown = current.getState().studyInstanceUID;
+      const stops = [
+        ...MEASUREMENT_EVENTS.map((event) =>
+          current.on(event, () => {
+            value.value = read();
+          }),
+        ),
+        // The state changes at the pace of the mouse: only another study is news.
+        current.on('state:changed', ({ state }) => {
+          if (state.studyInstanceUID === shown) return;
+          shown = state.studyInstanceUID;
+          value.value = read();
         }),
-      );
+      ];
       onCleanup(() => {
         for (const stop of stops) stop();
       });

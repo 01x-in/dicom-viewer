@@ -64,6 +64,10 @@ export function trackMeasurements(options: {
   const { viewportId } = options;
   const indexOf = new Map(options.imageIds.map((imageId, index) => [imageId, index]));
   const listeners = new Set<(change: MeasurementChange) => void>();
+  // Cornerstone keeps every annotation of the page in one store, keyed by frame of reference, so
+  // another viewer showing the same images sees these shapes too. Only the ones created here, by
+  // the person's mouse in this viewport or by the viewer's own calls, are this stack's.
+  const owned = new Set<string>();
   // Above zero while the viewer is changing Cornerstone's state: those changes are not news.
   let quiet = 0;
   let destroyed = false;
@@ -89,41 +93,58 @@ export function trackMeasurements(options: {
     return annotation;
   };
 
+  const isOurs = (annotation: Annotation | undefined): annotation is Annotation =>
+    annotation?.annotationUID !== undefined && owned.has(annotation.annotationUID);
+
+  // Told when a shape is created, with the viewport it was created in: the one moment ownership is known.
+  const onAdded = (event: Event): void => {
+    const { annotation, viewportId: from } = (
+      event as CustomEvent<{ annotation?: Annotation; viewportId?: string }>
+    ).detail;
+    const imageId = annotation?.metadata?.referencedImageId;
+    const toolName = annotation?.metadata?.toolName;
+    const id = annotation?.annotationUID;
+    if (
+      from === viewportId &&
+      id !== undefined &&
+      imageId !== undefined &&
+      toolName !== undefined &&
+      indexOf.has(imageId) &&
+      MEASUREMENT_OF_TOOL.has(toolName)
+    ) {
+      owned.add(id);
+    }
+  };
   const onCompleted = (event: Event): void => {
     if (quiet > 0) return;
     const annotation = detail(event);
-    const measurement = annotation === undefined ? undefined : describe(annotation);
+    const measurement = isOurs(annotation) ? describe(annotation) : undefined;
     if (measurement !== undefined) emit({ kind: 'completed', measurement });
   };
   const onModified = (event: Event): void => {
     if (quiet > 0) return;
     const annotation = detail(event);
-    const measurement = annotation === undefined ? undefined : describe(annotation);
+    const measurement = isOurs(annotation) ? describe(annotation) : undefined;
     if (measurement !== undefined) emit({ kind: 'modified', measurement });
   };
   const onRemoved = (event: Event): void => {
-    if (quiet > 0) return;
-    const annotation = detail(event);
-    const imageId = annotation?.metadata?.referencedImageId;
-    const id = annotation?.annotationUID;
-    if (imageId !== undefined && id !== undefined && indexOf.has(imageId)) {
-      emit({ kind: 'removed', id });
-    }
+    const id = detail(event)?.annotationUID;
+    if (id === undefined) return;
+    // Gone from Cornerstone, whoever did it: no longer ours.
+    const wasOurs = owned.delete(id);
+    if (quiet === 0 && wasOurs) emit({ kind: 'removed', id });
   };
 
-  const mine = (id: string): Annotation | undefined => {
-    const found = lookup(id);
-    const imageId = found?.metadata?.referencedImageId;
-    return imageId !== undefined && indexOf.has(imageId) ? found : undefined;
-  };
+  const mine = (id: string): Annotation | undefined => (owned.has(id) ? lookup(id) : undefined);
 
   const onSelection = (event: Event): void => {
     if (quiet > 0) return;
     const { selection } = (event as CustomEvent<{ selection: string[] }>).detail;
-    const picked = selection.find((id) => mine(id) !== undefined);
+    const picked = selection.find((id) => owned.has(id));
     if (picked !== undefined || selection.length === 0) emit({ kind: 'selected', id: picked });
   };
 
+  eventTarget.addEventListener(Enums.Events.ANNOTATION_ADDED, onAdded);
   eventTarget.addEventListener(Enums.Events.ANNOTATION_COMPLETED, onCompleted);
   eventTarget.addEventListener(Enums.Events.ANNOTATION_MODIFIED, onModified);
   eventTarget.addEventListener(Enums.Events.ANNOTATION_REMOVED, onRemoved);
@@ -131,7 +152,8 @@ export function trackMeasurements(options: {
 
   return {
     add(measurement): void {
-      if (destroyed || mine(measurement.id) !== undefined) return;
+      // An id Cornerstone already has, here or for another viewer, is not drawn a second time.
+      if (destroyed || lookup(measurement.id) !== undefined) return;
       const imageId = options.imageIds[measurement.imageIndex];
       const input = hydrateInputOf(measurement);
       if (imageId === undefined || input === undefined) return;
@@ -139,6 +161,7 @@ export function trackMeasurements(options: {
         annotationUID: measurement.id,
         referencedImageId: imageId,
       };
+      owned.add(measurement.id);
       quietly(() => {
         if (input.kind === 'axes') {
           BidirectionalTool.hydrate(viewportId, input.axes, hydrateOptions);
@@ -162,7 +185,10 @@ export function trackMeasurements(options: {
       });
     },
     remove(id): void {
-      if (mine(id) === undefined) return;
+      if (mine(id) === undefined) {
+        owned.delete(id);
+        return;
+      }
       quietly(() => {
         annotationApi.state.removeAnnotation(id);
       });
@@ -188,18 +214,15 @@ export function trackMeasurements(options: {
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      eventTarget.removeEventListener(Enums.Events.ANNOTATION_ADDED, onAdded);
       eventTarget.removeEventListener(Enums.Events.ANNOTATION_COMPLETED, onCompleted);
       eventTarget.removeEventListener(Enums.Events.ANNOTATION_MODIFIED, onModified);
       eventTarget.removeEventListener(Enums.Events.ANNOTATION_REMOVED, onRemoved);
       eventTarget.removeEventListener(Enums.Events.ANNOTATION_SELECTION_CHANGE, onSelection);
       listeners.clear();
       quietly(() => {
-        for (const found of annotationApi.state.getAllAnnotations()) {
-          const imageId = found.metadata?.referencedImageId;
-          if (imageId !== undefined && indexOf.has(imageId) && found.annotationUID !== undefined) {
-            annotationApi.state.removeAnnotation(found.annotationUID);
-          }
-        }
+        for (const id of owned) annotationApi.state.removeAnnotation(id);
+        owned.clear();
       });
     },
   };
