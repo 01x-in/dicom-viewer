@@ -94,16 +94,18 @@ describe('<dv-viewer> structure', () => {
     expect(slot.assignedNodes()).toEqual([banner]);
   });
 
-  it('shows the toolbar, the series panel, and the measurements panel, and can hide them', async () => {
+  it('shows the toolbar and the series, measurements, and segmentations panels, and can hide them', async () => {
     const { element, fake } = await ready();
     expect(shadow(element, 'dv-toolbar')).not.toBeNull();
     expect(fake.viewer.ui.panels().map((panel) => `${panel.id}:${panel.placement}`)).toEqual([
       'series:left',
       'measurements:right',
+      'segmentations:right',
     ]);
     element.hideToolbar = true;
     element.hideSeriesPanel = true;
     element.hideMeasurementsPanel = true;
+    element.hideSegmentationsPanel = true;
     await element.updateComplete;
     expect(shadow(element, 'dv-toolbar')).toBeNull();
     expect(fake.viewer.ui.panels()).toEqual([]);
@@ -113,6 +115,13 @@ describe('<dv-viewer> structure', () => {
     element.hideMeasurementsPanel = false;
     await element.updateComplete;
     expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual(['series', 'measurements']);
+    element.hideSegmentationsPanel = false;
+    await element.updateComplete;
+    expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual([
+      'series',
+      'measurements',
+      'segmentations',
+    ]);
   });
 
   it('can hide the measurements panel alone, from the attribute too', async () => {
@@ -120,7 +129,40 @@ describe('<dv-viewer> structure', () => {
     element.setAttribute('hide-measurements-panel', '');
     await element.updateComplete;
     expect(element.hideMeasurementsPanel).toBe(true);
-    expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual(['series']);
+    expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual(['series', 'segmentations']);
+  });
+
+  it('can hide the segmentations panel alone, from the attribute too', async () => {
+    const { element, fake } = await ready();
+    element.setAttribute('hide-segmentations-panel', '');
+    await element.updateComplete;
+    expect(element.hideSegmentationsPanel).toBe(true);
+    expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual(['series', 'measurements']);
+    element.removeAttribute('hide-segmentations-panel');
+    await element.updateComplete;
+    expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual([
+      'series',
+      'measurements',
+      'segmentations',
+    ]);
+  });
+
+  it('lists the SEGs of the study in the Segments tab of the right-hand panel', async () => {
+    const { element } = await ready();
+    const dock = shadow(element, 'dv-panel-dock[placement="right"]') as HTMLElement & {
+      updateComplete: Promise<boolean>;
+    };
+    await dock.updateComplete;
+    const tab = [...(dock.shadowRoot?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])].find(
+      (item) => item.textContent.trim() === 'Segments',
+    );
+    expect(tab).toBeDefined();
+    tab?.click();
+    await dock.updateComplete;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const list = dock.shadowRoot?.querySelector('dv-segmentation-list');
+    expect(list).not.toBeNull();
+    expect(list?.shadowRoot?.querySelectorAll('[data-segmentation]').length).toBeGreaterThan(1);
   });
 
   it('lists the measurements in the right-hand panel', async () => {
