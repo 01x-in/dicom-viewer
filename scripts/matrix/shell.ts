@@ -5,7 +5,13 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { type Browser, type ConsoleMessage, type Page } from 'playwright';
-import { isIgnorableRequest, litFraction, type SmokeInput } from './smoke.ts';
+import {
+  isIgnorableRequest,
+  litFraction,
+  type SmokeInput,
+  waitForRed,
+  waitForTint,
+} from './smoke.ts';
 
 const require = createRequire(import.meta.url);
 const AXE_SOURCE = readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
@@ -49,6 +55,7 @@ async function focused(page: Page): Promise<string> {
       (data.dataset['menuId'] === undefined ? undefined : `menu:${data.dataset['menuId']}`) ??
       (data.dataset['series'] === undefined ? undefined : `series:${data.dataset['series']}`) ??
       (data.dataset['measurement'] === undefined ? undefined : 'measurement') ??
+      (data.dataset['segment'] === undefined ? undefined : 'segment') ??
       (data.dataset['viewportId'] === undefined
         ? undefined
         : `viewport:${data.dataset['viewportId']}`) ??
@@ -383,6 +390,134 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
       );
       if ((await page.locator('dv-measurement-list [role="status"]').count()) !== 1)
         failures.push('the empty list does not say so');
+    }
+    // Segments: the second tab of the right-hand dock. Load a SEG, change how a segment looks,
+    // go to it, load one that does not fit the images, and unload them.
+    const segmentsTab = page.locator('dv-panel-dock[placement="right"] [role="tab"]', {
+      hasText: 'Segments',
+    });
+    await segmentsTab.click();
+    const seg = (uid: string): ReturnType<Page['locator']> =>
+      page.locator(`dv-segmentation-list [data-segmentation="${uid}"]`);
+    if (
+      await waitFor(
+        page,
+        'the SEGs to be listed',
+        async () => (await page.locator('dv-segmentation-list [data-segmentation]').count()) >= 5,
+        failures,
+      )
+    ) {
+      await runAxe(page, 'the Segments tab, nothing loaded', failures);
+      const loadButton = seg(input.segSeriesUid).locator('[data-action="load"]');
+      if ((await loadButton.getAttribute('aria-label')) === null)
+        failures.push('the Load button has no name');
+      await loadButton.click();
+      if (
+        await waitFor(
+          page,
+          'the segments to be listed',
+          async () => (await seg(input.segSeriesUid).locator('[data-segment]').count()) === 2,
+          failures,
+        )
+      ) {
+        const names = await seg(input.segSeriesUid).locator('.segment-name').allTextContents();
+        if (names.map((name) => name.trim()).join() !== 'Body,Bone insert')
+          failures.push(`the segments are listed as ${names.join()}`);
+        const redShown = await waitForRed(page, (fraction) => fraction > 0.02);
+        if (redShown <= 0.02)
+          failures.push(
+            `the SEG is not drawn: ${(redShown * 100).toFixed(1)}% of the image is red`,
+          );
+        await runAxe(page, 'a SEG loaded, with its segments', failures);
+
+        // The checkbox of a segment from the keyboard, and from the mouse.
+        const bodyBox = seg(input.segSeriesUid).locator(
+          '[data-segment="1"] input[type="checkbox"]',
+        );
+        await bodyBox.focus();
+        if ((await focused(page)) !== 'segment' && (await focused(page)) !== 'input')
+          failures.push(`the segment checkbox took the focus as ${await focused(page)}`);
+        await page.keyboard.press('Space');
+        const redHidden = await waitForRed(page, (fraction) => fraction < 0.001);
+        if (redHidden >= 0.001)
+          failures.push(`hiding the body left ${(redHidden * 100).toFixed(1)}% of the image red`);
+        await bodyBox.check();
+        const redBack = await waitForRed(page, (fraction) => fraction > 0.02);
+        if (redBack <= 0.02) failures.push('showing the body again did not draw it');
+
+        // Colour and opacity.
+        await seg(input.segSeriesUid)
+          .locator('[data-segment="1"] input[type="color"]')
+          .fill('#00ff00');
+        const green = await waitForTint(page, 'green', (fraction) => fraction > 0.02);
+        if (green <= 0.02)
+          failures.push(`recolouring the body green left ${(green * 100).toFixed(1)}% green`);
+        if ((await waitForRed(page, (fraction) => fraction < 0.001)) >= 0.001)
+          failures.push('the body is still red after it was made green');
+        await seg(input.segSeriesUid).locator('.seg-opacity input[type="range"]').fill('0');
+        const clear = await waitForTint(page, 'green', (fraction) => fraction < 0.001);
+        if (clear >= 0.001)
+          failures.push(`at 0% opacity ${(clear * 100).toFixed(1)}% of the image is still green`);
+        await seg(input.segSeriesUid).locator('.seg-opacity input[type="range"]').fill('50');
+        if ((await waitForTint(page, 'green', (fraction) => fraction > 0.02)) <= 0.02)
+          failures.push('at 50% opacity the SEG is not drawn');
+
+        // Highlight toggles; Go to shows the segment's largest image (the first, for a disc as long as the insert).
+        const highlight = seg(input.segSeriesUid).locator(
+          '[data-segment="2"] [data-action="highlight"]',
+        );
+        await highlight.click();
+        await waitFor(
+          page,
+          'the highlight button to be pressed',
+          async () => (await highlight.getAttribute('aria-pressed')) === 'true',
+          failures,
+          5000,
+        );
+        await highlight.click();
+        await waitFor(
+          page,
+          'the highlight to be taken away',
+          async () => (await highlight.getAttribute('aria-pressed')) === 'false',
+          failures,
+          5000,
+        );
+        await page.locator(VIEWPORT).focus();
+        for (let step = 0; step < 4; step += 1) await page.keyboard.press('ArrowDown');
+        await seg(input.segSeriesUid).locator('[data-segment="2"] [data-action="jump"]').click();
+        await waitFor(
+          page,
+          'Go to to show the first image of the bone insert',
+          async () => (await label(page)).includes('image 9 of 64'),
+          failures,
+        );
+
+        // A SEG that does not lie on the images says so, where a person reads it.
+        const off = page.locator('dv-segmentation-list [data-segmentation]', {
+          hasText: 'seg-mismatch',
+        });
+        await off.locator('[data-action="load"]').click();
+        if (
+          await waitFor(
+            page,
+            'the warnings of the mismatch SEG',
+            async () => (await off.locator('.warnings li').count()) === 2,
+            failures,
+          )
+        ) {
+          const warned = (await off.locator('.warnings').textContent()) ?? '';
+          if (!warned.includes('another frame of reference') || !warned.includes('12.0 mm'))
+            failures.push(`the warnings read "${warned}"`);
+        }
+        await runAxe(page, 'a SEG with warnings', failures);
+        await off.locator('[data-action="unload"]').click();
+        await waitFor(
+          page,
+          'the mismatch SEG to be unloaded',
+          async () => (await off.locator('[data-segment]').count()) === 0,
+          failures,
+        );
+      }
     }
     // Window / level has the left button again.
     await page.locator('dv-toolbar [data-tool="window-level"]').click();

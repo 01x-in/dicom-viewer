@@ -206,6 +206,8 @@ function toError(error: unknown): Error {
 
 interface Entry {
   info: SegmentationInfo;
+  /** Whether `segmentation:loaded` was emitted, so a warning found by drawing is told as an update. */
+  announced: boolean;
   readonly handle: SegmentationHandle;
   readonly stack: SeriesStack;
   readonly located: ReadonlyMap<number, SegmentIndexEntry>;
@@ -254,11 +256,33 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
     );
   }
 
+  /** Said once for a SEG the engine would not draw: the person sees nothing, and needs to be told why. */
+  const NOT_DRAWN: SegmentationWarning = {
+    code: 'not-drawn',
+    message:
+      'The SEG is not drawn on screen: the engine could not draw it, which happens when it renders without WebGL.',
+  };
+
   /** Makes every stack on screen draw the SEG as its settings say. */
   function draw(entry: Entry): void {
     const display = displayOf(entry.info);
+    let refused = false;
     for (const shown of attached) {
-      if (belongsTo(entry, shown)) shown.port.drawSegmentation(entry.handle, display);
+      if (belongsTo(entry, shown) && !shown.port.drawSegmentation(entry.handle, display)) {
+        refused = true;
+      }
+    }
+    if (refused && !entry.info.warnings.some((warning) => warning.code === 'not-drawn')) {
+      const previous = entry.info;
+      entry.info = { ...previous, warnings: [...previous.warnings, NOT_DRAWN] };
+      // `loaded` is announced after the first draw, with the warning in it; later, it is an update.
+      if (entry.announced) {
+        deps.emit('segmentation:updated', { segmentation: entry.info, previous });
+        deps.emit('segmentation:warning', {
+          seriesInstanceUID: entry.info.seriesInstanceUID,
+          warning: NOT_DRAWN,
+        });
+      }
     }
   }
 
@@ -401,14 +425,15 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
         highlight: undefined,
         warnings,
       };
-      const entry: Entry = { info, handle, stack, located };
+      const entry: Entry = { info, handle, stack, located, announced: false };
       entries.set(seriesInstanceUID, entry);
       draw(entry);
-      deps.emit('segmentation:loaded', { segmentation: info });
-      for (const warning of warnings) {
+      entry.announced = true;
+      deps.emit('segmentation:loaded', { segmentation: entry.info });
+      for (const warning of entry.info.warnings) {
         deps.emit('segmentation:warning', { seriesInstanceUID, warning });
       }
-      return info;
+      return entry.info;
     } catch (error) {
       handle.dispose();
       throw error;
@@ -572,8 +597,7 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
     attach(shown): () => void {
       attached.add(shown);
       for (const entry of entries.values()) {
-        if (belongsTo(entry, shown))
-          shown.port.drawSegmentation(entry.handle, displayOf(entry.info));
+        if (belongsTo(entry, shown)) draw(entry);
       }
       return (): void => {
         if (!attached.delete(shown)) return;

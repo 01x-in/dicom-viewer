@@ -327,6 +327,8 @@ export interface FakePort extends RenderingPort {
   readonly segmentationHandles: FakeSegmentationHandle[];
   /** What the engine says is in a SEG. By default `fakeIndexOf`. */
   segmentationIndexOf: (header: SegmentationHeader) => SegmentIndexResult;
+  /** Makes every stack refuse to draw a SEG, as an engine rendering without WebGL does. */
+  refuseSegmentations: boolean;
   /** Makes the next `loadSegmentation` fail. */
   failNextSegmentationLoad(): void;
   /** Holds every `loadSegmentation` until `release()`. */
@@ -367,6 +369,7 @@ export function fakePort(): FakePort {
     segmentationLoads,
     segmentationHandles,
     segmentationIndexOf: fakeIndexOf,
+    refuseSegmentations: false,
     failNextSegmentationLoad(): void {
       segmentationFailure = true;
     },
@@ -535,6 +538,7 @@ export function fakePort(): FakePort {
           };
         },
         drawSegmentation(handle, display): boolean {
+          if (port.refuseSegmentations) return false;
           const fakeHandle = segmentationHandles.find((candidate) => candidate === handle);
           if (
             fakeHandle === undefined ||

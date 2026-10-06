@@ -13,7 +13,8 @@ export type SegmentationWarningCode =
   | 'plane-position'
   | 'missing-references'
   | 'overlapping-segments'
-  | 'empty-segment';
+  | 'empty-segment'
+  | 'not-drawn';
 
 /** Something about a SEG that makes it unsafe to trust where it is drawn. It is still drawn. */
 export interface SegmentationWarning {

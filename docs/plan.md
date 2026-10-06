@@ -260,3 +260,15 @@ Reference files:
 - **Measurements are not in `ViewerStateV1`.** A link should not carry a case's annotations. The controlled `state` prop stays deferred, now to M7, with layouts and segmentations.
 - **The shell has a Measure menu and a built-in `measurements` panel** on the right; React and Vue have `hideMeasurementsPanel` and `useMeasurements`.
 - Still open: Safari and Firefox, React 18, the package name, touch input, and whether the default keys should match OHIF exactly. M7 inherits one thing from here: two viewports of one series must count the users of a stack's shapes.
+
+## M6 outcome
+
+**Done**, with the limits in [m6-report.md](m6-report.md); the decisions are in [ADR 0009](adr/0009-segmentations.md). Changes to this plan that came out of the milestone:
+- **A SEG is data in the core, and the engine draws it.** `viewer.segmentations` has `load`, `unload`, `list`, `get`, `setVisible`, `setSegmentVisible`, `setSegmentColor`, `setSegmentOpacity`, `setOpacity`, `highlight`, and `jumpToSegment(series, segment, { strategy, viewportId })`, each taking the SEG's series first (the plan's signatures left it out). `navigateTo` takes `segmentations`. A SEG goes with its study.
+- **A binary SEG is decoded on the compute worker, by our own decoder**, because the Cornerstone adapters took 3.8 s on the main thread for the plan's 512 by 512 by 300 SEG with 100 segments. The decode and the segment index take 1.2 s on the worker, and the whole load, request included, about 2.1 s. The adapters stay as the way to read any other kind. The compute worker is still one worker: the build wraps its `comlink`.
+- **The segment index** (pixels and images of each segment, its middle, the images it is on) is built in the same pass, and the three jump strategies (`largestSlice`, `centroid`, `nearestTo`) and the centre in patient millimetres are pure functions.
+- **Geometry warnings** are checks of the SEG against the images it names (frame of reference, direction, pixel spacing, planes off their images, missing instances, shared pixels, empty segments). A SEG with warnings is drawn.
+- **The phantom has five SEGs**, three more than the plan's two: `seg-body-bone`, `seg-inserts`, `seg-overlap` (two layers), `seg-mismatch` (another frame of reference and planes 12 mm off), and `seg-fractional` (read by the adapters). The SEG of the budget is generated, not committed.
+- **The shell has a Segments panel** (second tab on the right), and React and Vue have `hideSegmentationsPanel` and `useSegmentations`.
+- **SEG state is not in `ViewerStateV1`.** The controlled `state` prop stays deferred to M7.
+- Still open: Safari and Firefox, React 18, the package name, touch input, and whether the default keys should match OHIF exactly. M7 inherits three things: SEG in MPR, the count of users of a stack's shapes and SEGs when two viewports show one series, and the controlled `state` prop.

@@ -95,11 +95,12 @@ export async function litFraction(page: Page): Promise<number> {
 }
 
 /**
- * Fraction of pixels in the viewport canvas that are clearly red: the CT is grey, so these are
- * the pixels a SEG's first segment (red in the palette) is drawn on.
+ * Fraction of pixels in the viewport canvas that clearly lean to one colour. The CT is grey, so
+ * these are the pixels a SEG's segment of that colour is drawn on (the first segment is red in the
+ * palette).
  */
-export async function redFraction(page: Page): Promise<number> {
-  return page.evaluate(() => {
+export async function tintFraction(page: Page, tint: 'red' | 'green'): Promise<number> {
+  return page.evaluate((wanted) => {
     const canvas = document.querySelector('canvas');
     if (canvas === null || canvas.width === 0) return 0;
     const copy = document.createElement('canvas');
@@ -109,29 +110,42 @@ export async function redFraction(page: Page): Promise<number> {
     if (context === null) return 0;
     context.drawImage(canvas, 0, 0);
     const { data } = context.getImageData(0, 0, copy.width, copy.height);
-    let red = 0;
+    const offset = wanted === 'red' ? 0 : 1;
+    let count = 0;
     for (let index = 0; index < data.length; index += 4) {
-      const r = data[index] ?? 0;
-      if (r - Math.max(data[index + 1] ?? 0, data[index + 2] ?? 0) > 40) red += 1;
+      const leaning = data[index + offset] ?? 0;
+      const others = [data[index], data[index + 1], data[index + 2]].filter(
+        (_, at) => at !== offset,
+      );
+      if (leaning - Math.max(...others.map((value) => value ?? 0)) > 40) count += 1;
     }
-    return red / (data.length / 4);
-  });
+    return count / (data.length / 4);
+  }, tint);
 }
 
-/** Waits until the red fraction satisfies `wanted`, and returns the last fraction seen. */
-export async function waitForRed(
+export const redFraction = (page: Page): Promise<number> => tintFraction(page, 'red');
+
+/** Waits until a tint's fraction satisfies `wanted`, and returns the last fraction seen. */
+export async function waitForTint(
   page: Page,
+  tint: 'red' | 'green',
   wanted: (fraction: number) => boolean,
   timeoutMs = 8000,
 ): Promise<number> {
   const deadline = Date.now() + timeoutMs;
-  let fraction = await redFraction(page);
+  let fraction = await tintFraction(page, tint);
   while (!wanted(fraction) && Date.now() < deadline) {
     await page.waitForTimeout(100);
-    fraction = await redFraction(page);
+    fraction = await tintFraction(page, tint);
   }
   return fraction;
 }
+
+export const waitForRed = (
+  page: Page,
+  wanted: (fraction: number) => boolean,
+  timeoutMs = 8000,
+): Promise<number> => waitForTint(page, 'red', wanted, timeoutMs);
 
 export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeResult> {
   const failures: string[] = [];

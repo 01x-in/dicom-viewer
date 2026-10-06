@@ -1,5 +1,12 @@
 import { adaptersSEG } from '@cornerstonejs/adapters';
-import { cache, getWebWorkerManager, imageLoader, type Types, metaData } from '@cornerstonejs/core';
+import {
+  cache,
+  getShouldUseCPURendering,
+  getWebWorkerManager,
+  imageLoader,
+  type Types,
+  metaData,
+} from '@cornerstonejs/core';
 import { Enums as ToolsEnums, segmentation } from '@cornerstonejs/tools';
 import { z } from 'zod';
 import type { SegmentationHandle } from '../rendering-port';
@@ -529,6 +536,8 @@ export function trackSegmentations(options: {
 
   return {
     draw(handle, display): boolean {
+      // Cornerstone draws a labelmap as a WebGL actor, and fails with an error on a CPU-rendered stack.
+      if (getShouldUseCPURendering()) return false;
       const loaded = loadedByHandle.get(handle);
       if (loaded === undefined || loaded.disposed) return false;
       if (!sameImages(loaded.referencedImageIds, imageIds)) return false;

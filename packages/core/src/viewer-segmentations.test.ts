@@ -266,6 +266,53 @@ describe('segmentation warnings', () => {
   });
 });
 
+describe('a SEG the engine will not draw', () => {
+  it('says so in the SEG and by event, as part of loading it', async () => {
+    const h = harness();
+    await show(h);
+    h.port.refuseSegmentations = true;
+    const info = await h.viewer.segmentations.load(SEG);
+    expect(info.warnings.map((warning) => warning.code)).toEqual(['not-drawn']);
+    expect(h.events['segmentation:loaded'][0]?.segmentation.warnings).toEqual(info.warnings);
+    expect(h.events['segmentation:warning'].map((event) => event.warning.code)).toEqual([
+      'not-drawn',
+    ]);
+  });
+
+  it('says so once, however many times it is changed', async () => {
+    const h = harness();
+    await show(h);
+    h.port.refuseSegmentations = true;
+    await h.viewer.segmentations.load(SEG);
+    await h.viewer.segmentations.setVisible(SEG, false);
+    await h.viewer.segmentations.setVisible(SEG, true);
+    expect(h.viewer.segmentations.get(SEG)?.warnings).toHaveLength(1);
+    expect(h.events['segmentation:warning']).toHaveLength(1);
+  });
+
+  it('says so when the stack comes after the SEG, as an update', async () => {
+    const h = harness();
+    h.viewer.viewports.attach('vp-0', h.element);
+    await h.viewer.loadStudy(STUDY);
+    h.port.refuseSegmentations = true;
+    await h.viewer.segmentations.load(SEG);
+    expect(h.viewer.segmentations.get(SEG)?.warnings).toEqual([]);
+    await h.viewer.setViewportSeries('vp-0', CT);
+    expect(h.viewer.segmentations.get(SEG)?.warnings.map((warning) => warning.code)).toEqual([
+      'not-drawn',
+    ]);
+    expect(h.events['segmentation:updated']).toHaveLength(1);
+    expect(h.events['segmentation:warning']).toHaveLength(1);
+  });
+
+  it('says nothing when the engine draws it', async () => {
+    const h = harness();
+    await show(h);
+    await h.viewer.segmentations.load(SEG);
+    expect(h.viewer.segmentations.get(SEG)?.warnings).toEqual([]);
+  });
+});
+
 describe('drawing a SEG', () => {
   it('draws it over the stack on screen, at the opacity of the SEG times that of each segment', async () => {
     const h = harness();
