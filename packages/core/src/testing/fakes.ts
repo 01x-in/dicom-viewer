@@ -7,6 +7,9 @@ import type {
   StudyData,
 } from '../data/types';
 import type {
+  EngineMeasurement,
+  MeasurementChange,
+  PixelSlice,
   RenderingPort,
   RenderStackOptions,
   SegmentationHandle,
@@ -23,6 +26,8 @@ export const SEG = '1.2.3.9';
 export const ONLY_SEG_STUDY = '1.2.5';
 /** A series that is not a SEG or an SR but has no image with rows and columns, so nothing can be shown. */
 export const NO_PIXELS = '1.2.3.8';
+/** The frame of reference every fake instance is in. */
+export const FRAME_OF_REFERENCE = '1.2.3.77';
 
 /** The window every fake stack starts with, as if the images had asked for it. */
 export const FAKE_DEFAULT_WINDOW = { center: 40, width: 400 } as const;
@@ -37,6 +42,11 @@ function instances(series: string, stack: number, count: number): SeriesInstance
       '00280011': { vr: 'US', Value: [512] },
       '00100010': { vr: 'PN', Value: [{ Alphabetic: 'DOE^JANE^^^' }] },
       '00100020': { vr: 'LO', Value: ['ID-7'] },
+      // Axial slices 2.5 mm apart, 1 mm pixels, and the first pixel's centre at x = y = 0.
+      '00200032': { vr: 'DS', Value: [0, 0, index * 2.5] },
+      '00200037': { vr: 'DS', Value: [1, 0, 0, 0, 1, 0] },
+      '00280030': { vr: 'DS', Value: [1, 1] },
+      '00200052': { vr: 'UI', Value: [FRAME_OF_REFERENCE] },
     },
   }));
 }
@@ -165,6 +175,14 @@ export interface FakeStackPort extends StackPort {
   readonly renderOptions: RenderStackOptions;
   /** The tool the left mouse button drives, as the host last set it. */
   primaryTool: PrimaryTool | undefined;
+  /** The shapes the engine draws now, by id. */
+  readonly measurements: Map<string, EngineMeasurement>;
+  /** Every shape call the viewer made, such as `add m-1`, `update m-1`, `remove m-1`, or `select m-1`. */
+  readonly measurementCalls: string[];
+  /** Simulates the person drawing, moving, picking, or removing a shape. Drawing and moving change what is drawn. */
+  emitMeasurement(change: MeasurementChange): void;
+  /** The slices the viewer decoded for their pixels, by index. */
+  readonly slicesRead: number[];
 }
 
 export interface FakePort extends RenderingPort {
@@ -180,6 +198,8 @@ export interface FakePort extends RenderingPort {
   failNextThumbnail(): void;
   /** Holds every `renderThumbnail` until `release()`. Reports how many are in flight at most at once. */
   holdThumbnails(): { release(): void; readonly peak: () => number };
+  /** What `readSlice` returns, by image id. By default every pixel is `imageIndex * 1000 + row * 10 + column`. */
+  sliceOf: (imageId: string, imageIndex: number) => PixelSlice;
 }
 
 export function fakePort(): FakePort {
@@ -194,6 +214,11 @@ export function fakePort(): FakePort {
   let gate: Promise<void> | undefined;
 
   const port: FakePort = {
+    sliceOf: (_imageId, imageIndex) => ({
+      rows: 256,
+      columns: 512,
+      at: (row, column) => imageIndex * 1000 + row * 10 + column,
+    }),
     stacks,
     log,
     destroyed: false,
@@ -247,10 +272,22 @@ export function fakePort(): FakePort {
         options.imageIndex === undefined
           ? Math.floor(stack.imageIds.length / 2)
           : Math.min(Math.max(0, options.imageIndex), last);
+      const measurementListeners = new Set<(change: MeasurementChange) => void>();
       const fake: FakeStackPort = {
         element,
         stack,
         destroyed: false,
+        measurements: new Map(),
+        measurementCalls: [],
+        slicesRead: [],
+        emitMeasurement(change): void {
+          if (change.kind === 'completed' || change.kind === 'modified') {
+            fake.measurements.set(change.measurement.id, change.measurement);
+          } else if (change.kind === 'removed') {
+            fake.measurements.delete(change.id);
+          }
+          for (const listener of [...measurementListeners]) listener(change);
+        },
         samples: [],
         viewCalls: [],
         renderOptions: options,
@@ -303,8 +340,43 @@ export function fakePort(): FakePort {
           fake.samples.push({ imageIndex, row, column });
           return Promise.resolve(imageIndex * 1000 + row * 10 + column);
         },
+        readSlice(imageIndex): Promise<PixelSlice> {
+          fake.slicesRead.push(imageIndex);
+          const imageId = stack.imageIds[imageIndex];
+          if (imageId === undefined) {
+            return Promise.reject(new RangeError(`No image at index ${imageIndex.toString()}.`));
+          }
+          return Promise.resolve(port.sliceOf(imageId, imageIndex));
+        },
+        addMeasurement(measurement): void {
+          fake.measurementCalls.push(`add ${measurement.id}`);
+          if (fake.measurements.has(measurement.id)) return;
+          if (measurement.imageIndex < 0 || measurement.imageIndex >= stack.imageIds.length) return;
+          fake.measurements.set(measurement.id, measurement);
+        },
+        updateMeasurement(measurement): void {
+          fake.measurementCalls.push(`update ${measurement.id}`);
+          if (fake.measurements.has(measurement.id)) {
+            fake.measurements.set(measurement.id, measurement);
+          }
+        },
+        removeMeasurement(id): void {
+          fake.measurementCalls.push(`remove ${id}`);
+          fake.measurements.delete(id);
+        },
+        selectMeasurement(id): void {
+          fake.measurementCalls.push(`select ${id ?? 'none'}`);
+        },
+        onMeasurementChange(listener): () => void {
+          measurementListeners.add(listener);
+          return (): void => {
+            measurementListeners.delete(listener);
+          };
+        },
         destroy(): void {
           fake.destroyed = true;
+          fake.measurements.clear();
+          measurementListeners.clear();
           log.push(`destroy ${stack.imageIds[0] ?? '?'}`);
         },
       };

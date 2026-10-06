@@ -19,7 +19,13 @@ import {
   type Ref,
   shallowReactive,
 } from 'vue';
-import { DicomViewer, type DicomViewerProps, useViewer, useViewerState } from './index';
+import {
+  DicomViewer,
+  type DicomViewerProps,
+  useMeasurements,
+  useViewer,
+  useViewerState,
+} from './index';
 
 const made: FakeViewer[] = [];
 const received: ViewerOptions[] = [];
@@ -133,6 +139,7 @@ describe('<DicomViewer>', () => {
   it('does not restart when props are set again to what they were', async () => {
     const props = await mount();
     props.hideSeriesPanel = false;
+    props.hideMeasurementsPanel = false;
     props.theme = 'dark';
     await settle();
     expect(made).toHaveLength(1);
@@ -264,7 +271,11 @@ describe('panels and composables', () => {
 
   it('draws the content of a panel slot into the dock', async () => {
     await mount(
-      { hideSeriesPanel: true, panels: [{ id: 'notes', title: 'Notes' }] },
+      {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        panels: [{ id: 'notes', title: 'Notes' }],
+      },
       { 'panel-notes': () => h(Probe) },
     );
     const dock = element().shadowRoot?.querySelector('dv-panel-dock[placement="right"]');
@@ -276,7 +287,11 @@ describe('panels and composables', () => {
 
   it('keeps a panel up to date as the state changes', async () => {
     await mount(
-      { hideSeriesPanel: true, panels: [{ id: 'notes', title: 'Notes' }] },
+      {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        panels: [{ id: 'notes', title: 'Notes' }],
+      },
       { 'panel-notes': () => h(Probe) },
     );
     await made[0]?.viewer.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks);
@@ -289,7 +304,11 @@ describe('panels and composables', () => {
 
   it('gives the composable a raw viewer, and nothing before the viewer is ready', async () => {
     await mount(
-      { hideSeriesPanel: true, panels: [{ id: 'notes', title: 'Notes' }] },
+      {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        panels: [{ id: 'notes', title: 'Notes' }],
+      },
       { 'panel-notes': () => h(Probe) },
     );
     expect(seenViewer?.value).toBe(made[0]?.viewer);
@@ -298,7 +317,11 @@ describe('panels and composables', () => {
 
   it('gives a panel called left the slot panel-left, and does not also draw it beside the dock', async () => {
     await mount(
-      { hideSeriesPanel: true, panels: [{ id: 'left', title: 'Left', placement: 'left' }] },
+      {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        panels: [{ id: 'left', title: 'Left', placement: 'left' }],
+      },
       { 'panel-left': () => h(Probe) },
     );
     expect(element().querySelector('[slot="panel-left"]')).toBeNull();
@@ -306,9 +329,94 @@ describe('panels and composables', () => {
     expect(dock?.shadowRoot?.querySelectorAll('[data-probe]')).toHaveLength(1);
   });
 
+  it('has the measurements list built in on the right, and hides it on request', async () => {
+    const props = await mount({ hideSeriesPanel: true });
+    expect(made[0]?.viewer.ui.panels().map((panel) => `${panel.id}:${panel.placement}`)).toEqual([
+      'measurements:right',
+    ]);
+    props.hideMeasurementsPanel = true;
+    await settle();
+    expect(made[0]?.viewer.ui.panels()).toEqual([]);
+    props.hideMeasurementsPanel = false;
+    await settle();
+    expect(made[0]?.viewer.ui.panels().map((panel) => panel.id)).toEqual(['measurements']);
+  });
+
+  it('gives useMeasurements the measurements, and follows them', async () => {
+    const Count = defineComponent({
+      setup() {
+        const measurements = useMeasurements();
+        return () =>
+          h(
+            'p',
+            { 'data-count': '' },
+            measurements.value === undefined
+              ? 'no viewer'
+              : `${measurements.value.length.toString()} measurements`,
+          );
+      },
+    });
+    await mount(
+      {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        panels: [{ id: 'notes', title: 'Notes' }],
+      },
+      { 'panel-notes': () => h(Count) },
+    );
+    const text = (): string | null | undefined =>
+      element()
+        .shadowRoot?.querySelector('dv-panel-dock[placement="right"]')
+        ?.shadowRoot?.querySelector('[data-count]')?.textContent;
+    expect(text()).toBe('0 measurements');
+    await made[0]?.viewer.measurements.add({
+      type: 'length',
+      reference: {
+        studyInstanceUID: FAKE_IDS.study,
+        seriesInstanceUID: FAKE_IDS.ct,
+        sopInstanceUID: `${FAKE_IDS.ct}.0.5`,
+      },
+      points: [
+        [0, 0, 0],
+        [3, 4, 0],
+      ],
+    });
+    await settle();
+    expect(text()).toBe('1 measurements');
+    // Another study's measurements are kept by the viewer but are not this study's.
+    await made[0]?.viewer.measurements.add({
+      type: 'length',
+      reference: {
+        studyInstanceUID: '9.9',
+        seriesInstanceUID: FAKE_IDS.ct,
+        sopInstanceUID: `${FAKE_IDS.ct}.0.5`,
+      },
+      points: [
+        [0, 0, 0],
+        [3, 4, 0],
+      ],
+    });
+    await settle();
+    expect(
+      made[0]?.viewer.measurements.list().some((item) => item.reference.studyInstanceUID === '9.9'),
+    ).toBe(true);
+    expect(text()).toBe('1 measurements');
+    // And another study on screen starts the count again.
+    await made[0]?.viewer.loadStudy('1.2.4');
+    await settle();
+    expect(text()).toBe('0 measurements');
+    await made[0]?.viewer.measurements.clear();
+    await settle();
+    expect(text()).toBe('0 measurements');
+  });
+
   it('removes a panel when it is no longer in the props', async () => {
     const props = await mount(
-      { hideSeriesPanel: true, panels: [{ id: 'notes', title: 'Notes' }] },
+      {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        panels: [{ id: 'notes', title: 'Notes' }],
+      },
       { 'panel-notes': () => h(Probe) },
     );
     props.panels = [];

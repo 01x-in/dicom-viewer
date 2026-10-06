@@ -10,7 +10,9 @@ export type KeyAction =
   /** Starts cine, or stops it. */
   | { readonly type: 'cine' }
   | { readonly type: 'tool'; readonly tool: PrimaryTool }
-  | { readonly type: 'preset'; readonly id: string };
+  | { readonly type: 'preset'; readonly id: string }
+  /** Removes the measurement that is picked, if there is one. */
+  | { readonly type: 'delete-measurement' };
 
 /** Keys by chord, such as `ArrowDown`, `Shift+i`, or `Ctrl+Alt+x`. `null` removes a default binding. */
 export type KeybindingOverrides = Readonly<Record<string, KeyAction | null>>;
@@ -33,6 +35,8 @@ export const DEFAULT_KEYBINDINGS: Readonly<Record<string, KeyAction>> = {
   p: { type: 'tool', tool: 'pan' },
   z: { type: 'tool', tool: 'zoom' },
   s: { type: 'tool', tool: 'stack-scroll' },
+  Delete: { type: 'delete-measurement' },
+  Backspace: { type: 'delete-measurement' },
 };
 
 const MODIFIER_ORDER = ['Ctrl', 'Alt', 'Shift', 'Meta'] as const;

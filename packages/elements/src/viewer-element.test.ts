@@ -94,18 +94,57 @@ describe('<dv-viewer> structure', () => {
     expect(slot.assignedNodes()).toEqual([banner]);
   });
 
-  it('shows the toolbar and the series panel, and can hide them', async () => {
+  it('shows the toolbar, the series panel, and the measurements panel, and can hide them', async () => {
     const { element, fake } = await ready();
     expect(shadow(element, 'dv-toolbar')).not.toBeNull();
-    expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual(['series']);
+    expect(fake.viewer.ui.panels().map((panel) => `${panel.id}:${panel.placement}`)).toEqual([
+      'series:left',
+      'measurements:right',
+    ]);
     element.hideToolbar = true;
     element.hideSeriesPanel = true;
+    element.hideMeasurementsPanel = true;
     await element.updateComplete;
     expect(shadow(element, 'dv-toolbar')).toBeNull();
     expect(fake.viewer.ui.panels()).toEqual([]);
     element.hideSeriesPanel = false;
     await element.updateComplete;
     expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual(['series']);
+    element.hideMeasurementsPanel = false;
+    await element.updateComplete;
+    expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual(['series', 'measurements']);
+  });
+
+  it('can hide the measurements panel alone, from the attribute too', async () => {
+    const { element, fake } = await ready();
+    element.setAttribute('hide-measurements-panel', '');
+    await element.updateComplete;
+    expect(element.hideMeasurementsPanel).toBe(true);
+    expect(fake.viewer.ui.panels().map((panel) => panel.id)).toEqual(['series']);
+  });
+
+  it('lists the measurements in the right-hand panel', async () => {
+    const { element, fake } = await ready();
+    await fake.viewer.measurements.add({
+      type: 'length',
+      reference: {
+        studyInstanceUID: FAKE_IDS.study,
+        seriesInstanceUID: FAKE_IDS.ct,
+        sopInstanceUID: `${FAKE_IDS.ct}.0.5`,
+      },
+      points: [
+        [0, 0, 0],
+        [3, 4, 0],
+      ],
+    });
+    const dock = shadow(element, 'dv-panel-dock[placement="right"]') as HTMLElement & {
+      updateComplete: Promise<boolean>;
+    };
+    await dock.updateComplete;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const list = dock.shadowRoot?.querySelector('dv-measurement-list');
+    expect(list).not.toBeNull();
+    expect(list?.shadowRoot?.querySelectorAll('[role="option"]')).toHaveLength(1);
   });
 
   it('lists the study in the series panel, with its thumbnails', async () => {

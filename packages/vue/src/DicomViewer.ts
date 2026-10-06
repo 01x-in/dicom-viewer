@@ -50,9 +50,11 @@ export interface DicomViewerProps {
   readonly initialState?: ViewerStateV1;
   /** Items for the toolbar, or `false` for none. */
   readonly toolbar?: readonly ToolbarItem[] | false;
-  /** Extra side panels. Each one's content is the slot `panel-<id>`. */
+  /** Extra side panels. Each one's content is the slot `panel-<id>`. The series browser and the measurements list are built in. */
   readonly panels?: readonly VuePanel[];
   readonly hideSeriesPanel?: boolean;
+  /** Hides the built-in list of measurements, a tab in the right-hand dock. */
+  readonly hideMeasurementsPanel?: boolean;
   readonly theme?: ThemeName;
   readonly onReady?: (viewer: Viewer, viewport: ViewportApi | undefined) => void;
   readonly onError?: (error: Error) => void;
@@ -96,6 +98,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     },
     panels: { type: Array as PropType<readonly VuePanel[]>, default: undefined },
     hideSeriesPanel: { type: Boolean, default: false },
+    hideMeasurementsPanel: { type: Boolean, default: false },
     theme: { type: String as PropType<ThemeName>, default: 'dark' },
   },
   // Payloads: ready(viewer, viewport), error(error), state-change(state, origin).
@@ -129,6 +132,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       target.toolbarItems =
         props.toolbar === undefined || props.toolbar === false ? undefined : toRaw(props.toolbar);
       target.hideSeriesPanel = props.hideSeriesPanel === true;
+      target.hideMeasurementsPanel = props.hideMeasurementsPanel === true;
     }
 
     function stopWatching(): void {
@@ -209,7 +213,13 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       { flush: 'post' },
     );
     watch(
-      [defined, () => props.theme, () => props.toolbar, () => props.hideSeriesPanel],
+      [
+        defined,
+        () => props.theme,
+        () => props.toolbar,
+        () => props.hideSeriesPanel,
+        () => props.hideMeasurementsPanel,
+      ],
       applyAppearance,
       {
         flush: 'post',

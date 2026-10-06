@@ -52,6 +52,30 @@ interface ViewerHandle {
   thumbnails: {
     get(seriesInstanceUID: string, options?: { size?: number }): Promise<string | undefined>;
   };
+  tools: { setActive(tool: string): Promise<void> };
+  setViewportSeries(viewportId: string, seriesInstanceUID: string): Promise<void>;
+  measurements: {
+    add(measurement: object): Promise<MeasurementSummary>;
+    list(): MeasurementSummary[];
+    getSelected(): string | undefined;
+    get(id: string): MeasurementSummary | undefined;
+    clear(): Promise<number>;
+    remove(id: string): Promise<boolean>;
+    exportJson(): { format: string; measurements: (MeasurementSummary & { values: Values })[] };
+    importJson(input: string): Promise<{ added: number; replaced: number }>;
+  };
+  on(event: string, handler: (payload: { origin?: string }) => void): () => void;
+}
+
+type Values = Record<string, number | undefined>;
+
+interface MeasurementSummary {
+  id: string;
+  type: string;
+  reference: { sopInstanceUID: string; seriesInstanceUID: string; frameOfReferenceUID?: string };
+  points: number[][];
+  stats?: { pixelCount: number; meanHu: number; stdDevHu: number; minHu: number; maxHu: number };
+  hu?: number;
 }
 
 interface SourceHandle {
@@ -81,6 +105,7 @@ declare global {
     __dvSkipped?: { name: string; reason: string }[];
     __dvGl?: WeakRef<WebGLRenderingContext | WebGL2RenderingContext>[];
     __dvSource?: SourceHandle;
+    __dvDiagnostics?: () => { annotations: number } | undefined;
   }
 }
 
@@ -684,6 +709,470 @@ async function scenarioThumbnails(browser: Browser, input: HeadlessInput): Promi
   return failures;
 }
 
+const PIXEL_MM = 1.5;
+
+interface Slice {
+  readonly sop: string;
+  readonly position: readonly [number, number, number];
+}
+
+/** The phantom's slices, with where the first pixel of each is. Orientation and spacing are checked once. */
+async function phantomSlices(page: Page, input: HeadlessInput): Promise<Slice[] | string> {
+  const found = await page.evaluate(
+    async ([study, series]) => {
+      const loaded = await window.__dvSource?.getSeries(study ?? '', series ?? '');
+      const stack = loaded?.stacks[0];
+      return {
+        slices: (stack?.instances ?? []).map((instance) => ({
+          sop: instance.sopInstanceUID,
+          position: (instance.metadata['00200032']?.Value ?? []).map(Number),
+        })),
+        orientation: (stack?.instances[0]?.metadata['00200037']?.Value ?? []).map(Number),
+        spacing: (stack?.instances[0]?.metadata['00280030']?.Value ?? []).map(Number),
+      };
+    },
+    [input.studyUid, input.j2kSeriesUid],
+  );
+  if (found.slices.length !== 64) return `the phantom has ${found.slices.length.toString()} slices`;
+  if (found.orientation.join() !== '1,0,0,0,1,0')
+    return `orientation is ${found.orientation.join()}`;
+  if (found.spacing.join() !== `${PIXEL_MM.toString()},${PIXEL_MM.toString()}`) {
+    return `pixel spacing is ${found.spacing.join()}`;
+  }
+  return found.slices.flatMap((slice) => {
+    const [x, y, z] = slice.position;
+    return x === undefined || y === undefined || z === undefined
+      ? []
+      : [{ sop: slice.sop, position: [x, y, z] as const }];
+  });
+}
+
+interface MeasurementRun {
+  readonly page: Page;
+  readonly failures: string[];
+  readonly slices: readonly Slice[];
+  readonly study: string;
+  readonly series: string;
+}
+
+/** Patient space for the centre of a pixel, on an axial image whose rows run along y and columns along x. */
+function worldOf(slice: Slice, row: number, column: number): number[] {
+  return [
+    slice.position[0] + column * PIXEL_MM,
+    slice.position[1] + row * PIXEL_MM,
+    slice.position[2],
+  ];
+}
+
+function pixelOf(slice: Slice, point: readonly number[]): { row: number; column: number } {
+  return {
+    row: ((point[1] ?? 0) - slice.position[1]) / PIXEL_MM,
+    column: ((point[0] ?? 0) - slice.position[0]) / PIXEL_MM,
+  };
+}
+
+function referenceOf(run: MeasurementRun, slice: Slice): object {
+  return {
+    studyInstanceUID: run.study,
+    seriesInstanceUID: run.series,
+    sopInstanceUID: slice.sop,
+  };
+}
+
+/** Ends of the vertical axis, then of the horizontal one: the order Cornerstone keeps an ellipse in. */
+function ellipseOn(
+  run: MeasurementRun,
+  slice: Slice,
+  centreRow: number,
+  centreColumn: number,
+  radiusRows: number,
+  radiusColumns: number,
+): object {
+  return {
+    type: 'ellipse',
+    reference: referenceOf(run, slice),
+    points: [
+      worldOf(slice, centreRow + radiusRows, centreColumn),
+      worldOf(slice, centreRow - radiusRows, centreColumn),
+      worldOf(slice, centreRow, centreColumn - radiusColumns),
+      worldOf(slice, centreRow, centreColumn + radiusColumns),
+    ],
+  };
+}
+
+function rectangleOn(
+  run: MeasurementRun,
+  slice: Slice,
+  firstRow: number,
+  firstColumn: number,
+  lastRow: number,
+  lastColumn: number,
+): object {
+  return {
+    type: 'rectangle',
+    reference: referenceOf(run, slice),
+    points: [
+      worldOf(slice, firstRow, firstColumn),
+      worldOf(slice, firstRow, lastColumn),
+      worldOf(slice, lastRow, firstColumn),
+      worldOf(slice, lastRow, lastColumn),
+    ],
+  };
+}
+
+function within(
+  run: MeasurementRun,
+  what: string,
+  actual: number | undefined,
+  expected: number,
+  tolerance: number,
+): void {
+  if (actual === undefined || !(Math.abs(actual - expected) <= tolerance)) {
+    run.failures.push(
+      `${what} is ${String(actual)}, expected ${expected.toString()} (within ${tolerance.toString()})`,
+    );
+  }
+}
+
+/** What the pixels inside an ellipse come to, worked out here from single samples and not from the viewer's own reading. */
+async function referenceEllipse(
+  run: MeasurementRun,
+  sliceIndex: number,
+  centreRow: number,
+  centreColumn: number,
+  radiusRows: number,
+  radiusColumns: number,
+): Promise<{ count: number; mean: number; std: number; min: number; max: number }> {
+  return run.page.evaluate(
+    async ([index, cr, cc, rr, rc]) => {
+      const values: number[] = [];
+      for (let row = Math.ceil(cr - rr); row <= cr + rr; row += 1) {
+        for (let column = Math.ceil(cc - rc); column <= cc + rc; column += 1) {
+          const across = (column - cc) / rc;
+          const down = (row - cr) / rr;
+          if (across * across + down * down > 1) continue;
+          values.push((await window.__dv?.sampleHu(index, row, column)) ?? Number.NaN);
+        }
+      }
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+      const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+      return {
+        count: values.length,
+        mean,
+        std: Math.sqrt(variance),
+        min: Math.min(...values),
+        max: Math.max(...values),
+      };
+    },
+    [sliceIndex, centreRow, centreColumn, radiusRows, radiusColumns] as const,
+  );
+}
+
+async function viewportBox(
+  page: Page,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await page.locator('#viewport').boundingBox();
+  if (box === null) throw new Error('the viewport has no box');
+  return box;
+}
+
+async function dragBetween(
+  page: Page,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+): Promise<void> {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+}
+
+/** M5: measurements against the real engine and the phantom, whose pixels are known exactly. */
+async function scenarioMeasurements(browser: Browser, input: HeadlessInput): Promise<string[]> {
+  const watched = await watch(browser);
+  const { page, failures } = watched;
+  try {
+    await page.goto(
+      query(input, { wadoRoot: input.mock.url, study: input.studyUid, series: input.j2kSeriesUid }),
+      { waitUntil: 'load', timeout: 180_000 },
+    );
+    if (!(await expectReady(watched))) return failures;
+    const slices = await phantomSlices(page, input);
+    if (typeof slices === 'string') return [...failures, slices];
+    const run: MeasurementRun = {
+      page,
+      failures,
+      slices,
+      study: input.studyUid,
+      series: input.j2kSeriesUid,
+    };
+    const slice = slices[MID_SLICE_INDEX];
+    if (slice === undefined) return [...failures, 'no middle slice'];
+
+    // HU statistics on the phantom: flat regions have exactly one value.
+    const regions: readonly { name: string; row: number; column: number; hu: number }[] = [
+      { name: 'air insert', row: 36, column: 64, hu: -1000 },
+      { name: 'water insert', row: 92, column: 64, hu: 0 },
+      { name: 'fat insert', row: 64, column: 36, hu: -100 },
+      { name: 'bone insert', row: 64, column: 92, hu: 1000 },
+      { name: 'body', row: 64, column: 64, hu: 40 },
+    ];
+    for (const region of regions) {
+      const ellipse = await page.evaluate(
+        (shape) => window.__dvViewer?.measurements.add(shape),
+        ellipseOn(run, slice, region.row, region.column, 5, 5),
+      );
+      within(run, `${region.name} ellipse mean`, ellipse?.stats?.meanHu, region.hu, 0.5);
+      within(run, `${region.name} ellipse spread`, ellipse?.stats?.stdDevHu, 0, 0.5);
+      within(run, `${region.name} ellipse min`, ellipse?.stats?.minHu, region.hu, 0.5);
+      within(run, `${region.name} ellipse max`, ellipse?.stats?.maxHu, region.hu, 0.5);
+      if ((ellipse?.stats?.pixelCount ?? 0) < 60) {
+        failures.push(`${region.name} ellipse covers ${String(ellipse?.stats?.pixelCount)} pixels`);
+      }
+      const probe = await page.evaluate((shape) => window.__dvViewer?.measurements.add(shape), {
+        type: 'probe',
+        reference: referenceOf(run, slice),
+        points: [worldOf(slice, region.row, region.column)],
+      });
+      within(run, `${region.name} probe`, probe?.hu, region.hu, 0.5);
+    }
+    const bone = await page.evaluate(
+      (shape) => window.__dvViewer?.measurements.add(shape),
+      rectangleOn(run, slice, 62, 90, 66, 94),
+    );
+    within(run, 'bone rectangle mean', bone?.stats?.meanHu, 1000, 0.5);
+    if (bone?.stats?.pixelCount !== 25)
+      failures.push(`the 5 by 5 rectangle covers ${String(bone?.stats?.pixelCount)} pixels`);
+
+    // A shape across the edge of the bone insert and the body: compared with a count made from single samples.
+    const across = await page.evaluate(
+      (shape) => window.__dvViewer?.measurements.add(shape),
+      ellipseOn(run, slice, 64, 83, 12, 12),
+    );
+    const expected = await referenceEllipse(run, MID_SLICE_INDEX, 64, 83, 12, 12);
+    if (across?.stats?.pixelCount !== expected.count) {
+      failures.push(
+        `the ellipse across the edge covers ${String(across?.stats?.pixelCount)} pixels, expected ${expected.count.toString()}`,
+      );
+    }
+    within(run, 'edge ellipse mean', across?.stats?.meanHu, expected.mean, 0.5);
+    within(run, 'edge ellipse spread', across?.stats?.stdDevHu, expected.std, 0.5);
+    within(run, 'edge ellipse min', across?.stats?.minHu, expected.min, 0.5);
+    within(run, 'edge ellipse max', across?.stats?.maxHu, expected.max, 0.5);
+
+    // Lengths, areas, and angles come from the handles alone.
+    const length = await page.evaluate((shape) => window.__dvViewer?.measurements.add(shape), {
+      type: 'length',
+      reference: referenceOf(run, slice),
+      points: [worldOf(slice, 64, 30), worldOf(slice, 64, 60)],
+    });
+    const right = await page.evaluate((shape) => window.__dvViewer?.measurements.add(shape), {
+      type: 'angle',
+      reference: referenceOf(run, slice),
+      points: [worldOf(slice, 64, 90), worldOf(slice, 64, 64), worldOf(slice, 30, 64)],
+    });
+    const exported = await page.evaluate(() => window.__dvViewer?.measurements.exportJson());
+    const valuesOf = (id: string | undefined): Values | undefined =>
+      exported?.measurements.find((item) => item.id === id)?.values;
+    within(run, 'length', valuesOf(length?.id)?.['lengthMm'], 30 * PIXEL_MM, 0.01);
+    within(run, 'right angle', valuesOf(right?.id)?.['degrees'], 90, 0.01);
+    within(
+      run,
+      'ellipse area',
+      valuesOf(across?.id)?.['areaMm2'],
+      Math.PI * 12 * PIXEL_MM * 12 * PIXEL_MM,
+      0.01,
+    );
+
+    // The JSON survives a trip through text and an empty viewer.
+    const trip = await page.evaluate(async () => {
+      const viewer = window.__dvViewer;
+      if (viewer === undefined) return undefined;
+      const before = JSON.stringify(viewer.measurements.exportJson());
+      await viewer.measurements.clear();
+      const emptied = viewer.measurements.list().length;
+      const result = await viewer.measurements.importJson(before);
+      return {
+        same: JSON.stringify(viewer.measurements.exportJson()) === before,
+        emptied,
+        result,
+        before: before.length,
+      };
+    });
+    if (trip?.emptied !== 0 || !trip.same) {
+      failures.push(`the JSON did not survive the round trip: ${JSON.stringify(trip)}`);
+    } else if (trip.result.added !== 14) {
+      failures.push(`the import added ${trip.result.added.toString()} measurements, expected 14`);
+    }
+    // They are drawn, so Cornerstone holds them: every one that is on the series on screen.
+    const held = await page.evaluate(() => window.__dvDiagnostics?.()?.annotations);
+    if (held !== 14) failures.push(`Cornerstone holds ${String(held)} shapes, expected 14`);
+
+    // Another series: nothing of this one is drawn, and the measurements are kept.
+    await page.evaluate(
+      (series) => window.__dvViewer?.setViewportSeries('vp-0', series),
+      input.evrleSeriesUid,
+    );
+    const away = await page.evaluate(() => ({
+      held: window.__dvDiagnostics?.()?.annotations,
+      kept: window.__dvViewer?.measurements.list().length,
+    }));
+    if (away.held !== 0)
+      failures.push(`${String(away.held)} shapes are held while another series is shown`);
+    if (away.kept !== 14)
+      failures.push(`${String(away.kept)} measurements are kept while another series is shown`);
+    await page.evaluate(
+      (series) => window.__dvViewer?.setViewportSeries('vp-0', series),
+      input.j2kSeriesUid,
+    );
+    const back = await page.evaluate(() => window.__dvDiagnostics?.()?.annotations);
+    if (back !== 14)
+      failures.push(`${String(back)} shapes are held after coming back, expected 14`);
+
+    // Nothing is left when they are cleared.
+    await page.evaluate(() => window.__dvViewer?.measurements.clear());
+    const cleared = await page.evaluate(() => window.__dvDiagnostics?.()?.annotations);
+    if (cleared !== 0) failures.push(`${String(cleared)} shapes are held after clear()`);
+
+    // The mouse. A length drawn with the left button, across the middle of the picture.
+    const shown = await page.evaluate(() => window.__dv?.getImageIndex());
+    const onScreen = shown === undefined ? undefined : slices[shown];
+    if (onScreen === undefined) return [...failures, 'no slice on screen'];
+    const box = await viewportBox(page);
+    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    // The image is fitted to the viewport, so one image pixel is this many screen pixels.
+    const screenPerPixel = Math.min(box.width, box.height) / 128;
+    const windowBefore = await view(page);
+    await page.evaluate(() => window.__dvViewer?.tools.setActive('length'));
+    await dragBetween(page, { x: centre.x - 60, y: centre.y }, { x: centre.x + 60, y: centre.y });
+    const drawn = await page.evaluate(() => window.__dvViewer?.measurements.list());
+    const line = drawn?.[0];
+    if (drawn?.length !== 1 || line?.type !== 'length') {
+      failures.push(
+        `dragging with the length tool made ${JSON.stringify(drawn?.map((item) => item.type))}`,
+      );
+    } else {
+      if (line.reference.sopInstanceUID !== onScreen.sop)
+        failures.push('the length is on another slice than the one on screen');
+      if (line.reference.frameOfReferenceUID === undefined)
+        failures.push('the length has no frame of reference');
+      const [a, b] = line.points;
+      if (a === undefined || b === undefined) failures.push('the length has no ends');
+      else {
+        if (Math.abs((a[2] ?? 0) - onScreen.position[2]) > 0.01)
+          failures.push('the length is not in the plane of its slice');
+        if (Math.abs((a[1] ?? 0) - (b[1] ?? 0)) > 0.5)
+          failures.push('a horizontal drag made a slanted line');
+        // 120 screen pixels is this many millimetres.
+        within(
+          run,
+          'drawn length in mm',
+          Math.abs((b[0] ?? 0) - (a[0] ?? 0)),
+          (120 / screenPerPixel) * PIXEL_MM,
+          1,
+        );
+      }
+    }
+    const windowAfter = await view(page);
+    if (
+      windowBefore !== undefined &&
+      windowAfter !== undefined &&
+      windowBefore.window.center !== windowAfter.window.center
+    ) {
+      failures.push('drawing a length changed the window');
+    }
+    await page.evaluate(() => window.__dvViewer?.measurements.clear());
+
+    // An ellipse by dragging, then reshaped by dragging its handle, with the pixels read again.
+    await page.evaluate(() => window.__dvViewer?.tools.setActive('ellipse'));
+    // The tool centres the ellipse on the press and takes the drag as its radius: 8 image pixels
+    // around the middle of the picture, which is plain body.
+    const radius = 8 * screenPerPixel;
+    await dragBetween(page, centre, { x: centre.x + radius, y: centre.y + radius });
+    await page.waitForFunction(
+      () => (window.__dvViewer?.measurements.list()[0]?.stats?.pixelCount ?? 0) > 0,
+      undefined,
+      { timeout: 10_000 },
+    );
+    const ellipse = await page.evaluate(() => window.__dvViewer?.measurements.list()[0]);
+    if (ellipse?.type !== 'ellipse')
+      failures.push(`dragging with the ellipse tool made ${String(ellipse?.type)}`);
+    else {
+      within(run, 'drawn ellipse mean', ellipse.stats?.meanHu, 40, 0.5);
+      within(run, 'drawn ellipse spread', ellipse.stats?.stdDevHu, 0, 0.5);
+      // The middle of a 128 by 128 image is between pixels 63 and 64.
+      const [bottom, top, left, rightEnd] = ellipse.points;
+      if (bottom === undefined || top === undefined || left === undefined || rightEnd === undefined)
+        failures.push('the ellipse has fewer than 4 handles');
+      else {
+        const l = pixelOf(onScreen, left);
+        const r = pixelOf(onScreen, rightEnd);
+        within(run, 'drawn ellipse left edge (pixels)', l.column, 63.5 - 8, 1);
+        within(run, 'drawn ellipse right edge (pixels)', r.column, 63.5 + 8, 1);
+      }
+      const pixelsBefore = ellipse.stats?.pixelCount ?? 0;
+      await dragBetween(page, { x: centre.x + 20, y: centre.y }, { x: centre.x + 40, y: centre.y });
+      await page
+        .waitForFunction(
+          (before) => (window.__dvViewer?.measurements.list()[0]?.stats?.pixelCount ?? 0) > before,
+          pixelsBefore,
+          { timeout: 10_000 },
+        )
+        .catch(() => {
+          failures.push('reshaping the ellipse by its handle did not change what it covers');
+        });
+      const reshaped = await page.evaluate(() => window.__dvViewer?.measurements.list());
+      if (reshaped?.length !== 1)
+        failures.push(`reshaping made ${String(reshaped?.length)} measurements`);
+      within(run, 'reshaped ellipse mean', reshaped?.[0]?.stats?.meanHu, 40, 0.5);
+    }
+    // With another tool on the left button, the handles of a measurement still answer to it, and
+    // the drag changes the shape, not the window.
+    await page.evaluate(() => window.__dvViewer?.tools.setActive('window-level'));
+    const resting = await page.evaluate(() => window.__dvViewer?.measurements.list()[0]);
+    const rightHandle = resting?.points[3];
+    if (resting === undefined || rightHandle === undefined) {
+      failures.push('no ellipse is left to reshape with another tool active');
+    } else {
+      const handle = pixelOf(onScreen, rightHandle);
+      const at = {
+        x: centre.x + (handle.column - 63.5) * screenPerPixel,
+        y: centre.y + (handle.row - 63.5) * screenPerPixel,
+      };
+      const windowBeforePassive = await view(page);
+      await dragBetween(page, at, { x: at.x + 4 * screenPerPixel, y: at.y });
+      const moved = await page.evaluate(() => window.__dvViewer?.measurements.list());
+      const movedBy =
+        Math.abs((moved?.[0]?.points[3]?.[0] ?? rightHandle[0] ?? 0) - (rightHandle[0] ?? 0)) /
+        PIXEL_MM;
+      if (moved?.length !== 1)
+        failures.push(`reshaping with window / level made ${String(moved?.length)} measurements`);
+      within(run, 'the handle moved by (image pixels)', movedBy, 4, 1);
+      // Pressing on a handle also picks the measurement, which a list can then show.
+      const picked = await page.evaluate(() => window.__dvViewer?.measurements.getSelected());
+      if (picked !== moved?.[0]?.id) {
+        failures.push(`pressing on a handle picked ${String(picked)}, not the measurement`);
+      }
+      const windowAfterPassive = await view(page);
+      if (
+        windowBeforePassive !== undefined &&
+        windowAfterPassive !== undefined &&
+        windowBeforePassive.window.center !== windowAfterPassive.window.center
+      ) {
+        failures.push('dragging a handle with window / level active changed the window');
+      }
+    }
+    await page.evaluate(() => window.__dvViewer?.measurements.clear());
+    await page.evaluate(() => window.__dvViewer?.tools.setActive('window-level'));
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
+
 async function scenarioAuth(browser: Browser, input: HeadlessInput): Promise<string[]> {
   const watched = await watch(browser);
   const { page, failures } = watched;
@@ -991,6 +1480,7 @@ export async function smokeHeadless(
     ['dicomweb', scenarioDicomWeb],
     ['navigation', scenarioNavigation],
     ['thumbnails', scenarioThumbnails],
+    ['measurements', scenarioMeasurements],
     ['auth', scenarioAuth],
     ['retry', scenarioRetry],
     ['local files', scenarioLocalFiles],

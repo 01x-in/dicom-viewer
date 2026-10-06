@@ -251,3 +251,12 @@ Reference files:
 - **`@scope/viewer-core/testing`** is a real viewer on a fake engine, for tests of hosts and adapters.
 - **The controlled `state` prop moves to M5 to M7**, with the state it controls. `Viewer.ui` has panels only; slots are the shell's.
 - Still open: Safari and Firefox, React 18, the package name, touch input, and whether the default keys should match OHIF exactly.
+
+## M5 outcome
+
+**Done**, with the limits in [m5-report.md](m5-report.md); the decisions are in [ADR 0008](adr/0008-measurements.md). Changes to this plan that came out of the milestone:
+- **Measurements are data in the core, and the engine draws a copy.** `viewer.measurements` keeps them whatever is on screen; Cornerstone's annotations are removed with the stack and drawn again when it returns. The model is `measurements/v1` in patient millimetres with a reference to the instance.
+- **The statistics are the core's own**, from decoded pixels read through the queue (`RenderingPort.readSlice`), not Cornerstone's text. The conversions between a measurement, the engine's shape, and a Cornerstone annotation are pure functions with round-trip tests.
+- **Measurements are not in `ViewerStateV1`.** A link should not carry a case's annotations. The controlled `state` prop stays deferred, now to M7, with layouts and segmentations.
+- **The shell has a Measure menu and a built-in `measurements` panel** on the right; React and Vue have `hideMeasurementsPanel` and `useMeasurements`.
+- Still open: Safari and Firefox, React 18, the package name, touch input, and whether the default keys should match OHIF exactly. M7 inherits one thing from here: two viewports of one series must count the users of a stack's shapes.

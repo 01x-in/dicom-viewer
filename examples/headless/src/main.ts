@@ -27,8 +27,12 @@ declare global {
     __dvSkipped?: readonly { name: string; reason: string }[];
     /** The data source of the DICOMweb page, so the test can ask which instances a series has. */
     __dvSource?: DataSource;
+    /** What the engine holds, so the test can see whether anything is left over. */
+    __dvDiagnostics?: typeof getEngineDiagnostics;
   }
 }
+
+window.__dvDiagnostics = getEngineDiagnostics;
 
 const params = new URLSearchParams(location.search);
 const viewportElement = document.querySelector<HTMLElement>('#viewport');
@@ -267,6 +271,34 @@ async function settled(): Promise<void> {
   }
 }
 
+/** A rectangle on one slice, so the leak test covers the shapes the engine draws and the slices it reads for them. */
+async function measureSomething(
+  target: Viewer,
+  source: DataSource,
+  studyUid: string,
+  seriesUid: string,
+  imageIndex: number,
+): Promise<void> {
+  const series = await source.getSeries(studyUid, seriesUid);
+  const instance = series.stacks[0]?.instances[imageIndex];
+  if (instance === undefined) throw new Error(`The series has no slice ${imageIndex.toString()}.`);
+  const [x = 0, y = 0, z = 0] = (instance.metadata['00200032']?.Value ?? []).map(Number);
+  await target.measurements.add({
+    type: 'rectangle',
+    reference: {
+      studyInstanceUID: studyUid,
+      seriesInstanceUID: seriesUid,
+      sopInstanceUID: instance.sopInstanceUID,
+    },
+    points: [
+      [x + 15, y + 15, z],
+      [x + 45, y + 15, z],
+      [x + 15, y + 45, z],
+      [x + 45, y + 45, z],
+    ],
+  });
+}
+
 /** Mounts and unmounts a viewer many times and records what is left behind, for the leak test. */
 async function runCycles(count: number, alternateAssets: boolean): Promise<void> {
   const wadoRoot = params.get('wadoRoot');
@@ -288,8 +320,9 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
           ? ({ mode: 'inline' } as const)
           : ({ mode: 'url', baseUrl: assetsBaseUrl } as const)
         : undefined;
+    const cycleSource = createDicomWebDataSource({ wadoRoot });
     const cycleViewer = createViewer({
-      dataSource: createDicomWebDataSource({ wadoRoot }),
+      dataSource: cycleSource,
       ...viewerSettings,
       ...(assets === undefined ? {} : { assets }),
     });
@@ -301,6 +334,7 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
       });
       const viewport = cycleViewer.viewports.get('vp-0');
       await viewport?.setImageIndex((index * 7) % 64);
+      await measureSomething(cycleViewer, cycleSource, studyUid, seriesUid, (index * 7) % 64);
     } finally {
       cycleViewer.destroy();
       host.remove();

@@ -1,4 +1,4 @@
-import type { Viewer, ViewerStateV1 } from '@scope/viewer-core';
+import type { Measurement, Viewer, ViewerStateV1 } from '@scope/viewer-core';
 import {
   type InjectionKey,
   inject,
@@ -51,6 +51,59 @@ export function useViewerState<T>(
         value.value = selector(state);
       });
       onCleanup(stop);
+    },
+    { immediate: true },
+  );
+  onScopeDispose(() => {
+    value.value = undefined;
+  });
+  return value;
+}
+
+const MEASUREMENT_EVENTS = [
+  'measurement:added',
+  'measurement:updated',
+  'measurement:removed',
+] as const;
+
+/**
+ * The measurements of the study on screen, as a ref that follows the viewer: it changes when one is
+ * added, changed, or removed, and when another study is shown. `undefined` until the viewer is
+ * ready. Measurements of other studies are kept by the viewer: `viewer.measurements.list()` has
+ * all of them. The list is shallow: the measurements are plain data that is never changed in place.
+ */
+export function useMeasurements(): Readonly<Ref<readonly Measurement[] | undefined>> {
+  const viewer = useViewer();
+  const value = shallowRef<readonly Measurement[] | undefined>(undefined);
+  watch(
+    viewer,
+    (current, _previous, onCleanup) => {
+      if (current === undefined) {
+        value.value = undefined;
+        return;
+      }
+      const read = (): readonly Measurement[] => {
+        const study = current.getState().studyInstanceUID;
+        return study === undefined ? [] : current.measurements.list({ studyInstanceUID: study });
+      };
+      value.value = read();
+      let shown = current.getState().studyInstanceUID;
+      const stops = [
+        ...MEASUREMENT_EVENTS.map((event) =>
+          current.on(event, () => {
+            value.value = read();
+          }),
+        ),
+        // The state changes at the pace of the mouse: only another study is news.
+        current.on('state:changed', ({ state }) => {
+          if (state.studyInstanceUID === shown) return;
+          shown = state.studyInstanceUID;
+          value.value = read();
+        }),
+      ];
+      onCleanup(() => {
+        for (const stop of stops) stop();
+      });
     },
     { immediate: true },
   );

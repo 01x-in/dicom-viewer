@@ -1,9 +1,32 @@
 import type { SeriesStack } from './data/types';
+import type { MeasurementType, Point3 } from './measurements/model';
+import type { PixelSlice } from './measurements/stats';
 import type { Unsubscribe } from './state/events';
 import type { WindowLevel } from './state/viewer-state';
 import type { PrimaryTool } from './tools';
 
-export type { WindowLevel };
+export type { PixelSlice, WindowLevel };
+
+/** A measurement as the engine draws it: a shape on one slice of the stack, in patient millimetres. */
+export interface EngineMeasurement {
+  /** The engine's own id for the shape, which the viewer keeps as the measurement's id. */
+  readonly id: string;
+  readonly type: MeasurementType;
+  /** Position in the stack of the slice it is on. */
+  readonly imageIndex: number;
+  /** The handles, in the order the engine keeps them. */
+  readonly points: readonly Point3[];
+}
+
+/** Something that happened to a shape drawn on a stack. Changes the viewer asked for are not reported. */
+export type MeasurementChange =
+  /** The person finished drawing a new shape. */
+  | { readonly kind: 'completed'; readonly measurement: EngineMeasurement }
+  /** A shape's handles moved, by the person's mouse. Arrives for every step of a drag. */
+  | { readonly kind: 'modified'; readonly measurement: EngineMeasurement }
+  | { readonly kind: 'removed'; readonly id: string }
+  /** The person picked a shape, or `undefined` when none is picked any more. */
+  | { readonly kind: 'selected'; readonly id: string | undefined };
 
 /** How a stack looks now: the window, whether it is inverted, and how far it is zoomed. */
 export interface ViewSnapshot {
@@ -52,6 +75,18 @@ export interface StackPort {
   onViewChange(listener: (view: ViewSnapshot) => void): Unsubscribe;
   /** Decodes one slice and returns the Hounsfield value of one pixel. */
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
+  /** Decodes one slice, so a shape's pixels can be read. */
+  readSlice(imageIndex: number): Promise<PixelSlice>;
+  /** Draws a shape. One for a slice this stack does not have, or one with an id already drawn, is ignored. */
+  addMeasurement(measurement: EngineMeasurement): void;
+  /** Moves the handles of a shape that is drawn. */
+  updateMeasurement(measurement: EngineMeasurement): void;
+  removeMeasurement(id: string): void;
+  /** Picks one shape, or none. */
+  selectMeasurement(id: string | undefined): void;
+  /** Called when the person draws, moves, picks, or removes a shape. */
+  onMeasurementChange(listener: (change: MeasurementChange) => void): Unsubscribe;
+  /** Removes every shape this stack draws, and stops reporting. */
   destroy(): void;
 }
 

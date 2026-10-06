@@ -1,4 +1,4 @@
-import type { Viewer, ViewerStateV1 } from '@scope/viewer-core';
+import type { Measurement, Viewer, ViewerStateV1 } from '@scope/viewer-core';
 import { type Context, createContext, useContext, useRef, useSyncExternalStore } from 'react';
 
 /** The viewer of the nearest `<DicomViewer>`, once it is ready. Set by the component, not by hosts. */
@@ -39,6 +39,66 @@ export function useViewerState<T>(selector: (state: ViewerStateV1) => T): T | un
     (notify) => {
       if (viewer === undefined) return () => undefined;
       return viewer.on('state:changed', notify);
+    },
+    read,
+    () => undefined,
+  );
+}
+
+const MEASUREMENT_EVENTS = [
+  'measurement:added',
+  'measurement:updated',
+  'measurement:removed',
+] as const;
+
+/**
+ * The measurements of the study on screen, re-read when one is added, changed, or removed, and when
+ * another study is shown. `undefined` until the viewer is ready. Measurements of other studies are
+ * kept by the viewer: `viewer.measurements.list()` has all of them.
+ */
+export function useMeasurements(): readonly Measurement[] | undefined {
+  const viewer = useViewer();
+  // One list per change, so React's double check of the snapshot sees the same array.
+  const version = useRef(0);
+  const cache = useRef<
+    | { viewer: Viewer; version: number; study: string | undefined; value: readonly Measurement[] }
+    | undefined
+  >(undefined);
+  const read = (): readonly Measurement[] | undefined => {
+    if (viewer === undefined) return undefined;
+    const study = viewer.getState().studyInstanceUID;
+    if (
+      cache.current?.viewer === viewer &&
+      cache.current.version === version.current &&
+      cache.current.study === study
+    ) {
+      return cache.current.value;
+    }
+    const value = study === undefined ? [] : viewer.measurements.list({ studyInstanceUID: study });
+    cache.current = { viewer, version: version.current, study, value };
+    return value;
+  };
+  return useSyncExternalStore(
+    (notify) => {
+      if (viewer === undefined) return () => undefined;
+      let shown = viewer.getState().studyInstanceUID;
+      const stops = [
+        ...MEASUREMENT_EVENTS.map((event) =>
+          viewer.on(event, () => {
+            version.current += 1;
+            notify();
+          }),
+        ),
+        // The state changes at the pace of the mouse: only another study is news.
+        viewer.on('state:changed', ({ state }) => {
+          if (state.studyInstanceUID === shown) return;
+          shown = state.studyInstanceUID;
+          notify();
+        }),
+      ];
+      return (): void => {
+        for (const stop of stops) stop();
+      };
     },
     read,
     () => undefined,

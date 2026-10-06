@@ -48,6 +48,7 @@ async function focused(page: Page): Promise<string> {
       data.dataset['action'] ??
       (data.dataset['menuId'] === undefined ? undefined : `menu:${data.dataset['menuId']}`) ??
       (data.dataset['series'] === undefined ? undefined : `series:${data.dataset['series']}`) ??
+      (data.dataset['measurement'] === undefined ? undefined : 'measurement') ??
       (data.dataset['viewportId'] === undefined
         ? undefined
         : `viewport:${data.dataset['viewportId']}`) ??
@@ -284,6 +285,107 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
     );
     if ((await focused(page)) !== 'menu:presets')
       failures.push(`the menu returned the focus to ${await focused(page)}`);
+
+    // Measurements: the Measure menu from the keyboard, a line drawn with the mouse through the
+    // slot, then the list in the right-hand panel: name it, leave, come back to it, remove it.
+    const windowBeforeMeasuring = (await label(page)).includes('window 2500, level 480');
+    await page.locator('dv-toolbar [data-menu-id="measure"]').focus();
+    await page.keyboard.press('ArrowDown');
+    if ((await focused(page)) !== 'tool-length')
+      failures.push(`the Measure menu opened on ${await focused(page)}`);
+    // Open, with its entries: no violations here either.
+    await runAxe(page, 'measure menu open', failures);
+    await page.keyboard.press('Enter');
+    if ((await focused(page)) !== 'menu:measure')
+      failures.push(`the Measure menu returned the focus to ${await focused(page)}`);
+    // The choice is made in the viewer's queue, so the menu shows it a moment after Enter.
+    await waitFor(
+      page,
+      'the Measure menu to show Length',
+      async () =>
+        (await page.locator('dv-toolbar [data-menu-id="measure"]').getAttribute('data-active')) ===
+        'true',
+      failures,
+      5000,
+    );
+    const measureBox = await page.locator(VIEWPORT).boundingBox();
+    if (measureBox === null) throw new Error('the viewport has no box');
+    const middle = {
+      x: measureBox.x + measureBox.width / 2,
+      y: measureBox.y + measureBox.height / 2,
+    };
+    const sliceWhenDrawn = /image (\d+) of/.exec(await label(page))?.[1];
+    await page.mouse.move(middle.x - 60, middle.y);
+    await page.mouse.down();
+    await page.mouse.move(middle.x + 60, middle.y, { steps: 8 });
+    await page.mouse.up();
+    const entries = page.locator('dv-measurement-list [role="option"]');
+    if (
+      await waitFor(
+        page,
+        'the measurement to be listed',
+        async () => (await entries.count()) === 1,
+        failures,
+      )
+    ) {
+      const described = (await entries.first().getAttribute('aria-label')) ?? '';
+      if (!/^Length 1, Length \d+\.\d mm$/.test(described))
+        failures.push(`the measurement is listed as "${described}"`);
+      if (windowBeforeMeasuring && !(await label(page)).includes('window 2500, level 480'))
+        failures.push('drawing a line with the mouse changed the window');
+      await runAxe(page, 'a measurement in the list', failures);
+
+      // Rename it from the keyboard: F2, type, Enter.
+      await entries.first().focus();
+      await page.keyboard.press('F2');
+      if ((await focused(page)) !== 'input')
+        failures.push(`F2 on a measurement focused ${await focused(page)}`);
+      await runAxe(page, 'renaming a measurement', failures);
+      await page.keyboard.type('Aorta');
+      await page.keyboard.press('Enter');
+      await waitFor(
+        page,
+        'the new name',
+        async () => ((await entries.first().getAttribute('aria-label')) ?? '').startsWith('Aorta,'),
+        failures,
+      );
+      if ((await focused(page)) !== 'measurement')
+        failures.push(`after renaming the focus is on ${await focused(page)}`);
+
+      // Leave the slice, then come back to it from the list.
+      await page.locator(VIEWPORT).focus();
+      for (let step = 0; step < 3; step += 1) await page.keyboard.press('ArrowDown');
+      await waitFor(
+        page,
+        'the slice to move away',
+        async () => !(await label(page)).includes(`image ${sliceWhenDrawn ?? '?'} of`),
+        failures,
+      );
+      await entries.first().focus();
+      await page.keyboard.press('Enter');
+      await waitFor(
+        page,
+        'the list to bring the slice back',
+        async () => (await label(page)).includes(`image ${sliceWhenDrawn ?? '?'} of`),
+        failures,
+      );
+      if ((await entries.first().getAttribute('aria-selected')) !== 'true')
+        failures.push('jumping to a measurement did not pick it in the list');
+
+      // Remove it with the Delete key.
+      await entries.first().focus();
+      await page.keyboard.press('Delete');
+      await waitFor(
+        page,
+        'the measurement to be removed',
+        async () => (await entries.count()) === 0,
+        failures,
+      );
+      if ((await page.locator('dv-measurement-list [role="status"]').count()) !== 1)
+        failures.push('the empty list does not say so');
+    }
+    // Window / level has the left button again.
+    await page.locator('dv-toolbar [data-tool="window-level"]').click();
 
     // The series list from the keyboard: pick another series.
     const other = page

@@ -1,3 +1,4 @@
+import { DvMeasurementListElement } from './measurement-list';
 import { DvPanelDockElement } from './panel-dock';
 import { DvSeriesBrowserElement } from './series-browser';
 import { elementTag } from './tags';
@@ -13,3 +14,4 @@ define('viewer', DvViewerElement);
 define('toolbar', DvToolbarElement);
 define('series-browser', DvSeriesBrowserElement);
 define('panel-dock', DvPanelDockElement);
+define('measurement-list', DvMeasurementListElement);
