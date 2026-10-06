@@ -190,6 +190,14 @@ function scheduleAddressUpdate(current: Viewer): void {
   }, 200);
 }
 
+/** The state with a `vp-1` in it, keeping everything a restored link said. */
+function withSecondViewport(state: ViewerStateV1 | undefined): ViewerStateV1 {
+  const base: ViewerStateV1 = state ?? { version: 1, layout: '1x1', viewports: [{ id: 'vp-0' }] };
+  return base.viewports.some((viewport) => viewport.id === 'vp-1')
+    ? base
+    : { ...base, viewports: [...base.viewports, { id: 'vp-1' }] };
+}
+
 /** Starts a viewer on `dataSource`, restores what the link says, and wires the page to it. */
 async function start(
   dataSource: DataSource,
@@ -197,7 +205,11 @@ async function start(
   seriesUid: string | null,
 ): Promise<void> {
   viewer?.destroy();
-  const initialState = restoredState();
+  // `second` asks for a second viewport on the same series, to see that what a SEG looks like follows it.
+  const restored = restoredState();
+  const initialState: ViewerStateV1 | undefined = params.has('second')
+    ? withSecondViewport(restored)
+    : restored;
   const created = createViewer({
     dataSource,
     ...viewerSettings,
@@ -245,6 +257,17 @@ async function show(created: Viewer, studyUid: string, seriesUid: string | null)
     await created.setState({});
   }
   window.__dv = created.viewports.get('vp-0');
+  if (params.has('second')) {
+    // A viewer started again (local files picked again) must not leave the last one's viewport behind.
+    document.querySelector('#viewport2')?.remove();
+    const second = document.createElement('div');
+    second.id = 'viewport2';
+    second.style.cssText = 'width:512px;height:512px;background:#000';
+    document.querySelector('#app')?.append(second);
+    created.viewports.attach('vp-1', second);
+    const shown = created.getState().viewports[0]?.seriesInstanceUID;
+    if (shown !== undefined) await created.setViewportSeries('vp-1', shown);
+  }
   reflectSelection(created.getState());
   status('ready');
 }
@@ -304,6 +327,9 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
   const wadoRoot = params.get('wadoRoot');
   const studyUid = params.get('study');
   const seriesUid = params.get('series');
+  // With `seg`, each cycle also loads that SEG (and highlights it as an outline, which Cornerstone
+  // draws with a second labelmap), so the leak test covers what a SEG holds.
+  const segUid = params.get('seg');
   if (wadoRoot === null || studyUid === null || seriesUid === null) {
     throw new Error('cycles needs wadoRoot, study and series');
   }
@@ -335,6 +361,12 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
       const viewport = cycleViewer.viewports.get('vp-0');
       await viewport?.setImageIndex((index * 7) % 64);
       await measureSomething(cycleViewer, cycleSource, studyUid, seriesUid, (index * 7) % 64);
+      if (segUid !== null) {
+        await cycleViewer.segmentations.load(segUid);
+        await cycleViewer.segmentations.highlight(segUid, [2], { mode: 'outline' });
+        // Every other cycle unloads it; the others leave it to `destroy()`, which must give it back.
+        if (index % 2 === 0) await cycleViewer.segmentations.unload(segUid);
+      }
     } finally {
       cycleViewer.destroy();
       host.remove();
@@ -365,6 +397,8 @@ async function main(): Promise<void> {
       // The viewer goes before the source it reads from, or it could ask for a file that is gone.
       viewer?.destroy();
       viewer = undefined;
+      // Its second viewport goes with it, even if the new selection turns out not to be a study.
+      document.querySelector('#viewport2')?.remove();
       localSource?.dispose();
       localSource = undefined;
       void (async (): Promise<void> => {

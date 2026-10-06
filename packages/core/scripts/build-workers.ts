@@ -59,6 +59,17 @@ function workerPlugin(embedded: Record<string, Buffer>): Plugin {
       if (source === 'dv-upstream-compute-worker') {
         return { id: join(toolsDist, 'workers/computeWorker.js'), moduleSideEffects: true };
       }
+      // tools' compute worker `expose()`s its methods once. Ours go in with them, through this wrapper,
+      // so there is still one compute worker (see workers/comlink-expose.ts).
+      if (source === 'comlink' && importer?.endsWith('/workers/computeWorker.js') === true) {
+        return { id: join(packageDir, 'workers/comlink-expose.ts'), moduleSideEffects: true };
+      }
+      if (source === 'dv-real-comlink') {
+        // `skipSelf`: this hook must not answer its own question, or the wrapper would import itself.
+        return this.resolve('comlink', join(toolsDist, 'workers/computeWorker.js'), {
+          skipSelf: true,
+        });
+      }
       // package.json says `sideEffects: false`, but the shim exists only for its side effect.
       if (source === './wasm-shim.ts') {
         return { id: join(packageDir, 'workers/wasm-shim.ts'), moduleSideEffects: true };

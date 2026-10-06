@@ -30,7 +30,13 @@ import { isLocalFileImageId, registerLocalFile } from './local-files';
 import { annotation as annotationApi, utilities as toolsUtilities } from '@cornerstonejs/tools';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';
 import type { RuntimeOptions } from './runtime';
-import { parseSegmentation } from './segmentation';
+import {
+  parseSegmentation,
+  segmentationsHeld,
+  trackSegmentations,
+  type StackSegmentations,
+} from './segmentation';
+import { readSegmentationHeader } from './segmentation-header';
 import { trackMeasurements, type StackMeasurements } from './measurements';
 import { attachStackTools, type StackTools } from './tools';
 
@@ -119,6 +125,7 @@ provideEngineDiagnostics(() => {
     activeEngines: activeViewers(),
     imagesInUse: imageUsers.size,
     annotations: annotationApi.state.getAllAnnotations().length,
+    segmentations: segmentationsHeld(),
   };
 });
 
@@ -159,6 +166,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     let viewportId: string | undefined;
     let tools: StackTools | undefined;
     let measurements: StackMeasurements | undefined;
+    let segmentations: StackSegmentations | undefined;
     let stopContextMenu: (() => void) | undefined;
     let stopPrefetch: (() => void) | undefined;
     try {
@@ -186,6 +194,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       viewport.render();
       tools = attachStackTools(renderingEngineId, viewportId);
       measurements = trackMeasurements({ viewportId, imageIds: stack.imageIds });
+      segmentations = trackSegmentations({ viewportId, imageIds: stack.imageIds });
       // The right button zooms, so the browser's menu must not open over the drag.
       const blockMenu = (event: Event): void => {
         event.preventDefault();
@@ -353,12 +362,17 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
         },
         onMeasurementChange: (listener) =>
           measurements?.onChange(listener) ?? ((): void => undefined),
+        drawSegmentation: (handle, display) => segmentations?.draw(handle, display) ?? false,
+        hideSegmentation: (handle) => {
+          segmentations?.hide(handle);
+        },
         destroy(): void {
           if (stackDestroyed) return;
           stackDestroyed = true;
           stopContextMenu?.();
           // While the element is still enabled: Cornerstone looks the viewport up from it.
           stopPrefetch?.();
+          segmentations?.destroy();
           measurements?.destroy();
           tools?.detach();
           renderingEngine.disableElement(enabledViewportId);
@@ -369,6 +383,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       // A stack that failed to come up must not keep what it claimed.
       stopContextMenu?.();
       stopPrefetch?.();
+      segmentations?.destroy();
       measurements?.destroy();
       tools?.detach();
       if (viewportId !== undefined) renderingEngine.disableElement(viewportId);
@@ -426,6 +441,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       render.then(done, done);
       return render;
     },
+    readSegmentationHeader,
     loadSegmentation: parseSegmentation,
     destroy(): void {
       if (destroyed) return;

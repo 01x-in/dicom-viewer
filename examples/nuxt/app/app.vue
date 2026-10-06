@@ -31,8 +31,9 @@ onMounted(() => {
   };
 });
 
-function onReady(_viewer: Viewer, viewport: ViewportApi | undefined): void {
+function onReady(viewer: Viewer, viewport: ViewportApi | undefined): void {
   window.__dv = viewport;
+  window.__dvViewer = viewer;
   document.documentElement.dataset['dvStatus'] = 'ready';
 }
 function onError(error: Error): void {

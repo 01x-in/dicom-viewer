@@ -14,6 +14,8 @@ export interface EngineDiagnostics {
   readonly imagesInUse: number;
   /** Measurement shapes Cornerstone holds, which are the ones drawn on stacks that are alive. */
   readonly annotations: number;
+  /** SEG labelmap layers Cornerstone holds as segmentations, which are the ones of SEGs that are loaded. */
+  readonly segmentations: number;
 }
 
 let provider: (() => EngineDiagnostics) | undefined;

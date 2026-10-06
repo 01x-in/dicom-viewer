@@ -1,4 +1,9 @@
-import { createDicomWebDataSource, type ViewportApi, type ViewerOptions } from '@scope/viewer-core';
+import {
+  createDicomWebDataSource,
+  type Viewer,
+  type ViewportApi,
+  type ViewerOptions,
+} from '@scope/viewer-core';
 import { DicomViewer } from '@scope/viewer-react';
 import { type JSX, StrictMode, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -8,6 +13,7 @@ import { createRoot } from 'react-dom/client';
 declare global {
   interface Window {
     __dv?: ViewportApi | undefined;
+    __dvViewer?: Viewer | undefined;
     __dvError?: string;
   }
 }
@@ -29,8 +35,9 @@ function App(): JSX.Element {
         options={options}
         studyInstanceUID={params.get('study') ?? ''}
         seriesInstanceUID={params.get('series') ?? ''}
-        onReady={(_viewer, viewport) => {
+        onReady={(viewer, viewport) => {
           window.__dv = viewport;
+          window.__dvViewer = viewer;
           document.documentElement.dataset['dvStatus'] = 'ready';
         }}
         onError={(error) => {

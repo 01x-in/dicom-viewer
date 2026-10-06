@@ -12,6 +12,7 @@ import { createApp, h } from 'vue';
 declare global {
   interface Window {
     __dv?: ViewportApi | undefined;
+    __dvViewer?: Viewer | undefined;
     __dvError?: string;
   }
 }
@@ -31,8 +32,9 @@ createApp({
         options,
         studyInstanceUid: params.get('study') ?? '',
         seriesInstanceUid: params.get('series') ?? '',
-        onReady: (_viewer: Viewer, viewport: ViewportApi | undefined) => {
+        onReady: (viewer: Viewer, viewport: ViewportApi | undefined) => {
           window.__dv = viewport;
+          window.__dvViewer = viewer;
           document.documentElement.dataset['dvStatus'] = 'ready';
         },
         onError: (error: Error) => {

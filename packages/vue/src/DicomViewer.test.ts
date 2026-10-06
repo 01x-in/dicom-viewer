@@ -23,6 +23,7 @@ import {
   DicomViewer,
   type DicomViewerProps,
   useMeasurements,
+  useSegmentations,
   useViewer,
   useViewerState,
 } from './index';
@@ -140,6 +141,7 @@ describe('<DicomViewer>', () => {
     const props = await mount();
     props.hideSeriesPanel = false;
     props.hideMeasurementsPanel = false;
+    props.hideSegmentationsPanel = false;
     props.theme = 'dark';
     await settle();
     expect(made).toHaveLength(1);
@@ -274,6 +276,7 @@ describe('panels and composables', () => {
       {
         hideSeriesPanel: true,
         hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
         panels: [{ id: 'notes', title: 'Notes' }],
       },
       { 'panel-notes': () => h(Probe) },
@@ -290,6 +293,7 @@ describe('panels and composables', () => {
       {
         hideSeriesPanel: true,
         hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
         panels: [{ id: 'notes', title: 'Notes' }],
       },
       { 'panel-notes': () => h(Probe) },
@@ -307,6 +311,7 @@ describe('panels and composables', () => {
       {
         hideSeriesPanel: true,
         hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
         panels: [{ id: 'notes', title: 'Notes' }],
       },
       { 'panel-notes': () => h(Probe) },
@@ -320,6 +325,7 @@ describe('panels and composables', () => {
       {
         hideSeriesPanel: true,
         hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
         panels: [{ id: 'left', title: 'Left', placement: 'left' }],
       },
       { 'panel-left': () => h(Probe) },
@@ -329,17 +335,74 @@ describe('panels and composables', () => {
     expect(dock?.shadowRoot?.querySelectorAll('[data-probe]')).toHaveLength(1);
   });
 
-  it('has the measurements list built in on the right, and hides it on request', async () => {
+  it('has the measurements and segments lists built in on the right, and hides each on request', async () => {
     const props = await mount({ hideSeriesPanel: true });
     expect(made[0]?.viewer.ui.panels().map((panel) => `${panel.id}:${panel.placement}`)).toEqual([
       'measurements:right',
+      'segmentations:right',
     ]);
+    props.hideMeasurementsPanel = true;
+    await settle();
+    expect(made[0]?.viewer.ui.panels().map((panel) => panel.id)).toEqual(['segmentations']);
+    props.hideMeasurementsPanel = false;
+    props.hideSegmentationsPanel = true;
+    await settle();
+    expect(made[0]?.viewer.ui.panels().map((panel) => panel.id)).toEqual(['measurements']);
     props.hideMeasurementsPanel = true;
     await settle();
     expect(made[0]?.viewer.ui.panels()).toEqual([]);
     props.hideMeasurementsPanel = false;
+    props.hideSegmentationsPanel = false;
     await settle();
-    expect(made[0]?.viewer.ui.panels().map((panel) => panel.id)).toEqual(['measurements']);
+    // The order is the order they were switched on in, so only which ones there are is checked.
+    expect(
+      made[0]?.viewer.ui
+        .panels()
+        .map((panel) => panel.id)
+        .sort(),
+    ).toEqual(['measurements', 'segmentations']);
+  });
+
+  it('gives useSegmentations the loaded SEGs, and follows them', async () => {
+    const Count = defineComponent({
+      setup() {
+        const segmentations = useSegmentations();
+        return () =>
+          h(
+            'p',
+            { 'data-count': '' },
+            segmentations.value === undefined
+              ? 'no viewer'
+              : `${segmentations.value.length.toString()} SEGs, ${segmentations.value
+                  .map((item) => (item.visible ? 'shown' : 'hidden'))
+                  .join()}`,
+          );
+      },
+    });
+    await mount(
+      {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
+        panels: [{ id: 'notes', title: 'Notes' }],
+      },
+      { 'panel-notes': () => h(Count) },
+    );
+    const text = (): string | null | undefined =>
+      element()
+        .shadowRoot?.querySelector('dv-panel-dock[placement="right"]')
+        ?.shadowRoot?.querySelector('[data-count]')?.textContent;
+    expect(text()).toBe('0 SEGs, ');
+    await made[0]?.viewer.segmentations.load(FAKE_IDS.seg);
+    await settle();
+    expect(text()).toBe('1 SEGs, shown');
+    await made[0]?.viewer.segmentations.setVisible(FAKE_IDS.seg, false);
+    await settle();
+    expect(text()).toBe('1 SEGs, hidden');
+    // The SEGs belong to the study on screen: another study unloads them.
+    await made[0]?.viewer.loadStudy('1.2.4');
+    await settle();
+    expect(text()).toBe('0 SEGs, ');
   });
 
   it('gives useMeasurements the measurements, and follows them', async () => {
@@ -360,6 +423,7 @@ describe('panels and composables', () => {
       {
         hideSeriesPanel: true,
         hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
         panels: [{ id: 'notes', title: 'Notes' }],
       },
       { 'panel-notes': () => h(Count) },
@@ -415,6 +479,7 @@ describe('panels and composables', () => {
       {
         hideSeriesPanel: true,
         hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
         panels: [{ id: 'notes', title: 'Notes' }],
       },
       { 'panel-notes': () => h(Probe) },

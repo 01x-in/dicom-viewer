@@ -18,6 +18,7 @@ import {
 import { layoutCells } from './layout';
 import { createThrottledAnnouncer, describeViewport, type ThrottledAnnouncer } from './live-label';
 import type { DvMeasurementListElement } from './measurement-list';
+import type { DvSegmentationListElement } from './segmentation-list';
 import { type DvSeriesBrowserElement, isDisplayableModality } from './series-browser';
 import { baseStyles, shellThemeStyles } from './theme';
 import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
@@ -81,6 +82,7 @@ export class DvViewerElement extends LitElement {
     hideToolbar: { type: Boolean, attribute: 'hide-toolbar' },
     hideSeriesPanel: { type: Boolean, attribute: 'hide-series-panel' },
     hideMeasurementsPanel: { type: Boolean, attribute: 'hide-measurements-panel' },
+    hideSegmentationsPanel: { type: Boolean, attribute: 'hide-segmentations-panel' },
     label: {},
     status: { reflect: true },
     shown: { state: true },
@@ -186,6 +188,7 @@ export class DvViewerElement extends LitElement {
   declare hideToolbar: boolean;
   declare hideSeriesPanel: boolean;
   declare hideMeasurementsPanel: boolean;
+  declare hideSegmentationsPanel: boolean;
   /** The accessible name of the viewer as a whole, a landmark. Default `DICOM viewer`. */
   declare label: string;
   declare status: ViewerStatus;
@@ -197,6 +200,7 @@ export class DvViewerElement extends LitElement {
   #cleanups: (() => void)[] = [];
   #removeSeriesPanel: (() => void) | undefined;
   #removeMeasurementsPanel: (() => void) | undefined;
+  #removeSegmentationsPanel: (() => void) | undefined;
   #announcer: ThrottledAnnouncer | undefined;
   #viewportElements: HTMLElement[] = [];
 
@@ -208,6 +212,7 @@ export class DvViewerElement extends LitElement {
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
     this.hideMeasurementsPanel = false;
+    this.hideSegmentationsPanel = false;
     this.label = 'DICOM viewer';
     this.status = 'idle';
     this.shown = false;
@@ -246,6 +251,9 @@ export class DvViewerElement extends LitElement {
     if (changed.has('hideSeriesPanel') && this.#viewer !== undefined) {
       this.#syncSeriesPanel(this.#viewer);
     }
+    if (changed.has('hideSegmentationsPanel') && this.#viewer !== undefined) {
+      this.#syncSegmentationsPanel(this.#viewer);
+    }
     if (changed.has('hideMeasurementsPanel') && this.#viewer !== undefined) {
       this.#syncMeasurementsPanel(this.#viewer);
     }
@@ -268,6 +276,8 @@ export class DvViewerElement extends LitElement {
     this.#removeSeriesPanel = undefined;
     this.#removeMeasurementsPanel?.();
     this.#removeMeasurementsPanel = undefined;
+    this.#removeSegmentationsPanel?.();
+    this.#removeSegmentationsPanel = undefined;
     this.#announcer?.cancel();
     this.#announcer = undefined;
     this.#viewer?.destroy();
@@ -392,6 +402,28 @@ export class DvViewerElement extends LitElement {
     });
   }
 
+  #syncSegmentationsPanel(viewer: Viewer): void {
+    if (this.hideSegmentationsPanel) {
+      this.#removeSegmentationsPanel?.();
+      this.#removeSegmentationsPanel = undefined;
+      return;
+    }
+    if (this.#removeSegmentationsPanel !== undefined) return;
+    this.#removeSegmentationsPanel = viewer.ui.registerPanel({
+      id: 'segmentations',
+      title: 'Segments',
+      placement: 'right',
+      mount: (container) => {
+        const list = document.createElement('dv-segmentation-list') as DvSegmentationListElement;
+        list.viewer = viewer;
+        container.append(list);
+        return (): void => {
+          list.remove();
+        };
+      },
+    });
+  }
+
   async #load(): Promise<void> {
     const generation = (this.#generation += 1);
     this.#teardown();
@@ -424,6 +456,7 @@ export class DvViewerElement extends LitElement {
       );
       this.#syncSeriesPanel(viewer);
       this.#syncMeasurementsPanel(viewer);
+      this.#syncSegmentationsPanel(viewer);
       // A throw here (and any later one) lands in the catch below, which reports it.
       this.#createViewportElements(viewer);
       await viewer.loadStudy(study);

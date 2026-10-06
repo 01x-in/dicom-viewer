@@ -9,6 +9,7 @@ import {
   DicomViewer,
   type DicomViewerProps,
   useMeasurements,
+  useSegmentations,
   useViewer,
   useViewerState,
 } from './index';
@@ -289,6 +290,7 @@ describe('panels and hooks', () => {
     await render({
       hideSeriesPanel: true,
       hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
       panels: { notes: { title: 'Notes', render: () => <Probe /> } },
     });
     const dock = element().shadowRoot?.querySelector('dv-panel-dock[placement="right"]');
@@ -301,6 +303,7 @@ describe('panels and hooks', () => {
     await render({
       hideSeriesPanel: true,
       hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
       panels: { notes: { title: 'Notes', render: () => <Probe /> } },
     });
     await act(async () => {
@@ -312,15 +315,69 @@ describe('panels and hooks', () => {
     );
   });
 
-  it('has the measurements list built in on the right, and hides it on request', async () => {
+  it('has the measurements and segments lists built in on the right, and hides each on request', async () => {
     await render({ hideSeriesPanel: true });
     expect(made[0]?.viewer.ui.panels().map((panel) => `${panel.id}:${panel.placement}`)).toEqual([
       'measurements:right',
+      'segmentations:right',
     ]);
     await render({ hideSeriesPanel: true, hideMeasurementsPanel: true });
+    expect(made[0]?.viewer.ui.panels().map((panel) => panel.id)).toEqual(['segmentations']);
+    await render({ hideSeriesPanel: true, hideSegmentationsPanel: true });
+    expect(made[0]?.viewer.ui.panels().map((panel) => panel.id)).toEqual(['measurements']);
+    await render({
+      hideSeriesPanel: true,
+      hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
+    });
     expect(made[0]?.viewer.ui.panels()).toEqual([]);
     await render({ hideSeriesPanel: true });
-    expect(made[0]?.viewer.ui.panels().map((panel) => panel.id)).toEqual(['measurements']);
+    // The order is the order they were switched on in, so only which ones there are is checked.
+    expect(
+      made[0]?.viewer.ui
+        .panels()
+        .map((panel) => panel.id)
+        .sort(),
+    ).toEqual(['measurements', 'segmentations']);
+  });
+
+  it('gives useSegmentations the loaded SEGs, and follows them', async () => {
+    function Count(): JSX.Element {
+      const segmentations = useSegmentations();
+      return (
+        <p data-count>
+          {segmentations === undefined
+            ? 'no viewer'
+            : `${segmentations.length.toString()} SEGs, ${segmentations
+                .map((item) => (item.visible ? 'shown' : 'hidden'))
+                .join()}`}
+        </p>
+      );
+    }
+    await render({
+      hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
+      panels: { notes: { title: 'Notes', render: () => <Count /> } },
+      hideSeriesPanel: true,
+    });
+    const text = (): string | null | undefined =>
+      element()
+        .shadowRoot?.querySelector('dv-panel-dock[placement="right"]')
+        ?.shadowRoot?.querySelector('[data-count]')?.textContent;
+    expect(text()).toBe('0 SEGs, ');
+    await act(async () => {
+      await made[0]?.viewer.segmentations.load(FAKE_IDS.seg);
+    });
+    expect(text()).toBe('1 SEGs, shown');
+    await act(async () => {
+      await made[0]?.viewer.segmentations.setVisible(FAKE_IDS.seg, false);
+    });
+    expect(text()).toBe('1 SEGs, hidden');
+    // The SEGs belong to the study on screen: another study unloads them.
+    await act(async () => {
+      await made[0]?.viewer.loadStudy('1.2.4');
+    });
+    expect(text()).toBe('0 SEGs, ');
   });
 
   it('gives useMeasurements the measurements, and follows them', async () => {
@@ -336,6 +393,7 @@ describe('panels and hooks', () => {
     }
     await render({
       hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
       panels: { notes: { title: 'Notes', render: () => <Count /> } },
       hideSeriesPanel: true,
     });
@@ -393,9 +451,15 @@ describe('panels and hooks', () => {
     await render({
       hideSeriesPanel: true,
       hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
       panels: { notes: { title: 'Notes', render: () => <Probe /> } },
     });
-    await render({ hideSeriesPanel: true, hideMeasurementsPanel: true, panels: {} });
+    await render({
+      hideSeriesPanel: true,
+      hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
+      panels: {},
+    });
     expect(made[0]?.viewer.ui.panels()).toEqual([]);
   });
 

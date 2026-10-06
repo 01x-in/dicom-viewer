@@ -45,6 +45,11 @@ export function harness(
     'measurement:updated': [],
     'measurement:removed': [],
     'measurement:selected': [],
+    'segmentation:loaded': [],
+    'segmentation:unloaded': [],
+    'segmentation:updated': [],
+    'segmentation:visibility': [],
+    'segmentation:warning': [],
     'state:changed': [],
     error: [],
   };
@@ -59,6 +64,11 @@ export function harness(
   viewer.on('measurement:updated', (event) => events['measurement:updated'].push(event));
   viewer.on('measurement:removed', (event) => events['measurement:removed'].push(event));
   viewer.on('measurement:selected', (event) => events['measurement:selected'].push(event));
+  viewer.on('segmentation:loaded', (event) => events['segmentation:loaded'].push(event));
+  viewer.on('segmentation:unloaded', (event) => events['segmentation:unloaded'].push(event));
+  viewer.on('segmentation:updated', (event) => events['segmentation:updated'].push(event));
+  viewer.on('segmentation:visibility', (event) => events['segmentation:visibility'].push(event));
+  viewer.on('segmentation:warning', (event) => events['segmentation:warning'].push(event));
   viewer.on('state:changed', (event) => events['state:changed'].push(event));
   viewer.on('error', (event) => events.error.push(event));
   return { viewer, port, source, element: document.createElement('div'), events };

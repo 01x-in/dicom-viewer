@@ -1,12 +1,6 @@
 import type { DataSource, LoadedSeriesData, SeriesStack, StudyData } from './data/types';
 import { assertDicomUid } from './data/uid';
-import type {
-  RenderingPort,
-  SegmentationHandle,
-  StackPort,
-  ViewSnapshot,
-  WindowLevel,
-} from './rendering-port';
+import type { RenderingPort, StackPort, ViewSnapshot, WindowLevel } from './rendering-port';
 import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
 import {
@@ -47,8 +41,15 @@ import {
   type MeasurementEvents,
   type MeasurementsApi,
 } from './measurements/registry';
+import {
+  assertNavigateSegmentations,
+  createSegmentationsRegistry,
+  type NavigateSegmentation,
+  type SegmentationEvents,
+  type SegmentationsApi,
+} from './segmentations/registry';
 
-export interface ViewerEvents extends MeasurementEvents {
+export interface ViewerEvents extends MeasurementEvents, SegmentationEvents {
   'study:loaded': { readonly study: StudyData };
   'viewport:image': {
     readonly viewportId: string;
@@ -85,7 +86,7 @@ export interface ViewerEvents extends MeasurementEvents {
   /** A failure that no call is waiting for, such as restoring `initialState` once an element is attached. */
   error: {
     readonly error: Error;
-    readonly context: 'attach' | 'cine' | 'keyboard' | 'measurement';
+    readonly context: 'attach' | 'cine' | 'keyboard' | 'measurement' | 'segmentation';
   };
 }
 
@@ -115,6 +116,12 @@ export interface NavigateTarget {
   readonly frameNumber?: number;
   /** Default `vp-0`. */
   readonly viewportId?: string;
+  /**
+   * SEGs to show, hide, or highlight once the slice is on screen. One that is not loaded is loaded.
+   * One that cannot be loaded does not stop the others or the navigation: it is in the result and
+   * reported as an `error`. A SEG that is not listed is left as it is.
+   */
+  readonly segmentations?: readonly NavigateSegmentation[];
 }
 
 export interface NavigateResult {
@@ -123,6 +130,11 @@ export interface NavigateResult {
   readonly stackIndex: number;
   readonly imageIndex: number;
   readonly sopInstanceUID: string;
+  /** Only with `segmentations` in the target: the SEGs that could not be loaded. */
+  readonly failedSegmentations?: readonly {
+    readonly seriesInstanceUID: string;
+    readonly error: Error;
+  }[];
 }
 
 export interface ViewportApi {
@@ -153,8 +165,6 @@ export interface ViewportApi {
   resetView(): Promise<void>;
   /** Decodes one slice and returns the Hounsfield value of one pixel. */
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
-  /** M1 spike: retrieves a SEG of the study and parses it against the displayed series. Replaced in M6. */
-  loadSegmentation(segSeriesInstanceUID: string): Promise<SegmentationHandle>;
 }
 
 export interface ViewportsApi {
@@ -191,6 +201,8 @@ export interface Viewer {
   readonly ui: UiApi;
   /** What people measure: length, bidirectional, ellipse, rectangle, probe, and angle. */
   readonly measurements: MeasurementsApi;
+  /** SEG overlays: what is loaded, how each segment looks, and where each one is. */
+  readonly segmentations: SegmentationsApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
   setViewportSeries(
     viewportId: string,
@@ -381,6 +393,31 @@ export function createViewerCore(
     navigateNow: (target) => navigateNow(target),
     fail: (error) => {
       events.emit('error', { error, context: 'measurement' });
+    },
+  });
+
+  const segmentations = createSegmentationsRegistry({
+    enqueue: (task) => enqueue(task),
+    assertAlive,
+    emit: (event, payload) => {
+      const segmentationEvents: Emitter<SegmentationEvents> = events;
+      segmentationEvents.emit(event, payload);
+    },
+    study: () => store.getState().studyInstanceUID,
+    getSeries: (studyInstanceUID, seriesInstanceUID) =>
+      getSeries(studyInstanceUID, seriesInstanceUID),
+    getInstanceBytes: (studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality) =>
+      dataSource.getInstanceBytes(studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality),
+    port: () => portPromise,
+    navigateNow: (target) => navigateNow(target),
+    imageIndexOf: (viewportId, seriesInstanceUID, stackIndex) => {
+      const shown = runtimes.get(viewportId)?.shown;
+      return shown?.seriesInstanceUID === seriesInstanceUID && shown.stack.index === stackIndex
+        ? shown.port.getImageIndex()
+        : undefined;
+    },
+    fail: (error) => {
+      events.emit('error', { error, context: 'segmentation' });
     },
   });
 
@@ -635,10 +672,16 @@ export function createViewerCore(
         stack,
         port: stackPort,
       });
+      const detachSegmentations = segmentations.attach({
+        seriesInstanceUID,
+        stack,
+        port: stackPort,
+      });
       next.off = (): void => {
         offImage();
         offView();
         detachMeasurements();
+        detachSegmentations();
       };
       stackPort.setPrimaryTool(activeTool);
       // The state describes what is on screen: the stack and the slice that are showing now.
@@ -827,27 +870,6 @@ export function createViewerCore(
         // Queued like every engine call, so a sample asked for after a series switch is taken from the new series.
         return enqueue(() => requireShown().port.sampleHu(imageIndex, row, column));
       },
-      loadSegmentation(segSeriesInstanceUID): Promise<SegmentationHandle> {
-        return enqueue(async () => {
-          const shown = requireShown();
-          assertDicomUid(segSeriesInstanceUID, 'SeriesInstanceUID');
-          const { studyInstanceUID } = store.getState();
-          if (studyInstanceUID === undefined) throw new Error('No study is loaded.');
-          const segSeries = await dataSource.getSeries(studyInstanceUID, segSeriesInstanceUID);
-          const sop = segSeries.instances[0]?.sopInstanceUID;
-          if (sop === undefined) {
-            throw new Error(`Series ${segSeriesInstanceUID} has no instances.`);
-          }
-          const bytes = await dataSource.getInstanceBytes(
-            studyInstanceUID,
-            segSeriesInstanceUID,
-            sop,
-            segSeries.modality,
-          );
-          assertAlive();
-          return (await portPromise).loadSegmentation(shown.stack.imageIds, bytes);
-        });
-      },
     };
   }
 
@@ -864,6 +886,8 @@ export function createViewerCore(
       assertAlive();
       if (store.getState().studyInstanceUID !== studyInstanceUID) {
         for (const runtime of runtimes.values()) teardown(runtime);
+        // A SEG belongs to one study. The stacks are gone, so this only gives its memory back.
+        segmentations.studyChanged();
         seriesCache.clear();
         thumbnails.clear();
         store.update((state) => ({ studyInstanceUID, viewports: emptyViewports(state) }), 'api');
@@ -988,10 +1012,17 @@ export function createViewerCore(
   function navigateTo(target: NavigateTarget): Promise<NavigateResult> {
     try {
       assertNavigateTarget(target);
+      if (target.segmentations !== undefined) assertNavigateSegmentations(target.segmentations);
     } catch (error) {
       return Promise.reject(toError(error));
     }
-    return enqueue(() => navigateNow(target));
+    return enqueue(async () => {
+      const result = await navigateNow(target);
+      if (target.segmentations === undefined) return result;
+      // After the slice is on screen: loading a SEG is slow, and the image must not wait for it.
+      const failedSegmentations = await segmentations.applyNavigation(target.segmentations);
+      return { ...result, failedSegmentations };
+    });
   }
 
   function setState(
@@ -1031,6 +1062,7 @@ export function createViewerCore(
       if (!candidate.ok) throw new Error(`Invalid state: ${candidate.error}`);
 
       if (studyChanged) {
+        segmentations.studyChanged();
         seriesCache.clear();
         thumbnails.clear();
       }
@@ -1191,6 +1223,7 @@ export function createViewerCore(
     tools,
     thumbnails: thumbnails.api,
     measurements: measurements.api,
+    segmentations: segmentations.api,
     ui: {
       registerPanel(panel): Unsubscribe {
         assertAlive();
@@ -1216,6 +1249,7 @@ export function createViewerCore(
       seriesCache.clear();
       ui.clear();
       measurements.destroy();
+      segmentations.destroy();
       // Whoever shows the panels is told they are gone, before the listeners are dropped.
       events.emit('ui:panels', { panels: [] });
       thumbnails.dispose();

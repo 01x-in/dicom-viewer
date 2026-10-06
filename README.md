@@ -2,7 +2,7 @@
 
 A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It is built on [Cornerstone3D](https://www.cornerstonejs.org/) and aims for OHIF-level tools. It ships with a styled default interface and a headless core (a core that has no interface of its own).
 
-> Status: milestones M0 to M5 are done. The package is not published yet. Package names use the `@scope/` placeholder until the npm scope is chosen.
+> Status: milestones M0 to M6 are done. The package is not published yet. Package names use the `@scope/` placeholder until the npm scope is chosen.
 
 ## What works today
 
@@ -10,10 +10,11 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 - Navigation: scroll, window and level with presets, zoom, pan, invert, cine playback, keyboard shortcuts, and an overlay with the slice number.
 - Series browser: a list of the series in the study, with a thumbnail for each series that has pictures.
 - Measurements: length, bidirectional, ellipse, rectangle, probe, and angle. Ellipse and rectangle show Hounsfield statistics (the mean, spread, minimum, and maximum of the pixels inside). A list panel lets you jump to, rename, and delete a measurement. You can export and import measurements as JSON.
+- Segmentations: DICOM SEG overlays. A SEG is loaded against the series it names, and each segment can be shown, hidden, recoloured, made more or less opaque, highlighted (the others fade, or the chosen ones get an outline), and gone to (the image with most of it, the one nearest its middle, or the one nearest the image on screen). The same state shows in every viewport. A SEG that does not lie on its images is drawn with a warning. A binary SEG of 512 by 512 by 300 pixels with 100 segments loads in about 2 seconds. A Segments panel lists the SEGs of the study.
 - Interface: a toolbar, side panels, slots for your own content, and a light and a dark theme. The interface passes automated accessibility checks (axe) and works from the keyboard.
 - Frameworks: the same interface runs in plain HTML, React, Vue, Next.js (Turbopack and webpack), and Nuxt, with no bundler configuration.
 
-Not built yet: DICOM SEG overlays (M6), layouts and MPR (M7), and the 1.0 release (M8). The plan is in [docs/plan.md](docs/plan.md).
+Not built yet: layouts and MPR (M7), and the 1.0 release (M8). The plan is in [docs/plan.md](docs/plan.md).
 
 ## Packages
 
@@ -44,7 +45,7 @@ pnpm check      # build, format check, lint, typecheck, test
 | `pnpm typecheck` | `tsc` for every package and the configuration files |
 | `pnpm build` | tsdown builds and publint checks |
 | `pnpm format` | Biome formatting |
-| `pnpm matrix` | Packs the packages, installs each example from the packs, builds it, and runs browser tests in Chromium |
+| `pnpm matrix` | Packs the packages (run `pnpm build` first), installs each example from the packs, builds it, and runs browser tests in Chromium. The `headless` example also generates a 300 MB SEG with uv for the performance check |
 
 `pnpm matrix` needs the Chromium that Playwright installs. To use another Chromium, set the `DV_CHROMIUM` environment variable to its path. Add `--only <name>` to run one example.
 
@@ -52,7 +53,7 @@ pnpm check      # build, format check, lint, typecheck, test
 
 - [docs/plan.md](docs/plan.md): the plan, the architecture, and the milestones, with the outcome of each finished milestone.
 - [docs/adr](docs/adr): the architecture decisions, one file for each.
-- The reports `docs/m1-report.md` to `docs/m5-report.md`: what each milestone proved and what it left open.
+- The reports `docs/m1-report.md` to `docs/m6-report.md`: what each milestone proved and what it left open.
 
 ### Test data
 

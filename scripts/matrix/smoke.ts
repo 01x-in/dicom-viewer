@@ -1,4 +1,5 @@
 import { type Browser, chromium, type ConsoleMessage, type Page } from 'playwright';
+import './page-types.ts';
 
 export type AssetsMode = 'inline' | 'url';
 
@@ -20,12 +21,6 @@ export interface SmokeResult {
   readonly workerUrls: string[];
 }
 
-interface SegmentationHandle {
-  readonly segments: readonly { number: number; label: string }[];
-  readonly labelmapFrameCount: number;
-  sample(sliceIndex: number, row: number, column: number): number;
-}
-
 interface ViewSnapshot {
   readonly window: { center: number; width: number };
   readonly defaultWindow: { center: number; width: number };
@@ -43,7 +38,6 @@ interface ViewerHandle {
     stop(): void;
     readonly playing: boolean;
   };
-  loadSegmentation(segSeriesInstanceUID: string): Promise<SegmentationHandle>;
   getImageIndex(): number | undefined;
   setImageIndex(index: number): Promise<void>;
   sampleHu(imageIndex: number, row: number, column: number): Promise<number>;
@@ -99,6 +93,59 @@ export async function litFraction(page: Page): Promise<number> {
     return lit / (data.length / 4);
   });
 }
+
+/**
+ * Fraction of pixels in the viewport canvas that clearly lean to one colour. The CT is grey, so
+ * these are the pixels a SEG's segment of that colour is drawn on (the first segment is red in the
+ * palette).
+ */
+export async function tintFraction(page: Page, tint: 'red' | 'green'): Promise<number> {
+  return page.evaluate((wanted) => {
+    const canvas = document.querySelector('canvas');
+    if (canvas === null || canvas.width === 0) return 0;
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const context = copy.getContext('2d');
+    if (context === null) return 0;
+    context.drawImage(canvas, 0, 0);
+    const { data } = context.getImageData(0, 0, copy.width, copy.height);
+    const offset = wanted === 'red' ? 0 : 1;
+    let count = 0;
+    for (let index = 0; index < data.length; index += 4) {
+      const leaning = data[index + offset] ?? 0;
+      const others = [data[index], data[index + 1], data[index + 2]].filter(
+        (_, at) => at !== offset,
+      );
+      if (leaning - Math.max(...others.map((value) => value ?? 0)) > 40) count += 1;
+    }
+    return count / (data.length / 4);
+  }, tint);
+}
+
+export const redFraction = (page: Page): Promise<number> => tintFraction(page, 'red');
+
+/** Waits until a tint's fraction satisfies `wanted`, and returns the last fraction seen. */
+export async function waitForTint(
+  page: Page,
+  tint: 'red' | 'green',
+  wanted: (fraction: number) => boolean,
+  timeoutMs = 8000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let fraction = await tintFraction(page, tint);
+  while (!wanted(fraction) && Date.now() < deadline) {
+    await page.waitForTimeout(100);
+    fraction = await tintFraction(page, tint);
+  }
+  return fraction;
+}
+
+export const waitForRed = (
+  page: Page,
+  wanted: (fraction: number) => boolean,
+  timeoutMs = 8000,
+): Promise<number> => waitForTint(page, 'red', wanted, timeoutMs);
 
 export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeResult> {
   const failures: string[] = [];
@@ -164,17 +211,17 @@ export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeR
     const index = await page.evaluate(() => window.__dv?.getImageIndex());
     if (index !== 10) failures.push(`scrolling to slice 11 left the viewport on ${String(index)}`);
 
-    // SEG: parsed by the v5 adapters from one whole-instance retrieval (the only kind the proxy allows).
+    // SEG: one whole-instance retrieval (the only kind the proxy allows), read on the compute worker,
+    // and drawn over the slice: the CT is grey, so the first segment's colour shows as red pixels.
+    const redBefore = await redFraction(page);
     const seg = await page.evaluate(async (segSeriesUid) => {
-      const handle = await window.__dv?.loadSegmentation(segSeriesUid);
-      if (handle === undefined) return undefined;
+      const info = await window.__dvViewer?.segmentations.load(segSeriesUid);
+      if (info === undefined) return undefined;
       return {
-        labels: handle.segments.map((segment) => `${segment.number.toString()}:${segment.label}`),
-        frames: handle.labelmapFrameCount,
-        boneCentre: handle.sample(31, 64, 92),
-        bodyCentre: handle.sample(31, 64, 64),
-        outside: handle.sample(31, 0, 0),
-        boneAbsentOnFirstSlice: handle.sample(0, 64, 92),
+        labels: info.segments.map((segment) => `${segment.number.toString()}:${segment.label}`),
+        voxels: info.segments.map((segment) => segment.voxelCount),
+        images: info.segments.map((segment) => segment.imageCount),
+        warnings: info.warnings.length,
       };
     }, input.segSeriesUid);
     if (seg === undefined) {
@@ -182,18 +229,23 @@ export async function smoke(browser: Browser, input: SmokeInput): Promise<SmokeR
     } else {
       if (seg.labels.join(',') !== '1:Body,2:Bone insert')
         failures.push(`SEG segments are ${seg.labels.join(',')}`);
-      if (seg.frames !== 64)
-        failures.push(`SEG labelmap has ${seg.frames.toString()} frames, expected 64`);
-      if (seg.boneCentre !== 2)
-        failures.push(`SEG bone insert pixel is ${seg.boneCentre.toString()}, expected 2`);
-      if (seg.bodyCentre !== 1)
-        failures.push(`SEG body pixel is ${seg.bodyCentre.toString()}, expected 1`);
-      if (seg.outside !== 0)
-        failures.push(`SEG background pixel is ${seg.outside.toString()}, expected 0`);
-      if (seg.boneAbsentOnFirstSlice !== 1)
-        failures.push(
-          `SEG first-slice pixel is ${seg.boneAbsentOnFirstSlice.toString()}, expected 1`,
-        );
+      if (seg.voxels.join(',') !== '618640,12144')
+        failures.push(`SEG segments have ${seg.voxels.join(',')} pixels, expected 618640,12144`);
+      if (seg.images.join(',') !== '64,48')
+        failures.push(`SEG segments are on ${seg.images.join(',')} images, expected 64,48`);
+      if (seg.warnings !== 0) failures.push(`SEG has ${seg.warnings.toString()} warnings`);
+      const redAfter = await waitForRed(page, (fraction) => fraction > 0.05);
+      if (redBefore > 0.001)
+        failures.push(`the slice was ${(redBefore * 100).toFixed(1)}% red before the SEG`);
+      if (redAfter <= 0.05)
+        failures.push(`the SEG was not drawn: ${(redAfter * 100).toFixed(1)}% of the slice is red`);
+      await page.evaluate(
+        (uid) => window.__dvViewer?.segmentations.setVisible(uid, false),
+        input.segSeriesUid,
+      );
+      const redHidden = await waitForRed(page, (fraction) => fraction < 0.001);
+      if (redHidden >= 0.001)
+        failures.push(`the SEG is still drawn when hidden: ${(redHidden * 100).toFixed(1)}% red`);
     }
 
     // Real input must reach Cornerstone's tool group through the host's DOM (light DOM, no shadow root).

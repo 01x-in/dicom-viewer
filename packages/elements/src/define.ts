@@ -1,5 +1,6 @@
 import { DvMeasurementListElement } from './measurement-list';
 import { DvPanelDockElement } from './panel-dock';
+import { DvSegmentationListElement } from './segmentation-list';
 import { DvSeriesBrowserElement } from './series-browser';
 import { elementTag } from './tags';
 import { DvToolbarElement } from './toolbar';
@@ -15,3 +16,4 @@ define('toolbar', DvToolbarElement);
 define('series-browser', DvSeriesBrowserElement);
 define('panel-dock', DvPanelDockElement);
 define('measurement-list', DvMeasurementListElement);
+define('segmentation-list', DvSegmentationListElement);

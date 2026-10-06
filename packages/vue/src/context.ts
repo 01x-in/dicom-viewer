@@ -1,4 +1,4 @@
-import type { Measurement, Viewer, ViewerStateV1 } from '@scope/viewer-core';
+import type { Measurement, SegmentationInfo, Viewer, ViewerStateV1 } from '@scope/viewer-core';
 import {
   type InjectionKey,
   inject,
@@ -101,6 +101,46 @@ export function useMeasurements(): Readonly<Ref<readonly Measurement[] | undefin
           value.value = read();
         }),
       ];
+      onCleanup(() => {
+        for (const stop of stops) stop();
+      });
+    },
+    { immediate: true },
+  );
+  onScopeDispose(() => {
+    value.value = undefined;
+  });
+  return value;
+}
+
+const SEGMENTATION_EVENTS = [
+  'segmentation:loaded',
+  'segmentation:unloaded',
+  'segmentation:updated',
+] as const;
+
+/**
+ * The SEGs that are loaded, as a ref that follows the viewer: it changes when one is loaded,
+ * unloaded, or changed (shown, hidden, recoloured, made more or less opaque, highlighted). They
+ * belong to the study on screen: loading another study unloads them. `undefined` until the viewer
+ * is ready. The list is shallow: the SEGs are plain data that is never changed in place.
+ */
+export function useSegmentations(): Readonly<Ref<readonly SegmentationInfo[] | undefined>> {
+  const viewer = useViewer();
+  const value = shallowRef<readonly SegmentationInfo[] | undefined>(undefined);
+  watch(
+    viewer,
+    (current, _previous, onCleanup) => {
+      if (current === undefined) {
+        value.value = undefined;
+        return;
+      }
+      value.value = current.segmentations.list();
+      const stops = SEGMENTATION_EVENTS.map((event) =>
+        current.on(event, () => {
+          value.value = current.segmentations.list();
+        }),
+      );
       onCleanup(() => {
         for (const stop of stops) stop();
       });

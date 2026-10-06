@@ -2,81 +2,23 @@
 // scrolling, a link that restores the view, token refresh, retries, local files, and a leak check.
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Browser, type CDPSession, type ConsoleMessage, type Page } from 'playwright';
-import type { MockServer } from '../../tools/dicomweb-mock/src/server.ts';
+import { type Browser, type CDPSession, type Page } from 'playwright';
 import {
-  type AssetsMode,
-  EXPECTED_HU,
-  isIgnorableRequest,
-  litFraction,
-  MID_SLICE_INDEX,
-} from './smoke.ts';
-
-export interface HeadlessInput {
-  readonly pageUrl: string;
-  readonly mock: MockServer;
-  /** A second mock that answers 401 until it has accepted the bearer token. */
-  readonly authMock: MockServer;
-  readonly studyUid: string;
-  readonly j2kSeriesUid: string;
-  readonly evrleSeriesUid: string;
-  readonly segSeriesUid: string;
-  readonly assetsMode: AssetsMode;
-  readonly assetsPath: string;
-  readonly fixturesDir: string;
-  readonly cycles: number;
-}
-
-export interface ScenarioResult {
-  readonly scenario: string;
-  readonly failures: string[];
-}
-
-interface ViewerHandle {
-  getState(): {
-    studyInstanceUID?: string;
-    viewports: {
-      id: string;
-      seriesInstanceUID?: string;
-      stackIndex?: number;
-      imageIndex?: number;
-      window?: { center: number; width: number };
-      invert?: boolean;
-      zoom?: number;
-    }[];
-  };
-  navigateTo(target: {
-    seriesInstanceUID: string;
-    sopInstanceUID: string;
-  }): Promise<{ imageIndex: number; stackIndex: number; sopInstanceUID: string }>;
-  thumbnails: {
-    get(seriesInstanceUID: string, options?: { size?: number }): Promise<string | undefined>;
-  };
-  tools: { setActive(tool: string): Promise<void> };
-  setViewportSeries(viewportId: string, seriesInstanceUID: string): Promise<void>;
-  measurements: {
-    add(measurement: object): Promise<MeasurementSummary>;
-    list(): MeasurementSummary[];
-    getSelected(): string | undefined;
-    get(id: string): MeasurementSummary | undefined;
-    clear(): Promise<number>;
-    remove(id: string): Promise<boolean>;
-    exportJson(): { format: string; measurements: (MeasurementSummary & { values: Values })[] };
-    importJson(input: string): Promise<{ added: number; replaced: number }>;
-  };
-  on(event: string, handler: (payload: { origin?: string }) => void): () => void;
-}
-
-type Values = Record<string, number | undefined>;
-
-interface MeasurementSummary {
-  id: string;
-  type: string;
-  reference: { sopInstanceUID: string; seriesInstanceUID: string; frameOfReferenceUID?: string };
-  points: number[][];
-  stats?: { pixelCount: number; meanHu: number; stdDevHu: number; minHu: number; maxHu: number };
-  hu?: number;
-}
+  expectReady,
+  type HeadlessInput,
+  query,
+  type ScenarioResult,
+  waitForStatus,
+  type Watched,
+  watch,
+} from './harness.ts';
+import type { Values } from './page-types.ts';
+import {
+  scenarioSegmentation,
+  scenarioSegmentationBudget,
+  scenarioSegmentationViewports,
+} from './segmentation.ts';
+import { EXPECTED_HU, litFraction, MID_SLICE_INDEX } from './smoke.ts';
 
 interface SourceHandle {
   getSeries(
@@ -99,117 +41,11 @@ interface DiagnosticsSample {
 
 declare global {
   interface Window {
-    __dvViewer?: ViewerHandle;
     __dvCycles?: { cycle: number; diagnostics: DiagnosticsSample | undefined }[];
     __dvRefreshes?: number;
     __dvSkipped?: { name: string; reason: string }[];
-    __dvGl?: WeakRef<WebGLRenderingContext | WebGL2RenderingContext>[];
     __dvSource?: SourceHandle;
-    __dvDiagnostics?: () => { annotations: number } | undefined;
   }
-}
-
-interface Watched {
-  readonly page: Page;
-  readonly failures: string[];
-  readonly workerUrls: string[];
-  /** Responses with these statuses are expected in this scenario (and their console echo). */
-  expectStatus(...statuses: number[]): void;
-  close(): Promise<void>;
-}
-
-async function watch(browser: Browser, trackGl = false): Promise<Watched> {
-  const failures: string[] = [];
-  const workerUrls: string[] = [];
-  const expected = new Set<number>();
-  const context = await browser.newContext({ viewport: { width: 1000, height: 700 } });
-  const page = await context.newPage();
-  if (trackGl) {
-    // Remember every WebGL context so a leak shows up as one that is still alive after the viewers are gone.
-    await page.addInitScript(() => {
-      window.__dvGl = [];
-      for (const prototype of [HTMLCanvasElement.prototype, OffscreenCanvas.prototype]) {
-        // eslint-disable-next-line @typescript-eslint/unbound-method -- it is called with the right `this` below
-        const original = prototype.getContext as (this: unknown, ...args: unknown[]) => unknown;
-        (prototype as { getContext: unknown }).getContext = function (
-          this: unknown,
-          ...args: unknown[]
-        ): unknown {
-          const result = original.apply(this, args);
-          if (
-            typeof WebGLRenderingContext !== 'undefined' &&
-            (result instanceof WebGLRenderingContext ||
-              (typeof WebGL2RenderingContext !== 'undefined' &&
-                result instanceof WebGL2RenderingContext))
-          ) {
-            window.__dvGl?.push(new WeakRef(result));
-          }
-          return result;
-        };
-      }
-    });
-  }
-  page.on('console', (message: ConsoleMessage) => {
-    const text = message.text();
-    if (message.type() === 'error') {
-      // The browser echoes every failed request to the console; expected ones are checked via their response.
-      const echoed = /status of (\d{3})/.exec(text);
-      if (echoed?.[1] !== undefined && expected.has(Number(echoed[1]))) return;
-      failures.push(`console error: ${text}`);
-    } else if (message.type() === 'warning' && /too many active webgl contexts/i.test(text)) {
-      failures.push(`console warning: ${text}`);
-    }
-  });
-  page.on('pageerror', (error) => failures.push(`uncaught: ${error.message}`));
-  page.on('requestfailed', (request) => {
-    if (!isIgnorableRequest(request.url())) {
-      failures.push(`request failed: ${request.url()} (${request.failure()?.errorText ?? '?'})`);
-    }
-  });
-  page.on('response', (response) => {
-    if (
-      response.status() >= 400 &&
-      !expected.has(response.status()) &&
-      !isIgnorableRequest(response.url())
-    ) {
-      failures.push(`HTTP ${response.status().toString()}: ${response.url()}`);
-    }
-  });
-  page.on('worker', (worker) => workerUrls.push(worker.url()));
-  return {
-    page,
-    failures,
-    workerUrls,
-    expectStatus: (...statuses) => {
-      for (const status of statuses) expected.add(status);
-    },
-    close: () => context.close(),
-  };
-}
-
-function query(input: HeadlessInput, extra: Record<string, string>): string {
-  const params = new URLSearchParams({ ...extra });
-  if (input.assetsMode === 'url') params.set('assets', input.assetsPath);
-  return `${input.pageUrl}?${params.toString()}`;
-}
-
-async function waitForStatus(page: Page, ...statuses: string[]): Promise<string> {
-  // Generous: 20 viewers one after another take a while on a shared CI runner.
-  await page.waitForFunction(
-    (wanted) => wanted.includes(document.documentElement.dataset['dvStatus'] ?? ''),
-    statuses,
-    { timeout: 300_000 },
-  );
-  return page.evaluate(() => document.documentElement.dataset['dvStatus'] ?? '');
-}
-
-async function expectReady(watched: Watched): Promise<boolean> {
-  const status = await waitForStatus(watched.page, 'ready', 'error');
-  if (status === 'ready') return true;
-  watched.failures.push(
-    `viewer failed: ${await watched.page.evaluate(() => window.__dvError ?? 'unknown')}`,
-  );
-  return false;
 }
 
 async function checkHounsfield(watched: Watched, label: string): Promise<void> {
@@ -251,8 +87,14 @@ async function scenarioDicomWeb(browser: Browser, input: HeadlessInput): Promise
         disabled: (node as HTMLButtonElement).disabled,
       })),
     );
-    if (buttons.length !== 3)
-      failures.push(`expected 3 series in the list, got ${buttons.length.toString()}`);
+    // The study has the two CT series and every SEG of the phantom.
+    const seriesInStudy = input.mock.fixtures.series.length;
+    if (buttons.length !== seriesInStudy)
+      failures.push(
+        `expected ${seriesInStudy.toString()} series in the list, got ${buttons.length.toString()}`,
+      );
+    if (buttons.filter((button) => button.disabled).length !== seriesInStudy - 2)
+      failures.push('every SEG should be listed but not selectable, and the two CTs selectable');
     const seg = buttons.find((button) => button.series === input.segSeriesUid);
     if (seg?.disabled !== true) failures.push('the SEG series should be listed but not selectable');
     if ((await page.evaluate(() => window.__dv?.imageCount)) !== 64)
@@ -304,8 +146,8 @@ async function scenarioDicomWeb(browser: Browser, input: HeadlessInput): Promise
 
     // SEG through the same viewer.
     const labels = await page.evaluate(async (uid) => {
-      const handle = await window.__dv?.loadSegmentation(uid);
-      return handle?.segments
+      const info = await window.__dvViewer?.segmentations.load(uid);
+      return info?.segments
         .map((segment) => `${segment.number.toString()}:${segment.label}`)
         .join(',');
     }, input.segSeriesUid);
@@ -1314,18 +1156,22 @@ async function scenarioLocalFiles(browser: Browser, input: HeadlessInput): Promi
     if ((await page.evaluate(() => window.__dv?.getImageIndex())) !== 12)
       failures.push('scrolling local files did not work');
     const seg = await page.evaluate(async (uid) => {
-      const handle = await window.__dv?.loadSegmentation(uid);
-      return handle === undefined
+      const info = await window.__dvViewer?.segmentations.load(uid);
+      return info === undefined
         ? undefined
         : {
-            labels: handle.segments
+            labels: info.segments
               .map((segment) => `${segment.number.toString()}:${segment.label}`)
               .join(','),
-            frames: handle.labelmapFrameCount,
-            bone: handle.sample(31, 64, 92),
+            voxels: info.segments.map((segment) => segment.voxelCount).join(','),
+            images: info.segments.map((segment) => segment.imageCount).join(','),
           };
     }, input.segSeriesUid);
-    if (seg?.labels !== '1:Body,2:Bone insert' || seg.frames !== 64 || seg.bone !== 2) {
+    if (
+      seg?.labels !== '1:Body,2:Bone insert' ||
+      seg.voxels !== '618640,12144' ||
+      seg.images !== '64,48'
+    ) {
       failures.push(`local SEG came out as ${JSON.stringify(seg)}`);
     }
     if (input.mock.requestLog.length > 0) failures.push('local files made DICOMweb requests');
@@ -1368,6 +1214,8 @@ async function scenarioLifecycle(browser: Browser, input: HeadlessInput): Promis
         wadoRoot: input.mock.url,
         study: input.studyUid,
         series: input.j2kSeriesUid,
+        // Each cycle also loads this SEG and outlines a segment of it.
+        seg: input.segSeriesUid,
       }),
       { waitUntil: 'load', timeout: 180_000 },
     );
@@ -1481,6 +1329,9 @@ export async function smokeHeadless(
     ['navigation', scenarioNavigation],
     ['thumbnails', scenarioThumbnails],
     ['measurements', scenarioMeasurements],
+    ['segmentation', scenarioSegmentation],
+    ['segmentation in two viewports', scenarioSegmentationViewports],
+    ['segmentation budget', scenarioSegmentationBudget],
     ['auth', scenarioAuth],
     ['retry', scenarioRetry],
     ['local files', scenarioLocalFiles],

@@ -7,10 +7,10 @@ build each framework produces, with no bundler configuration. Do not edit by han
 
 | Package | Packed (.tgz) |
 |---|---|
-| @scope/viewer-core | 3414 KiB |
-| @scope/viewer-elements | 44 KiB |
-| @scope/viewer-react | 8 KiB |
-| @scope/viewer-vue | 8 KiB |
+| @scope/viewer-core | 3432 KiB |
+| @scope/viewer-elements | 51 KiB |
+| @scope/viewer-react | 9 KiB |
+| @scope/viewer-vue | 9 KiB |
 
 ## Client JavaScript per example
 
@@ -19,13 +19,13 @@ All JavaScript the production build emits for the browser, including the lazily 
 
 | Example | Files | Total raw | Total gzip | Total brotli | Largest chunk (raw / brotli) |
 |---|---|---|---|---|---|
-| vanilla | 3 | 8133 KiB | 2315 KiB | 1763 KiB | 4203 KiB / 936 KiB |
-| headless | 3 | 8091 KiB | 2305 KiB | 1754 KiB | 4203 KiB / 936 KiB |
-| vite-react | 5 | 8351 KiB | 2383 KiB | 1823 KiB | 4203 KiB / 936 KiB |
-| vite-vue | 5 | 8199 KiB | 2341 KiB | 1788 KiB | 4203 KiB / 936 KiB |
-| next-turbopack | 12 | 9110 KiB | 2591 KiB | 1991 KiB | 4203 KiB / 946 KiB |
-| next-webpack | 21 | 8981 KiB | 2578 KiB | 1989 KiB | 4203 KiB / 936 KiB |
-| nuxt | 9 | 8283 KiB | 2372 KiB | 1816 KiB | 4203 KiB / 936 KiB |
+| vanilla | 3 | 8181 KiB | 2329 KiB | 1774 KiB | 4206 KiB / 937 KiB |
+| headless | 3 | 8128 KiB | 2318 KiB | 1765 KiB | 4206 KiB / 937 KiB |
+| vite-react | 5 | 8398 KiB | 2397 KiB | 1834 KiB | 4206 KiB / 937 KiB |
+| vite-vue | 5 | 8247 KiB | 2356 KiB | 1799 KiB | 4206 KiB / 937 KiB |
+| next-turbopack | 12 | 9159 KiB | 2605 KiB | 2003 KiB | 4207 KiB / 947 KiB |
+| next-webpack | 21 | 9029 KiB | 2593 KiB | 2001 KiB | 4207 KiB / 937 KiB |
+| nuxt | 9 | 8331 KiB | 2387 KiB | 1828 KiB | 4206 KiB / 937 KiB |
 
 ## `url` mode assets
 
@@ -34,9 +34,9 @@ Served from `public/viewer-assets` (copied by `viewer-assets copy`). Identical i
 | File | Raw | gzip | brotli |
 |---|---|---|---|
 | decode.worker.js | 203 KiB | 56 KiB | 40 KiB |
-| compute.worker.js | 2840 KiB | 768 KiB | 595 KiB |
+| compute.worker.js | 2843 KiB | 769 KiB | 596 KiB |
 | wasm/openjpegwasm_decode.wasm | 254 KiB | 84 KiB | 69 KiB |
 | wasm/libjpegturbowasm_decode.wasm | 176 KiB | 68 KiB | 57 KiB |
 | wasm/charlswasm_decode.wasm | 142 KiB | 46 KiB | 32 KiB |
 | wasm/openjphjs.wasm | 293 KiB | 94 KiB | 75 KiB |
-| **total** | 3909 KiB | 1116 KiB | 869 KiB |
+| **total** | 3912 KiB | 1118 KiB | 869 KiB |

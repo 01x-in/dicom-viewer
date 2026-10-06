@@ -9,7 +9,20 @@ from pydicom.uid import ExplicitVRLittleEndian, JPEG2000Lossless
 
 import highdicom as hd
 
-from phantom import CT_SPEC, INSERTS, LEFT_MARKER_HU, SEG_SERIES, Insert, generate
+from phantom import (
+    CT_SPEC,
+    INSERTS,
+    FRACTIONAL_SEG_SERIES,
+    INSERTS_SEG_SERIES,
+    LEFT_MARKER_HU,
+    MISMATCH_SEG_SERIES,
+    MISMATCH_SHIFT_MM,
+    OVERLAP_SEG_SERIES,
+    PARTIAL_SLICES,
+    SEG_SERIES,
+    Insert,
+    generate,
+)
 
 
 @pytest.fixture(scope="module")
@@ -153,3 +166,104 @@ def test_seg_segments_follow_the_ct_geometry(out_dir: Path) -> None:
     # The bone insert exists only on the slices where the CT has inserts.
     bone_slices = {int(i) for i in np.flatnonzero(bone.any(axis=(1, 2)))}
     assert bone_slices == set(CT_SPEC.insert_slices)
+
+
+def _seg(out_dir: Path, series: str) -> hd.seg.Segmentation:
+    return hd.seg.segread(str(out_dir / series / "0001.dcm"))
+
+
+def _labels(seg: hd.seg.Segmentation) -> dict[int, str]:
+    return {int(item.SegmentNumber): str(item.SegmentLabel) for item in seg.SegmentSequence}
+
+
+def _source_sops(out_dir: Path, slices: range) -> list[str]:
+    j2k = _load_series(out_dir / "ct-j2k")
+    return [j2k[index].SOPInstanceUID for index in slices]
+
+
+def test_the_other_segs_are_in_the_same_study_with_their_own_series(out_dir: Path) -> None:
+    j2k = _load_series(out_dir / "ct-j2k")
+    series = {
+        pydicom.dcmread(out_dir / name / "0001.dcm").SeriesInstanceUID
+        for name in (SEG_SERIES, INSERTS_SEG_SERIES, OVERLAP_SEG_SERIES, MISMATCH_SEG_SERIES)
+    }
+
+    assert len(series) == 4
+    for name in (INSERTS_SEG_SERIES, OVERLAP_SEG_SERIES, MISMATCH_SEG_SERIES):
+        seg = pydicom.dcmread(out_dir / name / "0001.dcm")
+        assert seg.Modality == "SEG"
+        assert seg.StudyInstanceUID == j2k[0].StudyInstanceUID
+        assert seg.SeriesDescription == f"Phantom SEG ({name})"
+
+
+def test_inserts_seg_has_one_segment_per_insert_on_the_insert_slices(out_dir: Path) -> None:
+    seg = _seg(out_dir, INSERTS_SEG_SERIES)
+    slices = CT_SPEC.insert_slices
+    pixels = seg.get_pixels_by_source_instance(_source_sops(out_dir, slices), segment_numbers=[1, 2, 3, 4])
+
+    assert _labels(seg) == {1: "Air", 2: "Water", 3: "Fat", 4: "Bone"}
+    assert len(seg.get_source_image_uids()) == len(slices)
+    for number, insert in enumerate(INSERTS, start=1):
+        row, col = insert.center_rc
+        assert pixels[0, row, col, number - 1] == 1
+        assert pixels[..., number - 1].sum() == len(slices) * pixels[0, ..., number - 1].sum()
+    # The inserts do not touch, so no pixel is in two segments.
+    assert pixels.sum(axis=-1).max() == 1
+
+
+def test_overlap_seg_has_two_segments_that_share_pixels(out_dir: Path) -> None:
+    seg = _seg(out_dir, OVERLAP_SEG_SERIES)
+    pixels = seg.get_pixels_by_source_instance(
+        _source_sops(out_dir, PARTIAL_SLICES), segment_numbers=[1, 2]
+    )
+    slab, disc = pixels[..., 0], pixels[..., 1]
+
+    assert _labels(seg) == {1: "Slab", 2: "Disc"}
+    assert np.any(slab & disc)
+    assert np.any(slab & ~disc)
+    assert np.any(disc & ~slab)
+
+
+def test_mismatch_seg_names_the_right_instances_with_the_wrong_planes(out_dir: Path) -> None:
+    j2k = _load_series(out_dir / "ct-j2k")
+    seg = pydicom.dcmread(out_dir / MISMATCH_SEG_SERIES / "0001.dcm")
+    by_sop = {ds.SOPInstanceUID: ds for ds in j2k}
+    referenced = [
+        item.ReferencedSOPInstanceUID
+        for item in seg.ReferencedSeriesSequence[0].ReferencedInstanceSequence
+    ]
+
+    # It names CT instances that exist, so a viewer that matches by SOP instance finds them.
+    assert len(referenced) == len(PARTIAL_SLICES)
+    assert all(sop in by_sop for sop in referenced)
+    # Its own frame of reference is not the CT's, and its planes are shifted along the columns.
+    assert seg.FrameOfReferenceUID != j2k[0].FrameOfReferenceUID
+    offsets = {
+        round(
+            float(frame.PlanePositionSequence[0].ImagePositionPatient[0])
+            - float(by_sop[sop].ImagePositionPatient[0]),
+            3,
+        )
+        for frame, sop in zip(seg.PerFrameFunctionalGroupsSequence, referenced, strict=True)
+    }
+    assert offsets == {MISMATCH_SHIFT_MM}
+
+
+def test_fractional_seg_is_a_fractional_type_with_two_segments_on_the_partial_slices(
+    out_dir: Path,
+) -> None:
+    ds = pydicom.dcmread(out_dir / FRACTIONAL_SEG_SERIES / "0001.dcm")
+    seg = _seg(out_dir, FRACTIONAL_SEG_SERIES)
+    pixels = seg.get_pixels_by_source_instance(
+        _source_sops(out_dir, PARTIAL_SLICES), segment_numbers=[1, 2]
+    )
+
+    assert ds.SegmentationType == "FRACTIONAL"
+    assert int(ds.MaximumFractionalValue) == 255
+    assert _labels(seg) == {1: "Water", 2: "Fat"}
+    # The fractions are only ever 0 or 1, so the SEG is binary in all but its type, and the water
+    # insert's centre belongs to segment 1 alone.
+    water = next(i.center_rc for i in INSERTS if i.name == "water")
+    assert set(np.unique(pixels)) == {0.0, 1.0}
+    assert pixels[0, water[0], water[1], 0] == 1
+    assert pixels[0, water[0], water[1], 1] == 0

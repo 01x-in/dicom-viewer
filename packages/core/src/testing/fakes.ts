@@ -16,12 +16,26 @@ import type {
   StackPort,
   ViewSnapshot,
 } from '../rendering-port';
+import type { SegmentationDisplay } from '../segmentations/display';
+import type { SegmentationHeader } from '../segmentations/header';
+import type { SegmentIndexEntry, SegmentIndexResult } from '../segmentations/segment-index';
 import type { PrimaryTool } from '../tools';
 
 export const STUDY = '1.2.3';
 export const CT = '1.2.3.1';
 export const CT_TWO_STACKS = '1.2.3.2';
+/** A SEG of the CT with two segments, `Body` (1) and `Lesion` (2). */
 export const SEG = '1.2.3.9';
+/** A second SEG of the CT, with three segments. */
+export const SEG_SECOND = '1.2.3.10';
+/** A SEG of the CT whose segments 1 and 2 share pixels, so it has two layers. */
+export const SEG_OVERLAP = '1.2.3.11';
+/** A SEG of the CT that is in another frame of reference. */
+export const SEG_OFF = '1.2.3.12';
+/** A SEG of the second stack of `CT_TWO_STACKS`, which has three images. */
+export const SEG_ON_SECOND_STACK = '1.2.3.13';
+/** A SEG whose bytes cannot be read. */
+export const SEG_UNREADABLE = '1.2.3.14';
 /** A study whose only series is the SEG: nothing in it can be shown. */
 export const ONLY_SEG_STUDY = '1.2.5';
 /** A series that is not a SEG or an SR but has no image with rows and columns, so nothing can be shown. */
@@ -59,6 +73,112 @@ function stackOf(series: string, index: number, count: number): SeriesStack {
     imageIds: members.map((member) => member.imageId),
     reconstructable: { ok: true, spacingMm: 1 },
   };
+}
+
+interface FakeSegmentSpec {
+  readonly number: number;
+  readonly label: string;
+  readonly layer?: number;
+}
+
+function sopsOf(series: string, stack: number, count: number): string[] {
+  return instances(series, stack, count).map((instance) => instance.sopInstanceUID);
+}
+
+/** The header the fake port reads for each fake SEG: what a real SEG of these images would say. */
+function fakeHeader(
+  uid: string,
+  target: { series: string; stack: number; count: number },
+  segments: readonly FakeSegmentSpec[],
+  frameOfReference = FRAME_OF_REFERENCE,
+): SegmentationHeader {
+  const referenced = sopsOf(target.series, target.stack, target.count);
+  return {
+    sopInstanceUID: `${uid}.1`,
+    seriesInstanceUID: uid,
+    studyInstanceUID: STUDY,
+    seriesDescription: uid === SEG ? 'SEG' : `SEG ${uid}`,
+    frameOfReferenceUID: frameOfReference,
+    rows: 256,
+    columns: 512,
+    segments: segments.map(({ number, label }) => ({ number, label })),
+    referencedSeriesInstanceUID: target.series,
+    referencedSopInstanceUIDs: referenced,
+    frames: referenced.flatMap((sop, imageIndex) =>
+      segments.map(({ number }) => ({
+        segmentNumber: number,
+        referencedSopInstanceUID: sop,
+        position: [0, 0, imageIndex * 2.5] as const,
+      })),
+    ),
+    orientation: [1, 0, 0, 0, 1, 0],
+    pixelSpacing: [1, 1],
+  };
+}
+
+const ON_CT = { series: CT, stack: 0, count: 10 } as const;
+const BODY_AND_LESION: readonly FakeSegmentSpec[] = [
+  { number: 1, label: 'Body' },
+  { number: 2, label: 'Lesion' },
+];
+
+export const FAKE_SEGMENTATION_HEADERS: ReadonlyMap<string, SegmentationHeader> = new Map([
+  [SEG, fakeHeader(SEG, ON_CT, BODY_AND_LESION)],
+  [
+    SEG_SECOND,
+    fakeHeader(SEG_SECOND, ON_CT, [
+      { number: 1, label: 'Air' },
+      { number: 2, label: 'Water' },
+      { number: 3, label: 'Fat' },
+    ]),
+  ],
+  [
+    SEG_OVERLAP,
+    fakeHeader(SEG_OVERLAP, ON_CT, [
+      { number: 1, label: 'Slab', layer: 0 },
+      { number: 2, label: 'Disc', layer: 1 },
+    ]),
+  ],
+  [SEG_OFF, fakeHeader(SEG_OFF, ON_CT, BODY_AND_LESION, '1.2.3.78')],
+  [
+    SEG_ON_SECOND_STACK,
+    fakeHeader(SEG_ON_SECOND_STACK, { series: CT_TWO_STACKS, stack: 1, count: 3 }, [
+      { number: 1, label: 'Small' },
+    ]),
+  ],
+]);
+
+/**
+ * Where the fake handle says each segment is: segment n has 10n, 30n, and 20n pixels on three
+ * images in a row, so the second of them is the largest and the middle of the three is its centre.
+ * The images are 3 to 5 of the CT, or 0 to 2 of a stack that has three.
+ */
+export function fakeIndexOf(header: SegmentationHeader): SegmentIndexResult {
+  const first = header.referencedSopInstanceUIDs.length === 3 ? 0 : 3;
+  const segments: SegmentIndexEntry[] = header.segments.map((segment) => {
+    const counts = [10 * segment.number, 30 * segment.number, 20 * segment.number];
+    const voxelCount = counts.reduce((sum, count) => sum + count, 0);
+    return {
+      number: segment.number,
+      layer: header.seriesInstanceUID === SEG_OVERLAP ? segment.number - 1 : 0,
+      voxelCount,
+      imageIndices: [first, first + 1, first + 2],
+      imageVoxelCounts: counts,
+      sumRow: voxelCount * 100,
+      sumColumn: voxelCount * 200,
+      sumImageIndex: counts.reduce((sum, count, at) => sum + count * (first + at), 0),
+    };
+  });
+  return {
+    segments,
+    overlaps: header.seriesInstanceUID === SEG_OVERLAP ? [{ a: 1, b: 2, voxelCount: 5 }] : [],
+  };
+}
+
+export interface FakeSegmentationHandle extends SegmentationHandle {
+  readonly id: string;
+  readonly header: SegmentationHeader;
+  disposed: boolean;
 }
 
 export interface FakeSource extends DataSource {
@@ -102,14 +222,19 @@ export function fakeSource(): FakeSource {
       instances: [...instances(CT_TWO_STACKS, 0, 6), ...instances(CT_TWO_STACKS, 1, 3)],
       stacks: [stackOf(CT_TWO_STACKS, 0, 6), stackOf(CT_TWO_STACKS, 1, 3)],
     },
-    [SEG]: {
-      studyInstanceUID: STUDY,
-      seriesInstanceUID: SEG,
-      modality: 'SEG',
-      description: 'SEG',
-      instances: instances(SEG, 0, 1),
-      stacks: [],
-    },
+    ...Object.fromEntries(
+      [SEG, SEG_SECOND, SEG_OVERLAP, SEG_OFF, SEG_ON_SECOND_STACK, SEG_UNREADABLE].map((uid) => [
+        uid,
+        {
+          studyInstanceUID: STUDY,
+          seriesInstanceUID: uid,
+          modality: 'SEG',
+          description: uid === SEG ? 'SEG' : `SEG ${uid}`,
+          instances: instances(uid, 0, 1),
+          stacks: [],
+        } satisfies LoadedSeriesData,
+      ]),
+    ),
   };
   return {
     calls,
@@ -154,7 +279,8 @@ export function fakeSource(): FakeSource {
     },
     getInstanceBytes(_study, seriesInstanceUID, _sop, modality): Promise<ArrayBuffer> {
       calls.push(`getInstanceBytes ${seriesInstanceUID} ${modality}`);
-      return Promise.resolve(new Uint8Array([1, 2, 3]).buffer);
+      // The fake port reads the series back out of these bytes to know which SEG it is.
+      return Promise.resolve(new TextEncoder().encode(seriesInstanceUID).buffer);
     },
   };
 }
@@ -183,6 +309,10 @@ export interface FakeStackPort extends StackPort {
   emitMeasurement(change: MeasurementChange): void;
   /** The slices the viewer decoded for their pixels, by index. */
   readonly slicesRead: number[];
+  /** The SEGs this stack draws now, with what is asked of each. */
+  readonly segmentations: Map<FakeSegmentationHandle, SegmentationDisplay>;
+  /** Every SEG call the viewer made, such as `draw seg-1` or `hide seg-1`. */
+  readonly segmentationCalls: string[];
 }
 
 export interface FakePort extends RenderingPort {
@@ -191,7 +321,22 @@ export interface FakePort extends RenderingPort {
   destroyed: boolean;
   /** Holds every `renderStack` until `release()`, to test what happens while one is in flight. */
   hold(): { release(): void };
-  readonly segmentationCalls: { imageIds: readonly string[]; bytes: ArrayBuffer }[];
+  /** Every SEG the viewer asked the engine to parse, and what it gave. */
+  readonly segmentationLoads: { imageIds: readonly string[]; header: SegmentationHeader }[];
+  /** The handles the engine gave out, in order. */
+  readonly segmentationHandles: FakeSegmentationHandle[];
+  /** What the engine says is in a SEG. By default `fakeIndexOf`. */
+  segmentationIndexOf: (header: SegmentationHeader) => SegmentIndexResult;
+  /** Makes every stack refuse to draw a SEG, as an engine rendering without WebGL does. */
+  refuseSegmentations: boolean;
+  /** Makes every stack throw when asked to draw a SEG. */
+  throwOnSegmentationDraw: boolean;
+  /** What a stack does when asked to draw the SEG with this handle id (`seg-1`, ...): `refuse` or `throw`. */
+  segmentationDrawFaults: Map<string, 'refuse' | 'throw'>;
+  /** Makes the next `loadSegmentation` fail. */
+  failNextSegmentationLoad(): void;
+  /** Holds every `loadSegmentation` until `release()`. */
+  holdSegmentationLoads(): { release(): void };
   /** Every thumbnail asked for, as `imageId@size`. */
   readonly thumbnailCalls: string[];
   /** Makes the next `renderThumbnail` fail. */
@@ -205,13 +350,21 @@ export interface FakePort extends RenderingPort {
 export function fakePort(): FakePort {
   const stacks: FakeStackPort[] = [];
   const log: string[] = [];
-  const segmentationCalls: FakePort['segmentationCalls'] = [];
+  const segmentationLoads: FakePort['segmentationLoads'] = [];
+  const segmentationHandles: FakeSegmentationHandle[] = [];
+  let segmentationFailure = false;
+  let segmentationGate: Promise<void> | undefined;
   const thumbnailCalls: string[] = [];
   let thumbnailFailure = false;
   let thumbnailGate: Promise<void> | undefined;
   let thumbnailsInFlight = 0;
   let thumbnailPeak = 0;
   let gate: Promise<void> | undefined;
+
+  const fakeFault = (handle: SegmentationHandle): 'refuse' | 'throw' | undefined => {
+    const found = segmentationHandles.find((candidate) => candidate === handle);
+    return found === undefined ? undefined : port.segmentationDrawFaults.get(found.id);
+  };
 
   const port: FakePort = {
     sliceOf: (_imageId, imageIndex) => ({
@@ -222,7 +375,27 @@ export function fakePort(): FakePort {
     stacks,
     log,
     destroyed: false,
-    segmentationCalls,
+    segmentationLoads,
+    segmentationHandles,
+    segmentationIndexOf: fakeIndexOf,
+    refuseSegmentations: false,
+    throwOnSegmentationDraw: false,
+    segmentationDrawFaults: new Map(),
+    failNextSegmentationLoad(): void {
+      segmentationFailure = true;
+    },
+    holdSegmentationLoads(): { release(): void } {
+      let release: () => void = () => undefined;
+      segmentationGate = new Promise((resolve) => {
+        release = resolve;
+      });
+      return {
+        release: (): void => {
+          segmentationGate = undefined;
+          release();
+        },
+      };
+    },
     thumbnailCalls,
     failNextThumbnail(): void {
       thumbnailFailure = true;
@@ -280,6 +453,8 @@ export function fakePort(): FakePort {
         measurements: new Map(),
         measurementCalls: [],
         slicesRead: [],
+        segmentations: new Map(),
+        segmentationCalls: [],
         emitMeasurement(change): void {
           if (change.kind === 'completed' || change.kind === 'modified') {
             fake.measurements.set(change.measurement.id, change.measurement);
@@ -373,8 +548,34 @@ export function fakePort(): FakePort {
             measurementListeners.delete(listener);
           };
         },
+        drawSegmentation(handle, display): boolean {
+          const fault = fakeFault(handle);
+          if (fault === 'throw') throw new Error('the engine failed to draw');
+          if (fault === 'refuse') return false;
+          if (port.throwOnSegmentationDraw) throw new Error('the engine failed to draw');
+          if (port.refuseSegmentations) return false;
+          const fakeHandle = segmentationHandles.find((candidate) => candidate === handle);
+          if (
+            fakeHandle === undefined ||
+            fakeHandle.disposed ||
+            fakeHandle.referencedImageIds.length !== stack.imageIds.length ||
+            fakeHandle.referencedImageIds.some((imageId, at) => imageId !== stack.imageIds[at])
+          ) {
+            return false;
+          }
+          fake.segmentationCalls.push(`draw ${fakeHandle.id}`);
+          fake.segmentations.set(fakeHandle, display);
+          return true;
+        },
+        hideSegmentation(handle): void {
+          const fakeHandle = segmentationHandles.find((candidate) => candidate === handle);
+          if (fakeHandle === undefined) return;
+          fake.segmentationCalls.push(`hide ${fakeHandle.id}`);
+          fake.segmentations.delete(fakeHandle);
+        },
         destroy(): void {
           fake.destroyed = true;
+          fake.segmentations.clear();
           fake.measurements.clear();
           measurementListeners.clear();
           log.push(`destroy ${stack.imageIds[0] ?? '?'}`);
@@ -399,15 +600,39 @@ export function fakePort(): FakePort {
         thumbnailsInFlight -= 1;
       }
     },
-    loadSegmentation(imageIds, bytes): Promise<SegmentationHandle> {
-      segmentationCalls.push({ imageIds, bytes });
-      return Promise.resolve({
-        segments: [{ number: 1, label: 'Body' }],
+    readSegmentationHeader(bytes): SegmentationHeader {
+      const uid = new TextDecoder().decode(bytes);
+      if (uid === SEG_UNREADABLE) {
+        throw new Error('The SEG is not a readable DICOM file: the fake says so.');
+      }
+      const header = FAKE_SEGMENTATION_HEADERS.get(uid);
+      if (header === undefined) throw new Error(`The fake knows no SEG ${uid}.`);
+      return header;
+    },
+    async loadSegmentation(imageIds, _bytes, header): Promise<SegmentationHandle> {
+      segmentationLoads.push({ imageIds, header });
+      await segmentationGate;
+      if (segmentationFailure) {
+        segmentationFailure = false;
+        throw new Error('The SEG could not be parsed.');
+      }
+      const index = port.segmentationIndexOf(header);
+      const handle: FakeSegmentationHandle = {
+        id: `seg-${(segmentationHandles.length + 1).toString()}`,
+        header,
+        disposed: false,
+        referencedImageIds: [...imageIds],
+        layerCount: header.seriesInstanceUID === SEG_OVERLAP ? 2 : 1,
         labelmapFrameCount: imageIds.length,
-        layerCount: 1,
+        index,
         sample: () => 1,
         sampleAll: () => [1],
-      });
+        dispose(): void {
+          handle.disposed = true;
+        },
+      };
+      segmentationHandles.push(handle);
+      return handle;
     },
     destroy(): void {
       port.destroyed = true;
