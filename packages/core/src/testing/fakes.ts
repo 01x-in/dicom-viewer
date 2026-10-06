@@ -331,6 +331,8 @@ export interface FakePort extends RenderingPort {
   refuseSegmentations: boolean;
   /** Makes every stack throw when asked to draw a SEG. */
   throwOnSegmentationDraw: boolean;
+  /** What a stack does when asked to draw the SEG with this handle id (`seg-1`, ...): `refuse` or `throw`. */
+  segmentationDrawFaults: Map<string, 'refuse' | 'throw'>;
   /** Makes the next `loadSegmentation` fail. */
   failNextSegmentationLoad(): void;
   /** Holds every `loadSegmentation` until `release()`. */
@@ -359,6 +361,11 @@ export function fakePort(): FakePort {
   let thumbnailPeak = 0;
   let gate: Promise<void> | undefined;
 
+  const fakeFault = (handle: SegmentationHandle): 'refuse' | 'throw' | undefined => {
+    const found = segmentationHandles.find((candidate) => candidate === handle);
+    return found === undefined ? undefined : port.segmentationDrawFaults.get(found.id);
+  };
+
   const port: FakePort = {
     sliceOf: (_imageId, imageIndex) => ({
       rows: 256,
@@ -373,6 +380,7 @@ export function fakePort(): FakePort {
     segmentationIndexOf: fakeIndexOf,
     refuseSegmentations: false,
     throwOnSegmentationDraw: false,
+    segmentationDrawFaults: new Map(),
     failNextSegmentationLoad(): void {
       segmentationFailure = true;
     },
@@ -541,6 +549,9 @@ export function fakePort(): FakePort {
           };
         },
         drawSegmentation(handle, display): boolean {
+          const fault = fakeFault(handle);
+          if (fault === 'throw') throw new Error('the engine failed to draw');
+          if (fault === 'refuse') return false;
           if (port.throwOnSegmentationDraw) throw new Error('the engine failed to draw');
           if (port.refuseSegmentations) return false;
           const fakeHandle = segmentationHandles.find((candidate) => candidate === handle);

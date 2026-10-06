@@ -339,8 +339,11 @@ export class DvSegmentationListElement extends LitElement {
     this.#dragging.set(key, value);
     let push = this.#pushers.get(key);
     if (push === undefined) {
+      // Bound to the viewer the gesture began on: a value still waiting when another viewer is set
+      // is dropped, not sent to a viewer that has no such SEG.
+      const bound = this.viewer;
       const mine = latestWins(
-        send,
+        (sent: number | string) => (this.viewer === bound ? send(sent) : Promise.resolve()),
         (error) => {
           this.#fail(error);
         },

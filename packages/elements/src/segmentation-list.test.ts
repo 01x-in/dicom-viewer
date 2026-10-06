@@ -204,6 +204,23 @@ describe('<dv-segmentation-list>', () => {
     expect(fake.viewer.segmentations.get(FAKE_IDS.seg)?.segments[0]?.opacity).toBeCloseTo(0.6);
   });
 
+  it('does not send a slider value that was waiting to a viewer set afterwards', async () => {
+    const { list } = await mount({ load: [FAKE_IDS.seg] });
+    const other = createFakeViewer();
+    open.push(other);
+    await other.viewer.loadStudy(FAKE_IDS.study);
+    await other.viewer.segmentations.load(FAKE_IDS.seg);
+    const slider = inputIn(segmentRow(list, FAKE_IDS.seg, 1), 'input[type="range"]');
+    // Two values in a row: the first is sent at once, the second waits for it.
+    slider.value = '20';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    slider.value = '70';
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+    list.viewer = other.viewer;
+    await settle(list);
+    expect(other.viewer.segmentations.get(FAKE_IDS.seg)?.segments[0]?.opacity).toBe(1);
+  });
+
   it('highlights a segment, and takes the highlight away when pressed again', async () => {
     const { list, fake } = await mount({ load: [FAKE_IDS.seg] });
     const button = (): HTMLButtonElement =>

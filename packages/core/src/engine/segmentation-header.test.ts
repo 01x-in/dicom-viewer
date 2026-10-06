@@ -110,7 +110,11 @@ describe('readSegmentationHeader', () => {
     expect(
       pixelDataHeader({ dataOffset: 100, length: 0xffffffff, hadUndefinedLength: true }, 8),
     ).toBeUndefined();
-    expect(pixelDataHeader({ ...native, hadUndefinedLength: false }, 8)).toBeDefined();
+    expect(pixelDataHeader({ ...native, hadUndefinedLength: false }, 8)).toEqual({
+      offset: 100,
+      length: 4096,
+      bitsAllocated: 8,
+    });
     expect(pixelDataHeader(undefined, 1)).toBeUndefined();
     expect(pixelDataHeader(native, undefined)).toBeUndefined();
   });

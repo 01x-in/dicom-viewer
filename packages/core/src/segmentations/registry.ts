@@ -622,9 +622,12 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
     attach(shown): () => void {
       attached.add(shown);
       try {
+        // Draw everything first: a refusal is recorded only once the whole attachment has worked.
+        const results: [Entry, boolean][] = [];
         for (const entry of entries.values()) {
-          if (belongsTo(entry, shown)) noteRefused(entry, draw(entry));
+          if (belongsTo(entry, shown)) results.push([entry, draw(entry)]);
         }
+        for (const [entry, refused] of results) noteRefused(entry, refused);
       } catch (error) {
         // The stack is about to be given back by the viewer: it must not stay in the list, nor keep what was drawn on it.
         attached.delete(shown);
