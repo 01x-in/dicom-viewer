@@ -154,11 +154,12 @@ Vue mirrors these with emits and slots.
 | M4 | Styled shell + adapters | Lit toolbar, viewport grid, series browser with thumbnails, slots, and panel registry. React and Vue adapters. Light and dark themes. axe clean, and fully usable by keyboard. | 7 |
 | M5 | Measurements | All 6 tools, with a list panel to rename, delete, and jump. Mappers tested in both directions. HU stats within ±0.5 HU on the phantom. JSON round-trip. | 6 |
 | M6 | Segmentation | Two phantom SEGs, with per-segment visibility, color, opacity, jump, and highlight. Visibility stays in sync across viewports. Segment index runs in the worker. Geometry warnings fire. Performance budget met. | 7 |
+| M6.5 | Shell polish | The toolbar has icons, tooltips with the key, and grouped tools. The Segments panel and the viewport overlays are redesigned from OHIF-style ideas (no OHIF code or icons). A host can change the look with tokens (palette, accent) with no code. A SEG whose series is not on screen loads, or says why it cannot. axe is still clean, keyboard use is unchanged, and the matrix passes. | 4 |
 | M7 | Layouts + MPR | All four layouts, series drag-and-drop into viewports, hanging protocols, streaming volume, memory policy, crosshairs, VOI sync, and SEG in MPR. Tilted and non-uniform phantoms fall back correctly. | 8 |
 | M8 | Hardening + 1.0 | Visual regression suite, size-limit budgets, publint + attw, TypeDoc + guides, and `1.0.0` published with provenance. | 5 |
 | M9 | OncoTrace readiness | `examples/oncotrace-like` covers the restricted mock proxy, a 10-minute token refresh, the banner slot, organ/tumor toggles, and navigate-by-SOP with segment highlight. A doc maps each bridge message to the API. No OncoTrace changes. | 2 |
 
-**Total:** about 55 days, plus a 20% buffer, so roughly 66 days (about 6 months at 2.5 days a week).
+**Total:** about 59 days, plus a 20% buffer, so roughly 71 days (about 6.5 months at 2.5 days a week). M6.5 was added after M6, when the first look at the shell showed it was plain.
 **Stretch:** SR TID1500 (4 days) and per-lesion connected components (3 days).
 
 OncoTrace bridge mapping, for M9:
