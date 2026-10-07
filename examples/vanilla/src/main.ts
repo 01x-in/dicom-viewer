@@ -28,6 +28,11 @@ viewer.addEventListener('dv-error', (event) => {
 
 const assets = params.get('assets');
 if (assets !== null) viewer.assetsBaseUrl = assets;
+// The page is 800 by 600 so the tests see the same size every time. `?fill` makes it fill the window.
+if (params.has('fill')) {
+  viewer.style.width = '100vw';
+  viewer.style.height = '100vh';
+}
 viewer.cpuRendering = params.has('cpu');
 viewer.wadoRoot = params.get('wadoRoot') ?? undefined;
 viewer.studyInstanceUid = params.get('study') ?? undefined;
