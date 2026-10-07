@@ -32,6 +32,7 @@ describe('isSensitiveTag', () => {
     '00080050', // AccessionNumber
     '00080080', // InstitutionName
     '00080090', // ReferringPhysicianName
+    '0008009C', // ConsultingPhysicianName
     '00081070', // OperatorsName
     '00200010', // StudyID
     '00091001', // a private tag: an odd group

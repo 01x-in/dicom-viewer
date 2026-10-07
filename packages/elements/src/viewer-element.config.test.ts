@@ -199,6 +199,20 @@ describe('<dv-viewer config>', () => {
     expect(errors[0]?.error.message).toMatch(/preset/);
   });
 
+  it('starts without the config of its options too, when that is the layer that cannot work', async () => {
+    // The fake viewer made by the mock above only throws for what the real one would.
+    const { element, errors } = await ready((el) => {
+      el.options = {
+        dataSource: createFakeViewer().source,
+        config: layer({ keybindings: { m: { type: 'preset', id: 'nope' } } }),
+      };
+    });
+    expect(element.status).toBe('ready');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.context).toBe('config');
+    expect(errors[0]?.error.message).toMatch(/preset/);
+  });
+
   it('keeps the built-in toolbar, and says why, when the config names a command that is not there', async () => {
     const { element, errors } = await ready((el) => {
       el.config = layer({

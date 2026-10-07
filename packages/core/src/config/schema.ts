@@ -338,7 +338,8 @@ function flatten(
  */
 export function parseViewerConfig(input: unknown): ParsedViewerConfig {
   const result = configSchema.safeParse(input);
-  if (result.success) return { ok: true, config: result.data };
+  // `args` of a command are JSON the schema only checks, so they are copied here: the result shares nothing with the input.
+  if (result.success) return { ok: true, config: structuredClone(result.data) };
   return {
     ok: false,
     errors: flatten(result.error.issues).map(

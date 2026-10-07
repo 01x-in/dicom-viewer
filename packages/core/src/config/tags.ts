@@ -80,6 +80,7 @@ const SENSITIVE = new Set([
   '00080090', // ReferringPhysicianName
   '00080092', // ReferringPhysicianAddress
   '00080094', // ReferringPhysicianTelephoneNumbers
+  '0008009C', // ConsultingPhysicianName
   '00081048', // PhysiciansOfRecord
   '00081050', // PerformingPhysicianName
   '00081060', // NameOfPhysiciansReadingStudy

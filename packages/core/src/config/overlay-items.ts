@@ -7,6 +7,9 @@ import type {
 
 type Corners = Readonly<Record<OverlayCorner, readonly OverlayShownItem[]>>;
 
+/** How many lines a corner has room for, after the layers are put over the defaults. */
+export const MAX_CORNER_LINES = 12;
+
 /** What the overlay shows when nothing is said: the lines it has always had. */
 export const DEFAULT_OVERLAY_CORNERS: Corners = {
   topLeft: [
@@ -44,12 +47,15 @@ export function mergeById(
   return merged;
 }
 
-/** The defaults with the layers' items put over them, and the removals acted on. */
+/**
+ * The defaults with the layers' items put over them, and the removals acted on. A layer can add up
+ * to 12 lines to a corner that already has some, so the end is cut at what the corner has room for.
+ */
 export function resolveCorners(corners: OverlayCornersConfig | undefined): Corners {
   const resolve = (corner: OverlayCorner): readonly OverlayShownItem[] =>
-    mergeById(DEFAULT_OVERLAY_CORNERS[corner], corners?.[corner] ?? []).filter(
-      (item): item is OverlayShownItem => item.kind !== 'remove',
-    );
+    mergeById(DEFAULT_OVERLAY_CORNERS[corner], corners?.[corner] ?? [])
+      .filter((item): item is OverlayShownItem => item.kind !== 'remove')
+      .slice(0, MAX_CORNER_LINES);
   return {
     topLeft: resolve('topLeft'),
     topRight: resolve('topRight'),

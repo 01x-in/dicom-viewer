@@ -483,7 +483,8 @@ export class DvViewerElement extends LitElement {
       // for its own reason, which is then the load's failure.
       if (!(error instanceof RangeError)) throw error;
       this.#fail(error, 'config');
-      return createViewer(withCommands);
+      // Without the config of the options too: it may be the layer that failed.
+      return createViewer({ ...withCommands, config: [] });
     }
   }
 

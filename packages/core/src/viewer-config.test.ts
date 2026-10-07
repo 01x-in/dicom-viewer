@@ -187,6 +187,49 @@ describe('viewer.config.apply', () => {
     expect(h.viewer.tools.shortcuts().some((entry) => entry.chord === 'm')).toBe(false);
   });
 
+  it('refuses a toolbar button for a window preset that no layer has, and names the path', () => {
+    const h = harness();
+    expect(() =>
+      h.viewer.config.apply(
+        layer({
+          toolbar: {
+            items: [
+              {
+                type: 'command',
+                id: 'nope',
+                label: 'Nope',
+                command: 'preset.apply',
+                args: { id: 'nope' },
+              },
+            ],
+          },
+        }),
+      ),
+    ).toThrow(/toolbar\.items\.0\.command.*nope/s);
+    expect(h.events['config:changed']).toHaveLength(0);
+  });
+
+  it('takes a toolbar button for a window preset that a layer gives', () => {
+    const h = harness();
+    h.viewer.config.apply(
+      layer({
+        windowLevelPresets: [{ id: 'mine', label: 'Mine', center: 1, width: 2 }],
+        toolbar: {
+          items: [
+            {
+              type: 'command',
+              id: 'mine',
+              label: 'Mine',
+              command: 'preset.apply',
+              args: { id: 'mine' },
+            },
+          ],
+        },
+      }),
+    );
+    expect(h.events['config:changed']).toHaveLength(1);
+  });
+
   it('refuses a layer with tools, which are read when the viewer starts', () => {
     const h = harness();
     expect(() => h.viewer.config.apply(layer({ tools: { active: 'pan' } }))).toThrow(/tools/);

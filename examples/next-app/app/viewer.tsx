@@ -34,7 +34,12 @@ const queryState = z.object({
   study: z.string().min(1),
   series: z.string().min(1),
   assets: z.string().min(1).optional(),
-  config: z.string().min(1).optional(),
+  // A settings file: a URL, or a path on this page's own server.
+  config: z
+    .string()
+    .min(1)
+    .refine((value) => URL.canParse(value, location.href), 'Not a URL')
+    .optional(),
 });
 
 function fail(message: string): void {

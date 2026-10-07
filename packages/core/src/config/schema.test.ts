@@ -114,6 +114,21 @@ describe('parseViewerConfig', () => {
     expect(result.ok && result.config.panels?.hide).toEqual(['series']);
   });
 
+  it('does not let the arguments of a toolbar command be changed through the input', () => {
+    const args = { id: 'lung', nested: [1, 2] };
+    const input = {
+      version: 1,
+      toolbar: {
+        items: [{ type: 'command', id: 'lung', label: 'Lung', command: 'preset.apply', args }],
+      },
+    };
+    const result = parseViewerConfig(input);
+    args.nested.push(3);
+    args.id = 'changed';
+    const item = result.ok ? result.config.toolbar?.items?.[0] : undefined;
+    expect(item?.type === 'command' && item.args).toEqual({ id: 'lung', nested: [1, 2] });
+  });
+
   it('accepts a toolbar written as data: tools, command buttons, menus, and separators', () => {
     const toolbar = {
       labels: 'inline',

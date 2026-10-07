@@ -61,4 +61,20 @@ describe('resolveCorners', () => {
     expect(resolved.topRight.map((item) => item.id)).toEqual(['modality', 'size', 'kvp']);
     expect(resolved.bottomLeft).toEqual(DEFAULT_OVERLAY_CORNERS.bottomLeft);
   });
+
+  it('keeps a corner to the 12 lines it has room for, whatever the layers add to the defaults', () => {
+    const added = Array.from({ length: 12 }, (_, index) => ({
+      id: `extra${index.toString()}`,
+      kind: 'tag' as const,
+      tag: 'KVP',
+    }));
+    const resolved = resolveCorners({ topLeft: added });
+    expect(resolved.topLeft).toHaveLength(12);
+    // The defaults come first, so what is cut is the end of what the layers added.
+    expect(resolved.topLeft.slice(0, 3).map((item) => item.id)).toEqual([
+      'patientName',
+      'patientId',
+      'series',
+    ]);
+  });
 });

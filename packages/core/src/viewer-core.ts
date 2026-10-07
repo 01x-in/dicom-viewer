@@ -371,11 +371,16 @@ function codeLayerOf(options: ViewerCoreOptions): ConfigBody {
   };
 }
 
-/** A toolbar that names a command that is not there, or gives it arguments it will not take, is refused. */
+/** A toolbar that names a command that is not there, gives it arguments it will not take, or asks for a window preset that is not there, is refused. */
 function assertConfigCommands(config: ResolvedViewerConfig, commands: CommandsApi): void {
-  const problems = findCommandProblems(config.toolbar.items ?? [], (id, args) =>
-    commands.check(id, args),
-  );
+  const presets = new Set(config.windowLevelPresets.map((preset) => preset.id));
+  const problems = findCommandProblems(config.toolbar.items ?? [], (id, args) => {
+    const problem = commands.check(id, args);
+    if (problem !== undefined || id !== 'preset.apply') return problem;
+    // The arguments fit, so they are `{ id }`; a button for a preset that no layer has would do nothing.
+    const wanted = (args as { readonly id: string }).id;
+    return presets.has(wanted) ? undefined : `There is no window preset ${wanted}.`;
+  });
   if (problems.length > 0) throw new RangeError(`Invalid config:\n${problems.join('\n')}`);
 }
 
