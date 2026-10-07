@@ -79,13 +79,17 @@ export class DvSeriesBrowserElement extends LitElement {
         align-items: center;
         padding: calc(var(--dv-space, 0.25rem) * 2);
         border: 1px solid var(--dv-color-border, #667284);
-        border-radius: var(--dv-radius, 6px);
+        border-radius: var(--dv-radius-lg, 8px);
         background: var(--dv-color-surface-raised, #212731);
         cursor: pointer;
+        transition: background-color 0.12s;
+      }
+      [role='option']:hover:not([aria-disabled='true']) {
+        background: color-mix(in srgb, var(--dv-color-accent, #5aa9ff) 10%, var(--dv-color-surface-raised, #212731));
       }
       [role='option'][aria-selected='true'] {
         border-color: var(--dv-color-accent, #5aa9ff);
-        box-shadow: inset 0 0 0 1px var(--dv-color-accent, #5aa9ff);
+        box-shadow: inset 3px 0 0 var(--dv-color-accent, #5aa9ff);
       }
       [role='option'][aria-disabled='true'] {
         cursor: not-allowed;
@@ -114,7 +118,7 @@ export class DvSeriesBrowserElement extends LitElement {
       }
       .detail {
         color: var(--dv-color-text-muted, #a7b0be);
-        font-size: 0.8em;
+        font-size: 0.8125rem;
       }
       .empty {
         padding: calc(var(--dv-space, 0.25rem) * 3);
