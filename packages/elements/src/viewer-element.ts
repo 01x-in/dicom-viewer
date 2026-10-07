@@ -118,6 +118,9 @@ export class DvViewerElement extends LitElement {
         width: var(--dv-panel-width);
         border-inline: 1px solid var(--dv-color-border);
       }
+      dv-panel-dock[collapsed] {
+        width: calc(var(--dv-control-size) + var(--dv-space) * 3);
+      }
       ::slotted([slot='panel-left']),
       ::slotted([slot='panel-right']) {
         flex: none;
