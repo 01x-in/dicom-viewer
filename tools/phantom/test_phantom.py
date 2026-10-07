@@ -11,7 +11,12 @@ import highdicom as hd
 
 from phantom import (
     CT_SPEC,
+    FALLBACK_SERIES,
+    FALLBACK_SLICES,
     INSERTS,
+    NONUNIFORM_SERIES,
+    TILT_DEGREES,
+    TILTED_SERIES,
     FRACTIONAL_SEG_SERIES,
     INSERTS_SEG_SERIES,
     LEFT_MARKER_HU,
@@ -267,3 +272,53 @@ def test_fractional_seg_is_a_fractional_type_with_two_segments_on_the_partial_sl
     assert set(np.unique(pixels)) == {0.0, 1.0}
     assert pixels[0, water[0], water[1], 0] == 1
     assert pixels[0, water[0], water[1], 1] == 0
+
+
+def _positions(series: list[pydicom.Dataset]) -> np.ndarray:
+    return np.array([[float(v) for v in ds.ImagePositionPatient] for ds in series])
+
+
+def test_the_fallback_series_are_in_a_study_of_their_own(out_dir: Path) -> None:
+    main = _load_series(out_dir / "ct-j2k")
+    others = [_load_series(out_dir / name) for name in FALLBACK_SERIES]
+
+    studies = {ds.StudyInstanceUID for series in others for ds in series}
+    assert len(studies) == 1
+    assert studies.isdisjoint({ds.StudyInstanceUID for ds in main})
+    for series in others:
+        assert len(series) == FALLBACK_SLICES
+        assert (int(series[0].Rows), int(series[0].Columns)) == (CT_SPEC.rows, CT_SPEC.columns)
+        assert {ds.file_meta.TransferSyntaxUID for ds in series} == {JPEG2000Lossless}
+    assert len({ds.SOPInstanceUID for series in others for ds in series}) == 2 * FALLBACK_SLICES
+    assert len({series[0].SeriesInstanceUID for series in others}) == 2
+    assert len({ds.FrameOfReferenceUID for series in others for ds in series}) == 1
+
+
+def test_the_tilted_series_leans_by_the_angle_it_says(out_dir: Path) -> None:
+    series = _load_series(out_dir / TILTED_SERIES)
+    positions = _positions(series)
+    travel = positions[-1] - positions[0]
+
+    # Same orientation as the others, so a viewer finds one stack; the slices are stacked along a line that leans.
+    assert [float(v) for v in series[0].ImageOrientationPatient] == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    angle = np.degrees(np.arccos(abs(travel[2]) / np.linalg.norm(travel)))
+    assert angle == pytest.approx(TILT_DEGREES, abs=0.05)
+    assert np.allclose(np.diff(positions[:, 2]), CT_SPEC.slice_spacing_mm)
+
+
+def test_the_nonuniform_series_has_one_gap_twice_the_spacing(out_dir: Path) -> None:
+    series = _load_series(out_dir / NONUNIFORM_SERIES)
+    steps = np.diff(_positions(series)[:, 2])
+
+    assert np.allclose(np.sort(np.unique(np.round(steps, 4))), [2.5, 5.0])
+    assert int(np.sum(np.isclose(steps, 5.0))) == 1
+    # Upright otherwise: no lean.
+    assert np.allclose(_positions(series)[:, :2], _positions(series)[0, :2])
+
+
+def test_the_fallback_series_hold_the_same_picture_as_the_main_one(out_dir: Path) -> None:
+    main = _load_series(out_dir / "ct-j2k")
+    for name in FALLBACK_SERIES:
+        series = _load_series(out_dir / name)
+        # The first slices of the main series: the inserts are absent from them, so the body is all there is.
+        assert np.array_equal(series[0].pixel_array, main[0].pixel_array)

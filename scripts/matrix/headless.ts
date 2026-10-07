@@ -18,6 +18,7 @@ import {
   scenarioSegmentationBudget,
   scenarioSegmentationViewports,
 } from './segmentation.ts';
+import { scenarioMpr, scenarioMprFallback } from './mpr.ts';
 import { EXPECTED_HU, litFraction, MID_SLICE_INDEX } from './smoke.ts';
 
 interface SourceHandle {
@@ -1216,14 +1217,21 @@ async function scenarioLifecycle(browser: Browser, input: HeadlessInput): Promis
         series: input.j2kSeriesUid,
         // Each cycle also loads this SEG and outlines a segment of it.
         seg: input.segSeriesUid,
+        // And shows three planes of the series, which hold a volume.
+        mpr: '1',
       }),
       { waitUntil: 'load', timeout: 180_000 },
     );
     // The first cycles warm things up (lazy chunks, caches that stay by design). Compare after those.
     const WARM_UP = Math.min(3, Math.max(1, input.cycles - 1));
-    await page.waitForFunction((count) => (window.__dvCycles?.length ?? 0) >= count, WARM_UP, {
-      timeout: 180_000,
-    });
+    // An error ends the cycles too: say what it was, rather than wait for cycles that will not come.
+    await page.waitForFunction(
+      (count) =>
+        (window.__dvCycles?.length ?? 0) >= count ||
+        document.documentElement.dataset['dvStatus'] === 'error',
+      WARM_UP,
+      { timeout: 180_000 },
+    );
     const warm = await sample(session);
     const status = await waitForStatus(page, 'cycles-done', 'error');
     if (status !== 'cycles-done') {
@@ -1332,6 +1340,8 @@ export async function smokeHeadless(
     ['segmentation', scenarioSegmentation],
     ['segmentation in two viewports', scenarioSegmentationViewports],
     ['segmentation budget', scenarioSegmentationBudget],
+    ['mpr', scenarioMpr],
+    ['mpr fallback', scenarioMprFallback],
     ['auth', scenarioAuth],
     ['retry', scenarioRetry],
     ['local files', scenarioLocalFiles],
@@ -1339,10 +1349,10 @@ export async function smokeHeadless(
     ['switching assets', scenarioAssetSwitch],
   ];
   const results: ScenarioResult[] = [];
-  // DV_SCENARIO=navigation runs one scenario, for working on it.
-  const only = process.env['DV_SCENARIO'];
+  // DV_SCENARIO=navigation runs one scenario (several, separated by commas), for working on it.
+  const only = process.env['DV_SCENARIO']?.split(',');
   for (const [scenario, run] of scenarios) {
-    if (only !== undefined && only !== scenario) continue;
+    if (only !== undefined && !only.includes(scenario)) continue;
     console.log(`   scenario: ${scenario}`);
     results.push({ scenario, failures: await run(browser, input) });
   }

@@ -21,6 +21,7 @@ const PRIMARY_TOOL_IDS = [
   'pan',
   'zoom',
   'stack-scroll',
+  'crosshairs',
   'length',
   'bidirectional',
   'ellipse',

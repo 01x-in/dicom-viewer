@@ -10,6 +10,8 @@ export interface ViewportDescription {
   readonly window?: WindowLevel | undefined;
   readonly invert?: boolean | undefined;
   readonly zoom?: number | undefined;
+  /** The plane of a volume the viewport shows, when it shows one. */
+  readonly plane?: string | undefined;
   /** Which of several viewports this is. Said only when there is more than one. */
   readonly position?: { readonly index: number; readonly count: number } | undefined;
 }
@@ -35,6 +37,7 @@ function describeContent(viewport: ViewportDescription): string {
   const shown = Math.min(Math.max(imageIndex, 0), imageCount - 1);
   const parts = [
     name,
+    ...(viewport.plane === undefined ? [] : [`${viewport.plane} plane`]),
     `image ${(shown + 1).toString()} of ${imageCount.toString()}`,
     ...(viewport.window === undefined
       ? []

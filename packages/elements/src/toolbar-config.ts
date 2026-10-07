@@ -20,6 +20,7 @@ export const TOOL_ICONS: Readonly<Record<PrimaryTool, IconName>> = {
   pan: 'pan',
   zoom: 'zoom',
   'stack-scroll': 'stack-scroll',
+  crosshairs: 'crosshairs',
   length: 'length',
   bidirectional: 'bidirectional',
   ellipse: 'ellipse',
@@ -173,14 +174,24 @@ const LAYOUT: MenuItem = {
   id: 'layout',
   label: 'Layout',
   icon: 'layout',
-  items: ({ viewer }) =>
-    LAYOUTS.map((layout) => ({
+  items: ({ viewer }) => [
+    ...LAYOUTS.map((layout) => ({
       id: `layout-${layout}`,
       label: LAYOUT_LABELS[layout],
       enabled: () => true,
       run: () => viewer.setLayout(layout),
-      pressed: () => viewer.getState().layout === layout,
+      // A 2x2 of planes is the last entry, not this one.
+      pressed: () =>
+        viewer.getState().layout === layout && viewer.commands.pressed('mpr.show') !== true,
     })),
+    {
+      id: 'layout-mpr',
+      label: 'Three planes and slices',
+      // Needs a series on screen to reformat: the default of an action.
+      run: () => viewer.showMpr(),
+      pressed: () => viewer.commands.pressed('mpr.show') === true,
+    },
+  ],
 };
 
 /** The measurement tools as a menu: the left mouse button draws the one that is chosen. */
@@ -232,6 +243,7 @@ export const DEFAULT_TOOLBAR: readonly ToolbarItem[] = [
   { type: 'tool', tool: 'pan' },
   { type: 'tool', tool: 'zoom' },
   { type: 'tool', tool: 'stack-scroll' },
+  { type: 'tool', tool: 'crosshairs' },
   { type: 'separator' },
   MEASURE,
   { type: 'separator' },

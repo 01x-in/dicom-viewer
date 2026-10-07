@@ -22,10 +22,10 @@ import {
 } from './rendering-port';
 import {
   decideMpr,
-  defaultMaxCacheBytes,
   isMprOrientation,
   type MprFallbackReason,
   type MprOrientation,
+  resolveMaxCacheBytes,
 } from './mpr';
 import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
@@ -237,12 +237,24 @@ export interface ToolsApi {
   /** The tools the left mouse button can drive. The middle button always pans, the right zooms, and the wheel scrolls. */
   list(): readonly ToolInfo[];
   getActive(): PrimaryTool;
+  /**
+   * Whether the tool can do anything now. Every tool can, except crosshairs, which needs two planes
+   * of one volume on screen. A tool that is not available can still be chosen; it then does nothing.
+   */
+  isAvailable(tool: PrimaryTool): boolean;
   /** Rejects with a `RangeError` for a tool that does not exist. */
   setActive(tool: PrimaryTool): Promise<void>;
   /** The window presets of this viewer. */
   windowPresets(): readonly WindowPreset[];
   /** The keys that are bound, as chords such as `w` or `Shift+i`, so a toolbar can show the key of a button. Empty when the keyboard is off. */
   shortcuts(): readonly { readonly chord: string; readonly action: KeyAction }[];
+}
+
+export interface ShowMprOptions {
+  /** The series to reformat. Default: the one on screen in the active viewport. */
+  readonly seriesInstanceUID?: string;
+  /** Which stack of it, when it splits into several. Default: the one on screen, else 0. */
+  readonly stackIndex?: number;
 }
 
 /** How the study on screen can be hung: a layout, and a series for each viewport. */
@@ -303,6 +315,13 @@ export interface Viewer {
    * them empty. Rejects with a `RangeError` for any other value.
    */
   setLayout(layout: LayoutId): Promise<void>;
+  /**
+   * Shows a series in the three planes and as slices: a 2x2 layout with the axial plane in `vp-0`,
+   * the sagittal in `vp-1`, the coronal in `vp-2`, and the slices as they were acquired in `vp-3`.
+   * A series that cannot be reformatted is shown as slices in each, with the reason in `viewport.mpr`.
+   * Rejects when there is no series to show.
+   */
+  showMpr(options?: ShowMprOptions): Promise<void>;
   getState(): ViewerStateV1;
   /** Applies a patch and resolves once everything it asks for is displayed. Rejects if the result is not a valid state. */
   setState(patch: ViewerStatePatch, options?: { readonly origin?: 'api' | 'url' }): Promise<void>;
@@ -414,13 +433,6 @@ interface Runtime {
 }
 
 const noop = (): void => undefined;
-
-/** `navigator.deviceMemory` in GiB, in the browsers that report it. */
-function deviceMemory(): number | undefined {
-  if (typeof navigator === 'undefined' || !('deviceMemory' in navigator)) return undefined;
-  const value = navigator.deviceMemory;
-  return typeof value === 'number' ? value : undefined;
-}
 
 const DEFAULT_PREFETCH_RADIUS = 64;
 
@@ -581,12 +593,7 @@ export function createViewerCore(
   });
   const runtimes = new Map<string, Runtime>();
   let activeViewport = 'vp-0';
-  const maxVolumeBytes = options.memory?.maxCacheBytes ?? defaultMaxCacheBytes(deviceMemory());
-  if (!(Number.isFinite(maxVolumeBytes) && maxVolumeBytes > 0)) {
-    throw new RangeError(
-      `memory.maxCacheBytes must be a number above zero, not ${String(maxVolumeBytes)}.`,
-    );
-  }
+  const maxVolumeBytes = resolveMaxCacheBytes(options.memory?.maxCacheBytes);
   /** The volumes drawn now, by series and stack, with how many viewports use each. */
   const volumes = new Map<string, { readonly bytes: number; users: number }>();
 
@@ -767,6 +774,29 @@ export function createViewerCore(
     }
     if (!sameZoom(previous.zoom, view.zoom)) {
       events.emit('viewport:camera', { viewportId: runtime.id, zoom: view.zoom, origin });
+    }
+    if (!sameWindow(previous.window, view.window) || previous.invert !== view.invert) {
+      syncVoi(runtime, shown, view, origin);
+    }
+  }
+
+  /**
+   * The planes of one volume share a window and an inversion: what changes in one is set in the
+   * others, as the change it was (a person's drag stays a user change). Slices are not synced, and
+   * neither are two viewports that merely show the same series.
+   */
+  function syncVoi(source: Runtime, shown: Shown, view: ViewSnapshot, origin: StateOrigin): void {
+    if (shown.volumeKey === undefined) return;
+    for (const other of [...runtimes.values()]) {
+      if (other === source || other.shown?.volumeKey !== shown.volumeKey) continue;
+      const have = other.shown.port.getView();
+      const windowDiffers = !sameWindow(have.window, view.window);
+      const invertDiffers = have.invert !== view.invert;
+      if (!windowDiffers && !invertDiffers) continue;
+      changeView(other, origin, (port) => {
+        if (windowDiffers) port.setWindow(view.window);
+        if (invertDiffers) port.setInvert(view.invert);
+      });
     }
   }
 
@@ -971,15 +1001,16 @@ export function createViewerCore(
         reportView(runtime, next, view, runtime.viewOrigin ?? 'user');
       });
       runtime.shown = next;
-      // Shapes and SEGs are drawn on stacks of slices, not on a plane of a volume.
+      // Shapes are drawn on stacks of slices, not on a plane of a volume. A SEG is drawn on both.
       const detachMeasurements =
         volumeKey === undefined
           ? measurements.attach({ seriesInstanceUID, stack, port: stackPort })
           : noop;
-      const detachSegmentations =
-        volumeKey === undefined
-          ? segmentations.attach({ seriesInstanceUID, stack, port: stackPort })
-          : noop;
+      const detachSegmentations = segmentations.attach({
+        seriesInstanceUID,
+        stack,
+        port: stackPort,
+      });
       next.off = (): void => {
         offImage();
         offView();
@@ -1230,6 +1261,49 @@ export function createViewerCore(
       return { layout, viewports: fitToLayout(state.viewports, layout) };
     }, 'api');
     dropRemovedViewports();
+  }
+
+  const MPR_VIEWPORTS: readonly (readonly [string, MprOrientation | undefined])[] = [
+    ['vp-0', 'axial'],
+    ['vp-1', 'sagittal'],
+    ['vp-2', 'coronal'],
+    ['vp-3', undefined],
+  ];
+
+  function showMpr(mprOptions: ShowMprOptions = {}): Promise<void> {
+    try {
+      assertAlive();
+      if (mprOptions.seriesInstanceUID !== undefined) {
+        assertDicomUid(mprOptions.seriesInstanceUID, 'SeriesInstanceUID');
+      }
+      const { stackIndex } = mprOptions;
+      if (stackIndex !== undefined && !(Number.isInteger(stackIndex) && stackIndex >= 0)) {
+        throw new RangeError(`A stack number is a whole number from 0, not ${String(stackIndex)}.`);
+      }
+    } catch (error) {
+      return Promise.reject(toError(error));
+    }
+    return enqueue(async () => {
+      if (store.getState().studyInstanceUID === undefined) {
+        throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+      }
+      const source = viewportState(activeViewport);
+      const seriesInstanceUID = mprOptions.seriesInstanceUID ?? source?.seriesInstanceUID;
+      if (seriesInstanceUID === undefined) {
+        throw new Error('Show a series first, or say which one to reformat.');
+      }
+      const stackIndex =
+        mprOptions.stackIndex ??
+        (source?.seriesInstanceUID === seriesInstanceUID ? source.stackIndex : undefined);
+      applyLayoutNow('2x2');
+      makeActive('vp-0');
+      for (const [viewportId, orientation] of MPR_VIEWPORTS) {
+        await applySeries(viewportId, seriesInstanceUID, {
+          ...(stackIndex === undefined ? {} : { stackIndex }),
+          ...(orientation === undefined ? {} : { orientation }),
+        });
+      }
+    });
   }
 
   const protocols = parseHangingProtocols(options.hangingProtocols ?? []);
@@ -1550,6 +1624,16 @@ export function createViewerCore(
   const tools: ToolsApi = {
     list: () => PRIMARY_TOOLS,
     getActive: () => activeTool,
+    isAvailable(tool): boolean {
+      if (tool !== 'crosshairs') return true;
+      // The planes of each volume on screen: crosshairs link those of one volume.
+      const planes = new Map<string, number>();
+      for (const runtime of runtimes.values()) {
+        const key = runtime.shown?.volumeKey;
+        if (key !== undefined) planes.set(key, (planes.get(key) ?? 0) + 1);
+      }
+      return [...planes.values()].some((count) => count >= 2);
+    },
     windowPresets: () => windowPresets,
     shortcuts: () =>
       keymap === undefined ? [] : [...keymap].map(([chord, action]) => ({ chord, action })),
@@ -1812,6 +1896,7 @@ export function createViewerCore(
     setViewportSeries,
     navigateTo,
     setLayout,
+    showMpr,
     getState: () => store.getState(),
     setState,
     subscribe: (selector, listener, subscribeOptions) =>

@@ -2,6 +2,7 @@ import {
   type CommandInput,
   createDicomWebDataSource,
   createViewer,
+  describeFallback,
   parseViewerConfig,
   type ResolvedViewerConfig,
   type Viewer,
@@ -119,6 +120,7 @@ export class DvViewerElement extends LitElement {
     status: { reflect: true },
     shown: { state: true },
     announcement: { state: true },
+    notices: { state: true },
   };
 
   static override styles: CSSResultGroup = [
@@ -191,6 +193,20 @@ export class DvViewerElement extends LitElement {
         inset: 0;
         z-index: 1;
         border: 3px solid var(--dv-color-accent);
+        pointer-events: none;
+      }
+      /* Why a viewport shows slices where it was asked for a plane. */
+      .notice {
+        position: absolute;
+        inset-inline: var(--dv-space);
+        bottom: var(--dv-space);
+        z-index: 1;
+        padding: var(--dv-space);
+        border: 1px solid var(--dv-color-border);
+        border-radius: var(--dv-radius);
+        background: var(--dv-color-surface);
+        color: var(--dv-color-text);
+        font-size: 0.85em;
         pointer-events: none;
       }
       .overlay {
@@ -266,6 +282,8 @@ export class DvViewerElement extends LitElement {
   declare status: ViewerStatus;
   declare shown: boolean;
   declare announcement: string;
+  /** Why a viewport shows slices where it was asked for a plane, by viewport id. */
+  declare notices: Readonly<Record<string, string>>;
 
   #viewer: Viewer | undefined;
   #generation = 0;
@@ -296,6 +314,7 @@ export class DvViewerElement extends LitElement {
     this.status = 'idle';
     this.shown = false;
     this.announcement = '';
+    this.notices = {};
   }
 
   /** The viewer this element runs, while it has one. */
@@ -375,6 +394,7 @@ export class DvViewerElement extends LitElement {
     for (const element of this.#viewportElements.splice(0)) element.remove();
     this.shown = false;
     this.announcement = '';
+    this.notices = {};
   }
 
   #fail(error: unknown, context: string): void {
@@ -605,11 +625,16 @@ export class DvViewerElement extends LitElement {
     const state = viewer.getState();
     const series = viewer.getStudy()?.series ?? [];
     const spoken: string[] = [];
+    const notices: Record<string, string> = {};
     for (const element of this.#viewportElements) {
       const id = element.dataset['viewportId'];
       const viewport = state.viewports.find((candidate) => candidate.id === id);
       const api = id === undefined ? undefined : viewer.viewports.get(id);
       const summary = series.find((item) => item.seriesInstanceUID === viewport?.seriesInstanceUID);
+      const mpr = api?.mpr;
+      if (id !== undefined && mpr?.mode === 'stack' && mpr.reason !== undefined) {
+        notices[id] = describeFallback(mpr.reason);
+      }
       const text = describeViewport({
         name: summary === undefined ? undefined : (summary.description ?? summary.modality),
         imageIndex: viewport?.imageIndex,
@@ -617,6 +642,7 @@ export class DvViewerElement extends LitElement {
         window: viewport?.window,
         invert: viewport?.invert,
         zoom: viewport?.zoom,
+        plane: mpr?.mode === 'volume' ? mpr.requested : undefined,
         position: {
           index: state.viewports.findIndex((candidate) => candidate.id === id),
           count: state.viewports.length,
@@ -626,6 +652,7 @@ export class DvViewerElement extends LitElement {
       spoken.push(text);
     }
     this.shown = state.viewports.some((viewport) => viewport.seriesInstanceUID !== undefined);
+    if (JSON.stringify(notices) !== JSON.stringify(this.notices)) this.notices = notices;
     if (announce) this.#announcer?.push(spoken.join('. '));
   }
 
@@ -738,6 +765,10 @@ export class DvViewerElement extends LitElement {
         }),
         viewer.on('viewport:active', () => {
           this.#refreshActive(viewer);
+        }),
+        // A viewport that asked for a plane and got slices says why.
+        viewer.on('viewport:mpr', () => {
+          this.#refreshLabels(true);
         }),
         viewer.on('study:loaded', () => {
           this.#refreshLabels(false);
@@ -868,7 +899,7 @@ export class DvViewerElement extends LitElement {
                 event: DragEvent,
               ): void => {
                 this.#onDrop(event, cell.id);
-              }} style=${`grid-column: ${cell.column.toString()} / span ${cell.columnSpan.toString()}; grid-row: ${cell.row.toString()} / span ${cell.rowSpan.toString()};`}><slot name="viewport-${cell.id}"></slot></div>`,
+              }} style=${`grid-column: ${cell.column.toString()} / span ${cell.columnSpan.toString()}; grid-row: ${cell.row.toString()} / span ${cell.rowSpan.toString()};`}><slot name="viewport-${cell.id}"></slot>${this.notices[cell.id] === undefined ? nothing : html`<div class="notice" role="note"><strong>Slices</strong> ${this.notices[cell.id]}</div>`}</div>`,
           )}
           <div class="overlay"><slot name="viewport-overlay"></slot></div>
           ${

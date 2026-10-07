@@ -38,6 +38,25 @@ export function defaultMaxCacheBytes(deviceMemoryGiB: number | undefined): numbe
   return deviceMemoryGiB !== undefined && deviceMemoryGiB <= 4 ? 512 * MIB : 1024 * MIB;
 }
 
+/** `navigator.deviceMemory` in GiB, in the browsers that report it. */
+function reportedDeviceMemory(): number | undefined {
+  if (typeof navigator === 'undefined' || !('deviceMemory' in navigator)) return undefined;
+  const value = navigator.deviceMemory;
+  return typeof value === 'number' ? value : undefined;
+}
+
+/**
+ * The memory budget: what the host asked for, or the default for this device. Throws a `RangeError`
+ * for anything that is not a number above zero.
+ */
+export function resolveMaxCacheBytes(requested: number | undefined): number {
+  const value = requested ?? defaultMaxCacheBytes(reportedDeviceMemory());
+  if (!(Number.isFinite(value) && value > 0)) {
+    throw new RangeError(`memory.maxCacheBytes must be a number above zero, not ${String(value)}.`);
+  }
+  return value;
+}
+
 /**
  * Whether a stack can be shown as a volume: it must be reconstructable, and its volume must fit in
  * what is left of the budget after the volumes already held. Pure.

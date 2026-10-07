@@ -84,6 +84,7 @@ describe('<dv-toolbar>', () => {
       'Pan',
       'Zoom',
       'Scroll',
+      'Crosshairs',
       'Measure',
       'Zoom in',
       'Zoom out',
@@ -239,7 +240,7 @@ describe('<dv-toolbar>', () => {
     expect(toolbar.shadowRoot?.activeElement).toBe(all[1]);
     await toolbar.updateComplete;
     expect(buttons(toolbar).map((item) => item.tabIndex)).toEqual([
-      -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+      -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     ]);
     press(nth(buttons(toolbar), 1), 'End');
     expect(toolbar.shadowRoot?.activeElement).toBe(buttons(toolbar).at(-1));
@@ -484,6 +485,45 @@ describe('the presets menu', () => {
   });
 });
 
+describe('the crosshairs tool', () => {
+  const crosshairs = (toolbar: DvToolbarElement): HTMLButtonElement =>
+    button(toolbar, '[data-tool="crosshairs"]');
+
+  it('is there but unavailable while no two planes of one volume are on screen', async () => {
+    const { toolbar, fake } = await mount();
+    expect(crosshairs(toolbar).getAttribute('aria-disabled')).toBe('true');
+    crosshairs(toolbar).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fake.viewer.tools.getActive()).toBe('window-level');
+  });
+
+  it('becomes available when two planes of one volume appear, and can be chosen', async () => {
+    const { toolbar, fake } = await mount();
+    await fake.viewer.setLayout('1x2');
+    fake.viewer.viewports.attach('vp-1', document.createElement('div'));
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ct, { orientation: 'axial' });
+    await fake.viewer.setViewportSeries('vp-1', FAKE_IDS.ct, { orientation: 'coronal' });
+    await toolbar.updateComplete;
+    expect(crosshairs(toolbar).getAttribute('aria-disabled')).toBeNull();
+    crosshairs(toolbar).click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await toolbar.updateComplete;
+    expect(fake.viewer.tools.getActive()).toBe('crosshairs');
+    expect(crosshairs(toolbar).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('is unavailable again when a plane goes back to slices', async () => {
+    const { toolbar, fake } = await mount();
+    await fake.viewer.setLayout('1x2');
+    fake.viewer.viewports.attach('vp-1', document.createElement('div'));
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ct, { orientation: 'axial' });
+    await fake.viewer.setViewportSeries('vp-1', FAKE_IDS.ct, { orientation: 'coronal' });
+    await fake.viewer.setViewportSeries('vp-1', FAKE_IDS.ct);
+    await toolbar.updateComplete;
+    expect(crosshairs(toolbar).getAttribute('aria-disabled')).toBe('true');
+  });
+});
+
 describe('the layout menu', () => {
   const opener = (toolbar: DvToolbarElement): HTMLButtonElement =>
     button(toolbar, '[data-menu-id="layout"]');
@@ -500,13 +540,55 @@ describe('the layout menu', () => {
       'Two side by side',
       'Two by two',
       'One large, three small',
+      'Three planes and slices',
     ]);
     expect(items.map((item) => item.getAttribute('aria-checked'))).toEqual([
       'true',
       'false',
       'false',
       'false',
+      'false',
     ]);
+  });
+
+  it('shows three planes and the slices from the last entry, and marks that one, not the 2x2', async () => {
+    const { toolbar, fake } = await mount();
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    button(toolbar, '[data-action="layout-mpr"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await toolbar.updateComplete;
+    expect(fake.viewer.getState().layout).toBe('2x2');
+    expect(fake.viewer.getState().viewports.map((viewport) => viewport.orientation)).toEqual([
+      'axial',
+      'sagittal',
+      'coronal',
+      undefined,
+    ]);
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    const items = [
+      ...(toolbar.shadowRoot?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? []),
+    ];
+    expect(items.map((item) => item.getAttribute('aria-checked'))).toEqual([
+      'false',
+      'false',
+      'false',
+      'false',
+      'true',
+    ]);
+  });
+
+  it('cannot show planes with nothing on screen', async () => {
+    const { toolbar, fake } = await mount({ withSeries: false });
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    expect(button(toolbar, '[data-action="layout-mpr"]').getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    button(toolbar, '[data-action="layout-mpr"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fake.viewer.getState().layout).toBe('1x1');
   });
 
   it('changes the layout, closes, and works with no series on screen', async () => {

@@ -34,6 +34,7 @@ export type ToolbarLabels = 'tooltip' | 'inline';
 const EVENTS = [
   'tool:active',
   'viewport:active',
+  'viewport:mpr',
   'viewport:voi',
   'viewport:cine',
   'state:changed',
@@ -497,6 +498,8 @@ export class DvToolbarElement extends LitElement {
           item.tool;
         const at = position.next++;
         const pressed = context.viewer.tools.getActive() === item.tool;
+        // Crosshairs need two planes of one volume; the button is there, but says it cannot yet.
+        const available = context.viewer.tools.isAvailable(item.tool);
         const name = item.icon ?? TOOL_ICONS[item.tool];
         const hint = shortcutOf(
           context.viewer,
@@ -513,7 +516,9 @@ export class DvToolbarElement extends LitElement {
             tabindex=${this.#roving(at)}
             aria-label=${label}
             aria-pressed=${pressed ? 'true' : 'false'}
+            aria-disabled=${available ? nothing : 'true'}
             @click=${(): void => {
+              if (!available) return;
               context.viewer.tools.setActive(item.tool).catch((error: unknown) => {
                 this.#fail(error);
               });

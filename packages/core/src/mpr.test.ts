@@ -6,6 +6,7 @@ import {
   describeFallback,
   estimateVolumeBytes,
   isMprOrientation,
+  resolveMaxCacheBytes,
   MPR_ORIENTATIONS,
   type MprFallbackReason,
 } from './mpr';
@@ -68,6 +69,17 @@ describe('defaultMaxCacheBytes', () => {
     expect(defaultMaxCacheBytes(8)).toBe(1024 * MIB);
     expect(defaultMaxCacheBytes(4)).toBe(512 * MIB);
     expect(defaultMaxCacheBytes(2)).toBe(512 * MIB);
+  });
+});
+
+describe('resolveMaxCacheBytes', () => {
+  it('is what the host asked for, or the default', () => {
+    expect(resolveMaxCacheBytes(123_456)).toBe(123_456);
+    expect([512 * MIB, 1024 * MIB]).toContain(resolveMaxCacheBytes(undefined));
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('refuses %s', (bad) => {
+    expect(() => resolveMaxCacheBytes(bad)).toThrow(RangeError);
   });
 });
 

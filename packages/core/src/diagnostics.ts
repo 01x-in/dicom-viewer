@@ -12,6 +12,8 @@ export interface EngineDiagnostics {
   readonly activeEngines: number;
   /** Image ids that live stacks still use (and whose cache entry and metadata are therefore kept). */
   readonly imagesInUse: number;
+  /** Volumes (the data behind reformatted planes) in the cache. */
+  readonly volumes: number;
   /** Measurement shapes Cornerstone holds, which are the ones drawn on stacks that are alive. */
   readonly annotations: number;
   /** SEG labelmap layers Cornerstone holds as segmentations, which are the ones of SEGs that are loaded. */

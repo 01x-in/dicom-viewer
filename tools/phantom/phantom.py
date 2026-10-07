@@ -19,9 +19,11 @@ Usage: uv run python phantom.py <output-dir>
 from __future__ import annotations
 
 import hashlib
+import math
 import sys
 import uuid
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import highdicom as hd
@@ -108,7 +110,37 @@ def slice_hu(spec: CtSpec, index: int) -> NDArray[np.int16]:
     return hu
 
 
-def ct_dataset(spec: CtSpec, index: int, series: str, series_number: int) -> Dataset:
+Position = tuple[float, float, float]
+
+
+def upright_position(spec: CtSpec, index: int) -> Position:
+    """Where slice `index` starts: axial slices stacked straight up, evenly spaced."""
+    x0 = -(spec.columns - 1) / 2 * spec.pixel_spacing_mm
+    y0 = -(spec.rows - 1) / 2 * spec.pixel_spacing_mm
+    return (x0, y0, index * spec.slice_spacing_mm)
+
+
+def tilted_position(spec: CtSpec, index: int) -> Position:
+    """Slices stacked along a line that leans TILT_DEGREES away from the slice normal, as a tilted gantry does."""
+    x0, y0, z = upright_position(spec, index)
+    return (x0 + z * math.tan(math.radians(TILT_DEGREES)), y0, z)
+
+
+def nonuniform_position(spec: CtSpec, index: int) -> Position:
+    """Evenly spaced, except that one slice is missing after slice NONUNIFORM_GAP_AFTER."""
+    x0, y0, _ = upright_position(spec, index)
+    missing = 1 if index > NONUNIFORM_GAP_AFTER else 0
+    return (x0, y0, (index + missing) * spec.slice_spacing_mm)
+
+
+def ct_dataset(
+    spec: CtSpec,
+    index: int,
+    series: str,
+    series_number: int,
+    study: str = "study",
+    position_of: Callable[[CtSpec, int], Position] = upright_position,
+) -> Dataset:
     sop_uid = uid(f"{series}/instance/{index}")
 
     meta = FileMetaDataset()
@@ -128,7 +160,7 @@ def ct_dataset(spec: CtSpec, index: int, series: str, series_number: int) -> Dat
     ds.PatientBirthDate = ""
     ds.PatientSex = "O"
     ds.PatientIdentityRemoved = "YES"
-    ds.StudyInstanceUID = uid("study")
+    ds.StudyInstanceUID = uid(study)
     ds.StudyID = "1"
     ds.StudyDate = "20260101"
     ds.StudyTime = "090000"
@@ -143,9 +175,7 @@ def ct_dataset(spec: CtSpec, index: int, series: str, series_number: int) -> Dat
     ds.InstanceNumber = index + 1
     ds.PatientPosition = "HFS"
 
-    x0 = -(spec.columns - 1) / 2 * spec.pixel_spacing_mm
-    y0 = -(spec.rows - 1) / 2 * spec.pixel_spacing_mm
-    z = index * spec.slice_spacing_mm
+    x0, y0, z = position_of(spec, index)
     ds.ImagePositionPatient = [round(x0, 4), round(y0, 4), round(z, 4)]
     ds.ImageOrientationPatient = [1, 0, 0, 0, 1, 0]
     ds.PixelSpacing = [spec.pixel_spacing_mm, spec.pixel_spacing_mm]
@@ -170,6 +200,20 @@ def ct_dataset(spec: CtSpec, index: int, series: str, series_number: int) -> Dat
     ds.PixelData = stored.tobytes()
     return ds
 
+
+# Two small series in a study of their own that a viewer cannot reformat. They share the picture of
+# the main series (and its frame of reference) but not its geometry.
+FALLBACK_STUDY = "study-fallback"
+FALLBACK_SLICES = 16
+TILT_DEGREES = 15.0
+NONUNIFORM_GAP_AFTER = 7
+TILTED_SERIES = "ct-tilted"
+NONUNIFORM_SERIES = "ct-nonuniform"
+FALLBACK_SERIES = (TILTED_SERIES, NONUNIFORM_SERIES)
+_FALLBACK_POSITIONS: dict[str, Callable[[CtSpec, int], Position]] = {
+    TILTED_SERIES: tilted_position,
+    NONUNIFORM_SERIES: nonuniform_position,
+}
 
 SERIES: tuple[tuple[str, int, UID], ...] = (
     ("ct-evrle", 1, ExplicitVRLittleEndian),
@@ -432,6 +476,26 @@ def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
             if transfer_syntax != ExplicitVRLittleEndian:
                 # Lossless, so the instance keeps its deterministic UID.
                 ds.compress(transfer_syntax, generate_instance_uid=False)
+            path = series_dir / f"{index + 1:04d}.dcm"
+            ds.save_as(path, enforce_file_format=True)
+            written.append(path)
+
+    fallback_spec = replace(spec, slices=FALLBACK_SLICES)
+    for number, series in enumerate(FALLBACK_SERIES, start=len(SERIES) + 1):
+        series_dir = out_dir / series
+        series_dir.mkdir(parents=True, exist_ok=True)
+        for stale in series_dir.glob("*.dcm"):
+            stale.unlink()
+        for index in range(fallback_spec.slices):
+            ds = ct_dataset(
+                fallback_spec,
+                index,
+                series,
+                number,
+                study=FALLBACK_STUDY,
+                position_of=_FALLBACK_POSITIONS[series],
+            )
+            ds.compress(JPEG2000Lossless, generate_instance_uid=False)
             path = series_dir / f"{index + 1:04d}.dcm"
             ds.save_as(path, enforce_file_format=True)
             written.append(path)

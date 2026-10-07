@@ -6,6 +6,8 @@ export type PrimaryTool =
   | 'pan'
   | 'zoom'
   | 'stack-scroll'
+  /** Click in one plane of a volume and the other planes go to that point. Needs two planes of one volume. */
+  | 'crosshairs'
   // Each one draws a measurement. The ids are the types of `Measurement`.
   | MeasurementType;
 
@@ -21,6 +23,7 @@ export const PRIMARY_TOOLS: readonly ToolInfo[] = [
   { id: 'pan', label: 'Pan', kind: 'view' },
   { id: 'zoom', label: 'Zoom', kind: 'view' },
   { id: 'stack-scroll', label: 'Scroll', kind: 'view' },
+  { id: 'crosshairs', label: 'Crosshairs', kind: 'view' },
   { id: 'length', label: 'Length', kind: 'measure' },
   { id: 'bidirectional', label: 'Bidirectional', kind: 'measure' },
   { id: 'ellipse', label: 'Ellipse', kind: 'measure' },

@@ -6,6 +6,8 @@ import { SERIES_DRAG_TYPE, seriesDragData } from './series-drag';
 import type { DvViewerElement, ViewerErrorDetail } from './viewer-element';
 
 const made: FakeViewer[] = [];
+/** Makes every series the fake source serves one that cannot be reformatted. */
+let tilted = false;
 
 vi.mock('@scope/viewer-core', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -22,6 +24,19 @@ vi.mock('@scope/viewer-core', async (importOriginal) => {
           ? {}
           : { hangingProtocols: options.hangingProtocols }),
       });
+      if (tilted) {
+        const original = fake.source.getSeries.bind(fake.source);
+        fake.source.getSeries = async (study, series) => {
+          const loaded = await original(study, series);
+          return {
+            ...loaded,
+            stacks: loaded.stacks.map((stack) => ({
+              ...stack,
+              reconstructable: { ok: false, reason: 'tilted' } as const,
+            })),
+          };
+        };
+      }
       made.push(fake);
       return fake.viewer;
     },
@@ -34,6 +49,7 @@ await import('./define');
 afterEach(() => {
   document.body.replaceChildren();
   made.length = 0;
+  tilted = false;
 });
 
 const options = (hangingProtocols?: readonly HangingProtocol[]): ViewerOptions => ({
@@ -292,5 +308,50 @@ describe('<dv-viewer> hanging protocols', () => {
     const fake = made[0];
     expect(fake?.viewer.getState().layout).toBe('1x1');
     expect(fake === undefined ? undefined : stateOf(fake, 'vp-0')).toBe(FAKE_IDS.ctTwoStacks);
+  });
+});
+
+describe('<dv-viewer> planes', () => {
+  const notice = (element: DvViewerElement, at: number): string | null | undefined =>
+    cells(element)[at]?.querySelector('.notice')?.textContent.trim();
+
+  async function withTiltedSeries(): Promise<{ element: DvViewerElement; fake: FakeViewer }> {
+    tilted = true;
+    return mount();
+  }
+
+  it('says in the viewport why it shows slices where a plane was asked for, and stops saying it', async () => {
+    const { element, fake } = await withTiltedSeries();
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks, { orientation: 'coronal' });
+    await settle(element);
+    expect(notice(element, 0)).toContain('lean against the direction they are stacked in');
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks);
+    await settle(element);
+    expect(notice(element, 0)).toBeUndefined();
+  });
+
+  it('has no notice for a plane that is drawn, or for slices nobody asked to reformat', async () => {
+    const { element, fake } = await mount();
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ct, { orientation: 'coronal' });
+    await settle(element);
+    expect(notice(element, 0)).toBeUndefined();
+  });
+
+  it('names the plane for a screen reader', async () => {
+    const { element, fake } = await mount();
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ct, { orientation: 'sagittal' });
+    await settle(element);
+    expect(element.querySelector('.dv-viewport')?.getAttribute('aria-label')).toContain(
+      'sagittal plane',
+    );
+  });
+
+  it('does not name a plane it could not draw', async () => {
+    const { element, fake } = await withTiltedSeries();
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks, { orientation: 'sagittal' });
+    await settle(element);
+    expect(element.querySelector('.dv-viewport')?.getAttribute('aria-label')).not.toContain(
+      'plane',
+    );
   });
 });

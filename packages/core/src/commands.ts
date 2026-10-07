@@ -30,7 +30,7 @@ export type CommandInput = Command | Command['run'];
 export interface CommandsApi {
   /**
    * Adds a command. The id has a namespace and a name, such as `acme.export`; the built-in ones are
-   * `tool`, `view`, `cine`, `layout`, and `preset`. Throws a `RangeError` for an id that is badly formed or
+   * `tool`, `view`, `cine`, `layout`, `mpr`, and `preset`. Throws a `RangeError` for an id that is badly formed or
    * taken. Returns what removes it again.
    */
   register(id: string, command: CommandInput): Unsubscribe;
@@ -160,6 +160,21 @@ function builtins(): Readonly<Record<string, Command>> {
       enabled: () => true,
       check: (args) => {
         parse(layoutArgs, 'layout.set', args);
+      },
+    },
+    'mpr.show': {
+      run: ({ viewer }) => viewer.showMpr(),
+      pressed: ({ viewer }) => {
+        const { layout, viewports } = viewer.getState();
+        return (
+          layout === '2x2' &&
+          ['axial', 'sagittal', 'coronal'].every(
+            (orientation, at) => viewports[at]?.orientation === orientation,
+          )
+        );
+      },
+      check: (args) => {
+        parse(noArgs, 'mpr.show', args);
       },
     },
     'preset.apply': {

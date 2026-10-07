@@ -8,8 +8,10 @@ import {
   getWebWorkerManager,
   imageLoader,
   RenderingEngine,
+  setVolumesForViewports,
   StackViewport,
   utilities as coreUtilities,
+  VolumeViewport,
 } from '@cornerstonejs/core';
 import {
   Enums as MetadataEnums,
@@ -23,6 +25,7 @@ import {
   type PixelSlice,
   type RenderingPort,
   type RenderStackOptions,
+  type RenderVolumeOptions,
   type SegmentationHandle,
   type StackPort,
   type ViewSnapshot,
@@ -40,11 +43,20 @@ import {
 } from './segmentation';
 import { readSegmentationHeader } from './segmentation-header';
 import { trackMeasurements, type StackMeasurements } from './measurements';
-import { attachStackTools, type StackTools } from './tools';
+import { attachStackTools, attachVolumeTools, type StackTools } from './tools';
+import {
+  acquireVolume,
+  releaseVolume,
+  volumesHeld,
+  windowOfLoadedRange,
+  windowOfStack,
+} from './volume';
 
 export interface EngineOptions extends RuntimeOptions {
   /** Applies the host's headers and token refresh to the frames the loader fetches. */
   readonly frameRequests?: FrameRequestPolicy | undefined;
+  /** How much the image and volume cache may hold. Cornerstone drops the images least used when it is full. */
+  readonly maxCacheBytes?: number | undefined;
 }
 
 let engineCount = 0;
@@ -93,7 +105,13 @@ function releaseImages(imageIds: readonly string[]): void {
     imageUsers.delete(imageId);
     dropped.add(imageId);
     // Only slices that were actually loaded are in the cache; removing any other throws.
-    if (cache.getImageLoadObject(imageId) !== undefined) cache.removeImageLoadObject(imageId);
+    // The images of a volume share its buffer, and go with it.
+    if (
+      cache.getImageLoadObject(imageId) !== undefined &&
+      cache.getVolumeContainingImageId(imageId) === undefined
+    ) {
+      cache.removeImageLoadObject(imageId);
+    }
     metaData.clearQuery(MetadataEnums.MetadataModules.NATURALIZED, imageId);
   }
   if (dropped.size === 0) return;
@@ -126,6 +144,7 @@ provideEngineDiagnostics(() => {
     ),
     activeEngines: activeViewers(),
     imagesInUse: imageUsers.size,
+    volumes: volumesHeld(),
     annotations: annotationApi.state.getAllAnnotations().length,
     segmentations: segmentationsHeld(),
   };
@@ -133,6 +152,7 @@ provideEngineDiagnostics(() => {
 
 export async function createEngine(options: EngineOptions): Promise<RenderingPort> {
   await acquireRuntime(options);
+  if (options.maxCacheBytes !== undefined) cache.setMaxCacheSize(options.maxCacheBytes);
   // From here the runtime counts this engine, so everything below must end in a release.
   let renderingEngine: RenderingEngine;
   let unregisterFrameRequests: (() => void) | undefined;
@@ -400,6 +420,204 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     }
   }
 
+  /** The orientation Cornerstone calls each plane. */
+  const ORIENTATIONS = {
+    axial: Enums.OrientationAxis.AXIAL,
+    sagittal: Enums.OrientationAxis.SAGITTAL,
+    coronal: Enums.OrientationAxis.CORONAL,
+  } as const;
+
+  async function setUpVolume(
+    element: HTMLElement,
+    stack: SeriesStack,
+    renderOptions: RenderVolumeOptions,
+  ): Promise<StackPort> {
+    assertNotDestroyed();
+    // A volume is drawn with WebGL, and the CPU renderer has none.
+    if (options.cpuRendering === true) {
+      throw new VolumeUnsupportedError('Reformatted planes need WebGL, and CPU rendering is on.');
+    }
+    claimImages(stack.imageIds);
+    let viewportId: string | undefined;
+    let volumeId: string | undefined;
+    let tools: StackTools | undefined;
+    let segmentations: StackSegmentations | undefined;
+    let stopContextMenu: (() => void) | undefined;
+    const stopAll = (): void => {
+      stopContextMenu?.();
+      segmentations?.destroy();
+      tools?.detach();
+      if (viewportId !== undefined) renderingEngine.disableElement(viewportId);
+      if (volumeId !== undefined) releaseVolume(volumeId);
+      releaseImages(stack.imageIds);
+    };
+    try {
+      await Promise.all(stack.instances.map(registerInstance));
+      assertNotDestroyed();
+      viewportCount += 1;
+      viewportId = `${renderingEngineId}-vp-${viewportCount.toString()}`;
+      renderingEngine.enableElement({
+        viewportId,
+        type: Enums.ViewportType.ORTHOGRAPHIC,
+        element: element as HTMLDivElement,
+        defaultOptions: {
+          orientation: ORIENTATIONS[renderOptions.orientation],
+          background: [0, 0, 0],
+        },
+      });
+      const viewport = renderingEngine.getViewport(viewportId);
+      if (!(viewport instanceof VolumeViewport)) {
+        throw new Error(`Expected a volume viewport for ${viewportId}.`);
+      }
+      const acquired = acquireVolume(stack);
+      volumeId = acquired.id;
+      const volume = await acquired.volume;
+      assertNotDestroyed();
+      await setVolumesForViewports(renderingEngine, [{ volumeId: acquired.id }], [viewportId]);
+      assertNotDestroyed();
+
+      // The images ask for a window; without one, the range of the pixels, once they are in.
+      let defaultWindow = windowOfStack(stack);
+      defaultWindow ??= await windowOfLoadedRange(volume, acquired.id);
+      const startWindow = defaultWindow;
+      const applyWindow = (window: WindowLevel): void => {
+        viewport.setProperties({
+          voiRange: {
+            lower: window.center - window.width / 2,
+            upper: window.center + window.width / 2,
+          },
+        });
+      };
+      applyWindow(startWindow);
+      if (renderOptions.imageIndex !== undefined) {
+        const last = viewport.getNumberOfSlices() - 1;
+        const wanted = Math.min(Math.max(0, Math.trunc(renderOptions.imageIndex)), last);
+        await coreUtilities.jumpToSlice(element as HTMLDivElement, { imageIndex: wanted });
+      }
+      viewport.render();
+      tools = attachVolumeTools(
+        renderingEngineId,
+        viewportId,
+        acquired.id,
+        renderOptions.orientation,
+      );
+      segmentations = trackSegmentations({
+        viewportId,
+        imageIds: stack.imageIds,
+        volumeId: acquired.id,
+      });
+      const blockMenu = (event: Event): void => {
+        event.preventDefault();
+      };
+      element.addEventListener('contextmenu', blockMenu);
+      stopContextMenu = (): void => {
+        element.removeEventListener('contextmenu', blockMenu);
+      };
+
+      const readWindow = (): WindowLevel => {
+        const range = viewport.getProperties()?.voiRange;
+        return range === undefined
+          ? startWindow
+          : {
+              center: (range.upper + range.lower) / 2,
+              width: Math.max(range.upper - range.lower, 1),
+            };
+      };
+      const getView = (): ViewSnapshot => ({
+        window: readWindow(),
+        defaultWindow: startWindow,
+        invert: viewport.getProperties()?.invert ?? false,
+        zoom: viewport.getZoom(),
+      });
+      const enabledViewportId = viewportId;
+      const heldVolumeId = acquired.id;
+      let planeDestroyed = false;
+      const viewListeners = new Set<(view: ViewSnapshot) => void>();
+      const notPixels = (): Promise<never> =>
+        Promise.reject(
+          new Error('Pixels are read from the stack of slices, not from a reformatted plane.'),
+        );
+      return {
+        imageCount: viewport.getNumberOfSlices(),
+        getImageIndex: () => viewport.getSliceIndex(),
+        async setImageIndex(index): Promise<void> {
+          await coreUtilities.jumpToSlice(element as HTMLDivElement, { imageIndex: index });
+        },
+        onImageChange(listener): () => void {
+          const handler = (event: Event): void => {
+            listener((event as CustomEvent<{ imageIndex: number }>).detail.imageIndex);
+          };
+          element.addEventListener(Enums.Events.VOLUME_NEW_IMAGE, handler);
+          return (): void => {
+            element.removeEventListener(Enums.Events.VOLUME_NEW_IMAGE, handler);
+          };
+        },
+        getView,
+        setWindow(window): void {
+          applyWindow(window);
+          viewport.render();
+        },
+        setPrimaryTool(tool): void {
+          tools?.setPrimary(tool);
+        },
+        setInvert(invert): void {
+          viewport.setProperties({ invert });
+          viewport.render();
+          for (const listener of viewListeners) listener(getView());
+        },
+        setZoom(zoom): void {
+          viewport.setZoom(zoom);
+          viewport.render();
+        },
+        resetView(): void {
+          applyWindow(startWindow);
+          viewport.setProperties({ invert: false });
+          viewport.resetCamera({ resetPan: true, resetZoom: true });
+          viewport.render();
+        },
+        onViewChange(listener): () => void {
+          const handler = (): void => {
+            listener(getView());
+          };
+          element.addEventListener(Enums.Events.VOI_MODIFIED, handler);
+          element.addEventListener(Enums.Events.CAMERA_MODIFIED, handler);
+          viewListeners.add(listener);
+          return (): void => {
+            element.removeEventListener(Enums.Events.VOI_MODIFIED, handler);
+            element.removeEventListener(Enums.Events.CAMERA_MODIFIED, handler);
+            viewListeners.delete(listener);
+          };
+        },
+        sampleHu: notPixels,
+        readSlice: notPixels,
+        // Shapes are drawn on stacks of slices; a plane ignores them. A SEG is drawn on both.
+        addMeasurement: () => undefined,
+        updateMeasurement: () => undefined,
+        removeMeasurement: () => undefined,
+        selectMeasurement: () => undefined,
+        onMeasurementChange: () => (): void => undefined,
+        drawSegmentation: (handle, display) => segmentations?.draw(handle, display) ?? false,
+        hideSegmentation: (handle) => {
+          segmentations?.hide(handle);
+        },
+        destroy(): void {
+          if (planeDestroyed) return;
+          planeDestroyed = true;
+          stopContextMenu?.();
+          segmentations?.destroy();
+          tools?.detach();
+          renderingEngine.disableElement(enabledViewportId);
+          releaseVolume(heldVolumeId);
+          releaseImages(stack.imageIds);
+        },
+      };
+    } catch (error) {
+      // A plane that failed to come up must not keep what it claimed.
+      stopAll();
+      throw error;
+    }
+  }
+
   async function drawThumbnail(
     stack: SeriesStack,
     imageIndex: number,
@@ -449,8 +667,14 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       render.then(done, done);
       return render;
     },
-    renderVolume(): Promise<StackPort> {
-      return Promise.reject(new VolumeUnsupportedError('Volumes are not drawn yet.'));
+    renderVolume(element, stack, renderOptions): Promise<StackPort> {
+      const render = setUpVolume(element, stack, renderOptions);
+      pending.add(render);
+      const done = (): void => {
+        pending.delete(render);
+      };
+      render.then(done, done);
+      return render;
     },
     readSegmentationHeader,
     async loadSegmentation(stack, bytes, header): Promise<SegmentationHandle> {

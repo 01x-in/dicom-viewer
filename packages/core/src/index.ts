@@ -38,6 +38,13 @@ export type {
   HangingViewport,
   SeriesRule,
 } from './hanging';
+export {
+  decideMpr,
+  describeFallback,
+  isMprOrientation,
+  MPR_ORIENTATIONS,
+} from './mpr';
+export type { MprDecision, MprFallbackReason, MprOrientation } from './mpr';
 export { isLayout, LAYOUTS, layoutCells, layoutViewportIds } from './layouts';
 export type { LayoutCell, LayoutCells, LayoutId } from './layouts';
 export { createEmitter } from './state/events';
@@ -165,6 +172,8 @@ export type { ParsedViewerConfig } from './config/schema';
 export type {
   ConfigApi,
   HangingProtocolsApi,
+  ShowMprOptions,
+  ViewportMprInfo,
   NavigateResult,
   NavigateTarget,
   SetViewportSeriesOptions,
