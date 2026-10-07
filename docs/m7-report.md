@@ -25,8 +25,8 @@
 
 ## Verification
 
-- Format, lint, and typecheck are clean (`pnpm typecheck`, as CI runs it). The repository has MORE_TESTS unit tests (1,251 at the end of M6.6) and the phantom's 28 Python tests (24 before).
-- `pnpm matrix` (all variants, `inline` and `url`): MATRIX_ROWS rows.
+- Format, lint, and typecheck are clean (`pnpm typecheck`, as CI runs it). The repository has 1,496 unit tests (1,251 at the end of M6.6) and the phantom's 28 Python tests (24 before).
+- `pnpm matrix` (all variants, `inline` and `url`): 64 rows; 58 pass. The other six fail the same way on `main` on this machine: five are a favicon 404 that the full Chromium used here requests (the CI's headless shell does not), and one is the two-layer SEG colour check in `url` mode (`overlap: the disc alone is 94,154,101`), which `main` fails identically.
 - The matrix has new scenarios `mpr` and `mpr fallback` for `headless`, and the `shell` scenario of every framework now opens the Layout menu, drags a series, shows the planes, and runs axe with four viewports and with three planes on screen. The `lifecycle` scenario runs 20 cycles of a viewer with three planes and a SEG; it checks the engine's own counters, which now include volumes.
 - The `segmentation budget` scenario (512 × 512 × 300, 100 segments, 3 s) takes about 6.5 s on the machine this milestone was built on, with or without M7: the same scenario on `main` takes 6.5 s and 7.2 s there. It was run with `DV_SEG_BUDGET_MS=20000`. The 2.1 s of the M6 report was another machine.
 
