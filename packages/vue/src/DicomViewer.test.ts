@@ -299,6 +299,8 @@ describe('panels and composables', () => {
       { 'panel-notes': () => h(Probe), 'panel-plain': () => h(Probe) },
     );
     const byId = new Map(made[0]?.viewer.ui.panels().map((panel) => [panel.id, panel.icon]));
+    // Both are registered: `Map.get` is `undefined` for a missing key too, so check the keys first.
+    expect([...byId.keys()]).toEqual(['notes', 'plain']);
     expect(byId.get('notes')).toBe('series');
     expect(byId.get('plain')).toBeUndefined();
   });
