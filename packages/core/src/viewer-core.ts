@@ -1,5 +1,17 @@
-import type { DataSource, LoadedSeriesData, SeriesStack, StudyData } from './data/types';
+import type {
+  DataSource,
+  LoadedSeriesData,
+  SeriesStack,
+  SeriesSummary,
+  StudyData,
+} from './data/types';
 import { assertDicomUid } from './data/uid';
+import {
+  type HangingMatch,
+  type HangingProtocol,
+  matchHangingProtocol,
+  parseHangingProtocols,
+} from './hanging';
 import { assertLayout, type LayoutId, layoutViewportIds } from './layouts';
 import type { RenderingPort, StackPort, ViewSnapshot, WindowLevel } from './rendering-port';
 import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
@@ -202,6 +214,22 @@ export interface ToolsApi {
   shortcuts(): readonly { readonly chord: string; readonly action: KeyAction }[];
 }
 
+/** How the study on screen can be hung: a layout, and a series for each viewport. */
+export interface HangingProtocolsApi {
+  /** The protocols the host gave, in order. Empty by default. */
+  list(): readonly HangingProtocol[];
+  /** The protocol that fits the current study best, or `undefined`. Changes nothing. */
+  match(): HangingMatch | undefined;
+  /**
+   * Sets the layout and shows a series in each viewport. Without an id it uses the best fit; with
+   * one, that protocol. A series that has no pictures is skipped for the next that fits. Resolves to
+   * what was applied, or `undefined` when nothing fits (the viewer is left as it was). Rejects with
+   * a `RangeError` for an unknown id, and with an `Error` before a study is loaded or when every
+   * series that fits fails to open.
+   */
+  apply(protocolId?: string): Promise<HangingMatch | undefined>;
+}
+
 export interface Viewer {
   /** Resolves once the engine is ready. Rejects if it cannot start. */
   readonly ready: Promise<void>;
@@ -221,6 +249,8 @@ export interface Viewer {
   readonly segmentations: SegmentationsApi;
   /** The settings in force, and layers to put over them. */
   readonly config: ConfigApi;
+  /** Layouts and series chosen by rule, for a host that wants a study to open the way a reader expects. */
+  readonly hangingProtocols: HangingProtocolsApi;
   /** Named things the viewer can do: for a config, a toolbar button, or a host's own code. */
   readonly commands: CommandsApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
@@ -284,6 +314,12 @@ export interface ViewerCoreOptions {
   readonly commands?: Readonly<Record<string, CommandInput>>;
   /** A state to restore, for example one decoded from the URL. It is validated. */
   readonly initialState?: ViewerStateV1;
+  /**
+   * Rules for how to hang a study (`DEFAULT_HANGING_PROTOCOLS` is a start). Plain data, validated
+   * when the viewer is made. None by default: nothing is applied by itself, a host or the shell
+   * calls `viewer.hangingProtocols.apply()`.
+   */
+  readonly hangingProtocols?: readonly HangingProtocol[];
   readonly tools?: {
     /** The tool the left mouse button drives at the start. Default: window / level. */
     readonly active?: PrimaryTool;
@@ -1027,14 +1063,116 @@ export function createViewerCore(
       return Promise.reject(toError(error));
     }
     return enqueue(() => {
-      store.update((state) => {
-        if (state.layout === layout) return {};
-        return { layout, viewports: fitToLayout(state.viewports, layout) };
-      }, 'api');
-      dropRemovedViewports();
+      applyLayoutNow(layout);
       return Promise.resolve();
     });
   }
+
+  /** Changes the layout. Runs inside the queue. */
+  function applyLayoutNow(layout: LayoutId): void {
+    store.update((state) => {
+      if (state.layout === layout) return {};
+      return { layout, viewports: fitToLayout(state.viewports, layout) };
+    }, 'api');
+    dropRemovedViewports();
+  }
+
+  const protocols = parseHangingProtocols(options.hangingProtocols ?? []);
+
+  function matchNow(
+    candidates: readonly SeriesSummary[],
+    only?: HangingProtocol,
+  ): HangingMatch | undefined {
+    return matchHangingProtocol(only === undefined ? protocols : [only], candidates);
+  }
+
+  /** Hangs the study: finds a protocol whose series can all be opened, then shows it. Runs inside the queue. */
+  async function applyHangingNow(
+    protocolId: string | undefined,
+  ): Promise<HangingMatch | undefined> {
+    const only =
+      protocolId === undefined
+        ? undefined
+        : protocols.find((candidate) => candidate.id === protocolId);
+    if (protocolId !== undefined && only === undefined) {
+      throw new RangeError(`There is no hanging protocol "${protocolId}".`);
+    }
+    const { studyInstanceUID } = store.getState();
+    const loaded = study;
+    if (studyInstanceUID === undefined || loaded?.studyInstanceUID !== studyInstanceUID) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    let candidates = loaded.series;
+    let lastFailure: Error | undefined;
+    for (;;) {
+      const match = matchNow(candidates, only);
+      if (match === undefined) {
+        if (lastFailure !== undefined) throw lastFailure;
+        return undefined;
+      }
+      // Open every series first, so a protocol is never half applied.
+      const failed = new Set<string>();
+      for (const { seriesInstanceUID } of match.assignments) {
+        try {
+          const data = await getSeries(studyInstanceUID, seriesInstanceUID);
+          assertAlive();
+          if (data.stacks.length === 0) {
+            throw new Error(
+              `Series ${seriesInstanceUID} (${data.modality}) has no images to display.`,
+            );
+          }
+        } catch (error) {
+          assertAlive();
+          failed.add(seriesInstanceUID);
+          lastFailure = toError(error);
+        }
+      }
+      if (failed.size > 0) {
+        candidates = candidates.filter((entry) => !failed.has(entry.seriesInstanceUID));
+        continue;
+      }
+      applyLayoutNow(match.protocol.layout);
+      for (const id of layoutViewportIds(match.protocol.layout)) {
+        const assigned = match.assignments.find((entry) => entry.viewportId === id);
+        if (assigned === undefined) {
+          updateViewport(
+            id,
+            {
+              seriesInstanceUID: undefined,
+              stackIndex: undefined,
+              imageIndex: undefined,
+              window: undefined,
+              invert: undefined,
+              zoom: undefined,
+            },
+            'api',
+          );
+          await syncViewport(id);
+        } else {
+          await applySeries(id, assigned.seriesInstanceUID, {});
+        }
+      }
+      return match;
+    }
+  }
+
+  const hangingProtocols: HangingProtocolsApi = {
+    list: () => protocols,
+    match: () => {
+      const loaded = study;
+      return loaded === undefined || loaded.studyInstanceUID !== store.getState().studyInstanceUID
+        ? undefined
+        : matchNow(loaded.series);
+    },
+    apply(protocolId): Promise<HangingMatch | undefined> {
+      try {
+        assertAlive();
+      } catch (error) {
+        return Promise.reject(toError(error));
+      }
+      return enqueue(() => applyHangingNow(protocolId));
+    },
+  };
 
   async function loadStudy(studyInstanceUID: string): Promise<StudyData> {
     assertAlive();
@@ -1494,6 +1632,7 @@ export function createViewerCore(
     measurements: measurements.api,
     segmentations: segmentations.api,
     config: configApi,
+    hangingProtocols,
     commands,
     ui: {
       registerPanel(panel): Unsubscribe {

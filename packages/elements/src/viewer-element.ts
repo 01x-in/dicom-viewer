@@ -762,8 +762,10 @@ export class DvViewerElement extends LitElement {
           await viewer.setViewportSeries('vp-0', this.seriesInstanceUid);
         }
       } else if (showing?.seriesInstanceUID === undefined) {
-        // Nothing asked for and nothing restored.
-        await this.#showFirstPictureSeries(viewer, generation);
+        // Nothing asked for and nothing restored: the host's protocols hang the study, else the first picture shows.
+        if (!(await this.#hang(viewer))) {
+          await this.#showFirstPictureSeries(viewer, generation);
+        }
       }
       if (generation !== this.#generation) return;
       this.#refreshLabels(false);
@@ -788,6 +790,17 @@ export class DvViewerElement extends LitElement {
   #shownViewport(viewer: Viewer): ViewportApi | undefined {
     const viewport = viewer.viewports.get('vp-0');
     return viewport?.series === undefined ? undefined : viewport;
+  }
+
+  /** Hangs the study with the host's hanging protocols. `false` when there are none, none fits, or none could be opened. */
+  async #hang(viewer: Viewer): Promise<boolean> {
+    if (viewer.hangingProtocols.list().length === 0) return false;
+    try {
+      return (await viewer.hangingProtocols.apply()) !== undefined;
+    } catch {
+      // The first picture series is tried next, and reports its own failure.
+      return false;
+    }
   }
 
   /**

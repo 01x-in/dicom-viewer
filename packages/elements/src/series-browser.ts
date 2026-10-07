@@ -1,4 +1,8 @@
-import type { SeriesSummary, Viewer } from '@scope/viewer-core';
+import {
+  isDisplayableModality as coreIsDisplayableModality,
+  type SeriesSummary,
+  type Viewer,
+} from '@scope/viewer-core';
 import {
   css,
   type CSSResultGroup,
@@ -13,11 +17,9 @@ import { SERIES_DRAG_TYPE, seriesDragData } from './series-drag';
 import { nextFocusIndex } from './toolbar-config';
 import { baseStyles, themeStyles } from './theme';
 
-/** Modalities that hold no picture to show, so they cannot be put in a viewport. */
-const NOT_IMAGES: ReadonlySet<string> = new Set(['SEG', 'SR', 'KO', 'PR', 'DOC', 'REG', 'RWV']);
-
+/** Whether a series of this modality has pictures that can be put in a viewport. */
 export function isDisplayableModality(modality: string): boolean {
-  return !NOT_IMAGES.has(modality);
+  return coreIsDisplayableModality(modality);
 }
 
 /** What a row says about its series. Pure, so the wording is tested without a DOM. */

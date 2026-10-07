@@ -31,6 +31,9 @@ export function createViewer(options: ViewerOptions): Viewer {
       ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
       ...(options.config === undefined ? {} : { config: options.config }),
       ...(options.commands === undefined ? {} : { commands: options.commands }),
+      ...(options.hangingProtocols === undefined
+        ? {}
+        : { hangingProtocols: options.hangingProtocols }),
       ...(options.prefetch === undefined ? {} : { prefetch: options.prefetch }),
       ...(options.overlay === undefined ? {} : { overlay: options.overlay }),
       ...(options.keybindings === undefined ? {} : { keybindings: options.keybindings }),

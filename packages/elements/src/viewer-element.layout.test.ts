@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@scope/viewer-core/testing';
-import type { ViewerOptions, ViewerStateV1 } from '@scope/viewer-core';
+import type { HangingProtocol, ViewerOptions, ViewerStateV1 } from '@scope/viewer-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SERIES_DRAG_TYPE, seriesDragData } from './series-drag';
 import type { DvViewerElement, ViewerErrorDetail } from './viewer-element';
@@ -12,10 +12,16 @@ vi.mock('@scope/viewer-core', async (importOriginal) => {
   const { createFakeViewer: make } = await import('@scope/viewer-core/testing');
   return {
     ...actual,
-    createViewer: (options: { initialState?: ViewerStateV1 }): unknown => {
-      const fake = make(
-        options.initialState === undefined ? {} : { initialState: options.initialState },
-      );
+    createViewer: (options: {
+      initialState?: ViewerStateV1;
+      hangingProtocols?: readonly HangingProtocol[];
+    }): unknown => {
+      const fake = make({
+        ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
+        ...(options.hangingProtocols === undefined
+          ? {}
+          : { hangingProtocols: options.hangingProtocols }),
+      });
       made.push(fake);
       return fake.viewer;
     },
@@ -30,7 +36,10 @@ afterEach(() => {
   made.length = 0;
 });
 
-const options = (): ViewerOptions => ({ dataSource: createFakeViewer().source });
+const options = (hangingProtocols?: readonly HangingProtocol[]): ViewerOptions => ({
+  dataSource: createFakeViewer().source,
+  ...(hangingProtocols === undefined ? {} : { hangingProtocols }),
+});
 
 const settle = async (element: DvViewerElement): Promise<void> => {
   for (let turn = 0; turn < 6; turn += 1) {
@@ -39,10 +48,16 @@ const settle = async (element: DvViewerElement): Promise<void> => {
   }
 };
 
-async function mount(): Promise<{ element: DvViewerElement; fake: FakeViewer }> {
+async function mount(
+  hangingProtocols?: readonly HangingProtocol[],
+  initialState?: ViewerStateV1,
+): Promise<{ element: DvViewerElement; fake: FakeViewer }> {
   const element = document.createElement('dv-viewer') as DvViewerElement;
   document.body.append(element);
-  element.options = options();
+  element.options = {
+    ...options(hangingProtocols),
+    ...(initialState === undefined ? {} : { initialState }),
+  };
   element.studyInstanceUid = FAKE_IDS.study;
   await settle(element);
   const fake = made[0];
@@ -215,5 +230,67 @@ describe('<dv-viewer> drop of a series', () => {
     first?.dispatchEvent(drag('drop', seriesDragData(FAKE_IDS.study, FAKE_IDS.ctTwoStacks)));
     await settle(element);
     expect(stateOf(fake, 'vp-0')).toBe(FAKE_IDS.ctTwoStacks);
+  });
+});
+
+describe('<dv-viewer> hanging protocols', () => {
+  const pair: HangingProtocol = {
+    id: 'pair',
+    layout: '1x2',
+    viewports: [
+      { id: 'vp-0', series: {} },
+      { id: 'vp-1', series: {} },
+    ],
+  };
+
+  it('hangs the study with the protocol that fits, and draws each viewport', async () => {
+    const { element, fake } = await mount([pair]);
+    expect(fake.viewer.getState().layout).toBe('1x2');
+    expect(viewportIds(element)).toEqual(['vp-0', 'vp-1']);
+    expect(stateOf(fake, 'vp-0')).toBe(FAKE_IDS.ct);
+    expect(stateOf(fake, 'vp-1')).toBe(FAKE_IDS.ctTwoStacks);
+    expect(fake.viewer.viewports.get('vp-1')?.series?.seriesInstanceUID).toBe(FAKE_IDS.ctTwoStacks);
+  });
+
+  it('does nothing of the kind when the host gave no protocols: one viewport, the first picture series', async () => {
+    const { element, fake } = await mount();
+    expect(fake.viewer.getState().layout).toBe('1x1');
+    expect(viewportIds(element)).toEqual(['vp-0']);
+    expect(stateOf(fake, 'vp-0')).toBe(FAKE_IDS.ct);
+  });
+
+  it('leaves a restored state alone, since the person chose it', async () => {
+    const restored: ViewerStateV1 = {
+      version: 1,
+      layout: '1x1',
+      studyInstanceUID: FAKE_IDS.study,
+      viewports: [{ id: 'vp-0', seriesInstanceUID: FAKE_IDS.ctTwoStacks }],
+    };
+    const { fake } = await mount([pair], restored);
+    expect(fake.viewer.getState().layout).toBe('1x1');
+    expect(stateOf(fake, 'vp-0')).toBe(FAKE_IDS.ctTwoStacks);
+  });
+
+  it('falls back to the first picture series when no protocol fits', async () => {
+    const needsMr: HangingProtocol = {
+      id: 'needs-mr',
+      layout: '1x2',
+      viewports: [{ id: 'vp-0', series: { modality: 'MR' } }],
+    };
+    const { fake } = await mount([needsMr]);
+    expect(fake.viewer.getState().layout).toBe('1x1');
+    expect(stateOf(fake, 'vp-0')).toBe(FAKE_IDS.ct);
+  });
+
+  it('shows the series it is asked for, whatever the protocols say', async () => {
+    const element = document.createElement('dv-viewer') as DvViewerElement;
+    document.body.append(element);
+    element.options = options([pair]);
+    element.studyInstanceUid = FAKE_IDS.study;
+    element.seriesInstanceUid = FAKE_IDS.ctTwoStacks;
+    await settle(element);
+    const fake = made[0];
+    expect(fake?.viewer.getState().layout).toBe('1x1');
+    expect(fake === undefined ? undefined : stateOf(fake, 'vp-0')).toBe(FAKE_IDS.ctTwoStacks);
   });
 });

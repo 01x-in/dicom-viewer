@@ -25,6 +25,19 @@ export {
   isBrowserEnvironment,
 } from './environment';
 export type { ViewSnapshot, WindowLevel } from './rendering-port';
+export {
+  DEFAULT_HANGING_PROTOCOLS,
+  isDisplayableModality,
+  matchHangingProtocol,
+  parseHangingProtocols,
+} from './hanging';
+export type {
+  HangingAssignment,
+  HangingMatch,
+  HangingProtocol,
+  HangingViewport,
+  SeriesRule,
+} from './hanging';
 export { isLayout, LAYOUTS, layoutCells, layoutViewportIds } from './layouts';
 export type { LayoutCell, LayoutCells, LayoutId } from './layouts';
 export { createEmitter } from './state/events';
@@ -151,6 +164,7 @@ export type { Command, CommandContext, CommandInput, CommandsApi } from './comma
 export type { ParsedViewerConfig } from './config/schema';
 export type {
   ConfigApi,
+  HangingProtocolsApi,
   NavigateResult,
   NavigateTarget,
   SetViewportSeriesOptions,
