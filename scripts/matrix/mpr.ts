@@ -328,6 +328,11 @@ export async function scenarioMpr(browser: Browser, input: HeadlessInput): Promi
     if (segmentation === undefined) {
       failures.push('the phantom has no seg-body-bone');
     } else {
+      // The crosshair click moved the sagittal and coronal planes; the bone insert is in the middle ones.
+      await page.evaluate(async () => {
+        await window.__dvViewer?.viewports.get('vp-1')?.setImageIndex(64);
+        await window.__dvViewer?.viewports.get('vp-2')?.setImageIndex(64);
+      });
       await page.evaluate(
         (uid) => window.__dvViewer?.segmentations.load(uid),
         segmentation.seriesUid,

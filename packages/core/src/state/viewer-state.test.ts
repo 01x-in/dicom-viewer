@@ -154,11 +154,11 @@ describe('viewStatePatch', () => {
     const patch = viewStatePatch(state);
     expect(patch.layout).toBe('1x2');
     expect(patch).not.toHaveProperty('studyInstanceUID');
-    expect(patch.viewports?.map((viewport) => viewport.id)).toEqual(['vp-0', 'vp-1']);
+    expect(patch.viewports.map((viewport) => viewport.id)).toEqual(['vp-0', 'vp-1']);
   });
 
   it('names every field of a viewport, so one the state leaves out is cleared', () => {
-    const [first, second] = viewStatePatch(state).viewports ?? [];
+    const [first, second] = viewStatePatch(state).viewports;
     expect(first).toEqual({
       id: 'vp-0',
       seriesInstanceUID: '1.2.3.4',

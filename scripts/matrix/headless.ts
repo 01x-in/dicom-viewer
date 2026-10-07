@@ -88,8 +88,10 @@ async function scenarioDicomWeb(browser: Browser, input: HeadlessInput): Promise
         disabled: (node as HTMLButtonElement).disabled,
       })),
     );
-    // The study has the two CT series and every SEG of the phantom.
-    const seriesInStudy = input.mock.fixtures.series.length;
+    // The study has the two CT series and every SEG of the phantom (the other study has the series that cannot be reformatted).
+    const seriesInStudy = input.mock.fixtures.series.filter(
+      (item) => item.studyUid === input.studyUid,
+    ).length;
     if (buttons.length !== seriesInStudy)
       failures.push(
         `expected ${seriesInStudy.toString()} series in the list, got ${buttons.length.toString()}`,

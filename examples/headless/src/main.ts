@@ -190,12 +190,16 @@ function scheduleAddressUpdate(current: Viewer): void {
   }, 200);
 }
 
-/** The state with a `vp-1` in it, keeping everything a restored link said. */
+/** The state in a layout with a `vp-1`, keeping everything a restored link said. */
 function withSecondViewport(state: ViewerStateV1 | undefined): ViewerStateV1 {
   const base: ViewerStateV1 = state ?? { version: 1, layout: '1x1', viewports: [{ id: 'vp-0' }] };
   return base.viewports.some((viewport) => viewport.id === 'vp-1')
     ? base
-    : { ...base, viewports: [...base.viewports, { id: 'vp-1' }] };
+    : {
+        ...base,
+        layout: '1x2',
+        viewports: [...base.viewports, { id: 'vp-1' }],
+      };
 }
 
 /** Starts a viewer on `dataSource`, restores what the link says, and wires the page to it. */
