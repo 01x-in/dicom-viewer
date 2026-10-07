@@ -1,5 +1,6 @@
 import type { DataSource, LoadedSeriesData, SeriesStack, StudyData } from './data/types';
 import { assertDicomUid } from './data/uid';
+import { assertLayout, type LayoutId, layoutViewportIds } from './layouts';
 import type { RenderingPort, StackPort, ViewSnapshot, WindowLevel } from './rendering-port';
 import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
@@ -94,6 +95,8 @@ export interface ViewerEvents extends MeasurementEvents, SegmentationEvents {
 /** Fields to change. Viewports are matched by id; a field you leave out stays as it is. */
 export interface ViewerStatePatch {
   readonly studyInstanceUID?: string;
+  /** Changes which viewports there are. Those the new layout keeps stay as they are; new ones start empty. */
+  readonly layout?: LayoutId;
   readonly viewports?: readonly ViewportStateV1[];
 }
 
@@ -222,6 +225,13 @@ export interface Viewer {
    * series does not have the instance.
    */
   navigateTo(target: NavigateTarget): Promise<NavigateResult>;
+  /**
+   * Changes the layout: `1x1`, `1x2` (a row of two), `2x2`, or `1+3` (one large, three small). A
+   * viewport that the new layout also has (`vp-0` always) keeps what it shows; new ones start empty;
+   * the others stop drawing and are dropped from the state, so going back to a bigger layout shows
+   * them empty. Rejects with a `RangeError` for any other value.
+   */
+  setLayout(layout: LayoutId): Promise<void>;
   getState(): ViewerStateV1;
   /** Applies a patch and resolves once everything it asks for is displayed. Rejects if the result is not a valid state. */
   setState(patch: ViewerStatePatch, options?: { readonly origin?: 'api' | 'url' }): Promise<void>;
@@ -979,6 +989,40 @@ export function createViewerCore(
     return state.viewports.map((viewport) => ({ id: viewport.id }));
   }
 
+  /** The viewports of a layout: the ones already there are kept, and the rest start empty. */
+  function fitToLayout(
+    current: readonly ViewportStateV1[],
+    layout: LayoutId,
+  ): readonly ViewportStateV1[] {
+    return layoutViewportIds(layout).map(
+      (id) => current.find((viewport) => viewport.id === id) ?? { id },
+    );
+  }
+
+  /** Stops drawing the viewports that are not in the state any more. */
+  function dropRemovedViewports(): void {
+    for (const runtime of runtimes.values()) {
+      if (viewportState(runtime.id) === undefined) teardown(runtime);
+    }
+  }
+
+  function setLayout(layout: LayoutId): Promise<void> {
+    try {
+      assertAlive();
+      assertLayout(layout);
+    } catch (error) {
+      return Promise.reject(toError(error));
+    }
+    return enqueue(() => {
+      store.update((state) => {
+        if (state.layout === layout) return {};
+        return { layout, viewports: fitToLayout(state.viewports, layout) };
+      }, 'api');
+      dropRemovedViewports();
+      return Promise.resolve();
+    });
+  }
+
   async function loadStudy(studyInstanceUID: string): Promise<StudyData> {
     assertAlive();
     assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
@@ -1136,7 +1180,9 @@ export function createViewerCore(
       const current = store.getState();
       const studyChanged =
         patch.studyInstanceUID !== undefined && patch.studyInstanceUID !== current.studyInstanceUID;
-      const base = studyChanged ? emptyViewports(current) : current.viewports;
+      if (patch.layout !== undefined) assertLayout(patch.layout);
+      const emptied = studyChanged ? emptyViewports(current) : current.viewports;
+      const base = patch.layout === undefined ? emptied : fitToLayout(emptied, patch.layout);
       const merged = base.map((viewport) => {
         const change = patch.viewports?.find((candidate) => candidate.id === viewport.id);
         if (change === undefined) return viewport;
@@ -1156,6 +1202,7 @@ export function createViewerCore(
       if (unmatched !== undefined) requireViewport(unmatched.id);
       const candidate = parseViewerState({
         ...current,
+        ...(patch.layout === undefined ? {} : { layout: patch.layout }),
         ...(patch.studyInstanceUID === undefined
           ? {}
           : { studyInstanceUID: patch.studyInstanceUID }),
@@ -1171,10 +1218,12 @@ export function createViewerCore(
       store.update(
         {
           studyInstanceUID: candidate.state.studyInstanceUID,
+          layout: candidate.state.layout,
           viewports: candidate.state.viewports,
         },
         origin,
       );
+      dropRemovedViewports();
       for (const viewport of candidate.state.viewports) await syncViewport(viewport.id, origin);
     });
   }
@@ -1407,6 +1456,7 @@ export function createViewerCore(
     },
     setViewportSeries,
     navigateTo,
+    setLayout,
     getState: () => store.getState(),
     setState,
     subscribe: (selector, listener, subscribeOptions) =>

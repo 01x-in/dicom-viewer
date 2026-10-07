@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { layoutViewportIds } from '../layouts';
 import { createInitialState, parseViewerState, type ViewerStateV1 } from './viewer-state';
 
 const full: ViewerStateV1 = {
@@ -36,10 +37,45 @@ describe('parseViewerState', () => {
     });
   });
 
+  it.each(['1x2', '2x2', '1+3'] as const)(
+    'accepts the layout %s and adds the viewports it shows',
+    (layout) => {
+      const result = parseViewerState({ ...full, layout });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.state.layout).toBe(layout);
+      expect(result.state.viewports.map((viewport) => viewport.id)).toEqual(
+        layoutViewportIds(layout),
+      );
+      // What the link said about vp-0 is kept.
+      expect(result.state.viewports[0]).toEqual(full.viewports[0]);
+    },
+  );
+
+  it('keeps the viewports a link gives for a bigger layout, in the layout order', () => {
+    const result = parseViewerState({
+      ...full,
+      layout: '1x2',
+      viewports: [{ id: 'vp-1', seriesInstanceUID: '1.2.9' }, { id: 'vp-0' }],
+    });
+    expect(result).toEqual({
+      ok: true,
+      state: {
+        ...full,
+        layout: '1x2',
+        viewports: [{ id: 'vp-0' }, { id: 'vp-1', seriesInstanceUID: '1.2.9' }],
+      },
+    });
+  });
+
   it.each([
     ['another version', { ...full, version: 2 }],
     ['no version', { layout: '1x1' }],
-    ['a layout this version cannot show', { ...full, layout: '2x2' }],
+    ['a layout that does not exist', { ...full, layout: '3x3' }],
+    [
+      'a viewport the layout does not show',
+      { ...full, layout: '1x2', viewports: [{ id: 'vp-0' }, { id: 'vp-2' }] },
+    ],
     ['a study UID that is a path', { ...full, studyInstanceUID: '../../etc' }],
     [
       'a series UID with a query',
@@ -47,14 +83,21 @@ describe('parseViewerState', () => {
     ],
     ['a negative image index', { ...full, viewports: [{ id: 'vp-0', imageIndex: -1 }] }],
     ['a fractional image index', { ...full, viewports: [{ id: 'vp-0', imageIndex: 1.5 }] }],
-    ['a viewport id past vp-3', { ...full, viewports: [{ id: 'vp-0' }, { id: 'vp-4' }] }],
+    [
+      'a viewport id past vp-3',
+      { ...full, layout: '2x2', viewports: [{ id: 'vp-0' }, { id: 'vp-4' }] },
+    ],
     ['a viewport id outside vp-N', { ...full, viewports: [{ id: 'main' }] }],
     ['no viewports', { ...full, viewports: [] }],
-    ['viewports without vp-0', { ...full, viewports: [{ id: 'vp-1' }] }],
+    ['viewports without vp-0', { ...full, layout: '1x2', viewports: [{ id: 'vp-1' }] }],
     ['repeated viewport ids', { ...full, viewports: [{ id: 'vp-0' }, { id: 'vp-0' }] }],
     [
       'more than four viewports',
-      { ...full, viewports: [0, 1, 2, 3, 4].map((n) => ({ id: `vp-${n.toString()}` })) },
+      {
+        ...full,
+        layout: '2x2',
+        viewports: [0, 1, 2, 3, 4].map((n) => ({ id: `vp-${n.toString()}` })),
+      },
     ],
     ['a non-object', 'nope'],
     ['null', null],

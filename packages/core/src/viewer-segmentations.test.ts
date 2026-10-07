@@ -364,7 +364,7 @@ describe('an attachment that is refused for one SEG and fails for another', () =
     const h = harness({
       initialState: {
         version: 1,
-        layout: '1x1',
+        layout: '1x2',
         viewports: [{ id: 'vp-0' }, { id: 'vp-1' }],
       },
     });
@@ -394,7 +394,7 @@ describe('a change that is refused by one stack and fails on another', () => {
     const h = harness({
       initialState: {
         version: 1,
-        layout: '1x1',
+        layout: '1x2',
         viewports: [
           { id: 'vp-0', seriesInstanceUID: CT },
           { id: 'vp-1', seriesInstanceUID: CT },
@@ -523,7 +523,7 @@ describe('drawing a SEG', () => {
     const h = harness({
       initialState: {
         version: 1,
-        layout: '1x1',
+        layout: '1x2',
         viewports: [
           { id: 'vp-0', seriesInstanceUID: CT },
           { id: 'vp-1', seriesInstanceUID: CT },
@@ -916,7 +916,7 @@ describe('jumpToSegment', () => {
     const h = harness({
       initialState: {
         version: 1,
-        layout: '1x1',
+        layout: '1x2',
         viewports: [{ id: 'vp-0' }, { id: 'vp-1' }],
       },
     });

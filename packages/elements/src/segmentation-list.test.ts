@@ -254,7 +254,7 @@ describe('<dv-segmentation-list>', () => {
     const fake = createFakeViewer({
       initialState: {
         version: 1,
-        layout: '1x1',
+        layout: '1x2',
         viewports: [{ id: 'vp-0' }, { id: 'vp-1' }],
       },
     });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isDicomUid } from '../data/uid';
+import { isLayout, type LayoutId, layoutViewportIds } from '../layouts';
 import { MAX_ZOOM, MIN_ZOOM } from '../view';
 
 /** A window as DICOM defines it: the value at the middle of the grey scale, and the width around it. */
@@ -30,8 +31,8 @@ export interface ViewportStateV1 {
 export interface ViewerStateV1 {
   readonly version: 1;
   readonly studyInstanceUID?: string | undefined;
-  /** Only `1x1` exists until M7. */
-  readonly layout: '1x1';
+  /** Which viewports there are: `viewports` has exactly the ids this layout shows. */
+  readonly layout: LayoutId;
   readonly viewports: readonly ViewportStateV1[];
 }
 
@@ -55,25 +56,48 @@ const viewportSchema: z.ZodType<ViewportStateV1> = z.object({
   zoom: z.number().min(MIN_ZOOM).max(MAX_ZOOM).optional(),
 });
 
-export const viewerStateV1Schema: z.ZodType<ViewerStateV1> = z.object({
-  version: z.literal(1),
-  studyInstanceUID: uid.optional(),
-  layout: z.literal('1x1').default('1x1'),
-  viewports: z
-    .array(viewportSchema)
-    .max(MAX_VIEWPORTS)
-    .refine(
-      (viewports) => new Set(viewports.map((viewport) => viewport.id)).size === viewports.length,
-      {
-        message: 'Viewport ids must be unique',
-      },
-    )
-    // The viewer attaches vp-0 first, and every layout has it.
-    .refine((viewports) => viewports.some((viewport) => viewport.id === 'vp-0'), {
-      message: 'A state needs the viewport vp-0',
-    })
-    .default(() => [{ id: 'vp-0' }]),
-});
+const layoutSchema: z.ZodType<LayoutId> = z
+  .custom<LayoutId>(isLayout, 'Not a layout')
+  .default('1x1');
+
+export const viewerStateV1Schema: z.ZodType<ViewerStateV1> = z
+  .object({
+    version: z.literal(1),
+    studyInstanceUID: uid.optional(),
+    layout: layoutSchema,
+    viewports: z
+      .array(viewportSchema)
+      .max(MAX_VIEWPORTS)
+      .refine(
+        (viewports) => new Set(viewports.map((viewport) => viewport.id)).size === viewports.length,
+        {
+          message: 'Viewport ids must be unique',
+        },
+      )
+      // The viewer attaches vp-0 first, and every layout has it.
+      .refine((viewports) => viewports.some((viewport) => viewport.id === 'vp-0'), {
+        message: 'A state needs the viewport vp-0',
+      })
+      .default(() => [{ id: 'vp-0' }]),
+  })
+  .superRefine((state, context) => {
+    const shown = layoutViewportIds(state.layout);
+    const stray = state.viewports.find((viewport) => !shown.includes(viewport.id));
+    if (stray !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['viewports'],
+        message: `The layout ${state.layout} has no viewport ${stray.id}`,
+      });
+    }
+  })
+  // The layout decides which viewports there are: the ones a link leaves out start empty.
+  .transform((state) => ({
+    ...state,
+    viewports: layoutViewportIds(state.layout).map(
+      (id) => state.viewports.find((viewport) => viewport.id === id) ?? { id },
+    ),
+  }));
 
 export type ParseResult =
   | { readonly ok: true; readonly state: ViewerStateV1 }

@@ -24,6 +24,8 @@ export {
   isBrowserEnvironment,
 } from './environment';
 export type { ViewSnapshot, WindowLevel } from './rendering-port';
+export { isLayout, LAYOUTS, layoutCells, layoutViewportIds } from './layouts';
+export type { LayoutCell, LayoutCells, LayoutId } from './layouts';
 export { createEmitter } from './state/events';
 export type { Unsubscribe } from './state/events';
 export type { StateOrigin, SubscribeOptions } from './state/store';

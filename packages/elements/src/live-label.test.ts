@@ -92,6 +92,6 @@ describe('the throttled announcer', () => {
 
 describe('layoutCells', () => {
   it('has one cell for 1x1', () => {
-    expect(layoutCells('1x1')).toEqual({ ids: ['vp-0'], columns: 1, rows: 1 });
+    expect(layoutCells('1x1')).toMatchObject({ ids: ['vp-0'], columns: 1, rows: 1 });
   });
 });
