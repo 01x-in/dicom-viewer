@@ -384,6 +384,7 @@ export class DvViewerElement extends LitElement {
     this.#removeSeriesPanel = viewer.ui.registerPanel({
       id: 'series',
       title: 'Series',
+      icon: 'series',
       placement: 'left',
       mount: (container) => {
         const browser = document.createElement('dv-series-browser') as DvSeriesBrowserElement;
@@ -406,6 +407,7 @@ export class DvViewerElement extends LitElement {
     this.#removeMeasurementsPanel = viewer.ui.registerPanel({
       id: 'measurements',
       title: 'Measurements',
+      icon: 'measure',
       placement: 'right',
       mount: (container) => {
         const list = document.createElement('dv-measurement-list') as DvMeasurementListElement;
@@ -428,6 +430,7 @@ export class DvViewerElement extends LitElement {
     this.#removeSegmentationsPanel = viewer.ui.registerPanel({
       id: 'segmentations',
       title: 'Segments',
+      icon: 'segments',
       placement: 'right',
       mount: (container) => {
         const list = document.createElement('dv-segmentation-list') as DvSegmentationListElement;

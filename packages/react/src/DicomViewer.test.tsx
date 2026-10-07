@@ -301,6 +301,18 @@ describe('panels and hooks', () => {
     return <p data-probe>{viewer === undefined ? 'no viewer' : `series ${series ?? 'none'}`}</p>;
   }
 
+  it('gives a panel the icon it names, and a panel that names none has no icon', async () => {
+    await render({
+      panels: {
+        notes: { title: 'Notes', icon: 'series', render: () => <Probe /> },
+        plain: { title: 'Plain', render: () => <Probe /> },
+      },
+    });
+    const byId = new Map(made[0]?.viewer.ui.panels().map((panel) => [panel.id, panel.icon]));
+    expect(byId.get('notes')).toBe('series');
+    expect(byId.get('plain')).toBeUndefined();
+  });
+
   it('draws a React panel into the dock, with the host context', async () => {
     await render({
       hideSeriesPanel: true,

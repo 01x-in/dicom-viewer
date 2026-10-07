@@ -36,6 +36,8 @@ import { provideViewer } from './context';
 export interface VuePanel {
   readonly id: string;
   readonly title: string;
+  /** The name of one of the shell's pictures for the tab. Without one the tab shows its title only. */
+  readonly icon?: string;
   /** Default `right`. */
   readonly placement?: PanelPlacement;
 }
@@ -161,6 +163,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
         current.ui.registerPanel({
           id: panel.id,
           title: panel.title,
+          ...(panel.icon === undefined ? {} : { icon: panel.icon }),
           placement: panel.placement ?? 'right',
           mount: (container) => {
             containers.value = new Map(containers.value).set(panel.id, container);
@@ -245,7 +248,10 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     watch(
       () =>
         (props.panels ?? [])
-          .map((panel) => `${panel.id}|${panel.title}|${panel.placement ?? 'right'}`)
+          .map(
+            (panel) =>
+              `${panel.id}|${panel.title}|${panel.placement ?? 'right'}|${panel.icon ?? ''}`,
+          )
           .join(),
       () => {
         if (viewer.value !== undefined) registerPanels(viewer.value);

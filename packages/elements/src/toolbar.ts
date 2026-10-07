@@ -417,10 +417,12 @@ export class DvToolbarElement extends LitElement {
   /** The pointer coming onto a control is a new reason to show its tooltip, so Escape's dismissal ends. */
   #onPointerover(event: PointerEvent): void {
     if (!this.tipsOff || !(event.target instanceof Element)) return;
-    // Over the same control whose tooltip Escape closed, the pointer has not moved on.
+    // Over the control whose tooltip Escape closed, or over something inside it, the pointer has
+    // not moved on. Over anything else (another control, a separator, the gap) it has.
     const item = event.target.closest('.item, .menu-wrap');
-    if (item === null || item === this.#dismissedAt) return;
+    if (item !== null && item === this.#dismissedAt) return;
     this.tipsOff = false;
+    this.#dismissedAt = null;
   }
 
   #onFocusin(event: FocusEvent): void {

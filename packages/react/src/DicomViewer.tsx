@@ -31,6 +31,8 @@ import { ViewerContext } from './context';
 /** A side panel written in React. It is drawn into a portal, so it keeps the host's context. */
 export interface ReactPanel {
   readonly title: string;
+  /** The name of one of the shell's pictures for the tab. Without one the tab shows its title only. */
+  readonly icon?: string;
   /** Default `right`. */
   readonly placement?: PanelPlacement;
   readonly render: () => ReactNode;
@@ -243,6 +245,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
       id,
       panel.title,
       panel.placement ?? 'right',
+      panel.icon ?? null,
     ]),
   );
   useEffect(() => {
@@ -251,6 +254,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
       viewer.ui.registerPanel({
         id,
         title: panel.title,
+        ...(panel.icon === undefined ? {} : { icon: panel.icon }),
         placement: panel.placement ?? 'right',
         mount: (container) => {
           setContainers((current) => new Map(current).set(id, container));

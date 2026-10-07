@@ -60,9 +60,9 @@ describe('<dv-panel-dock>', () => {
     expect(tabs(dock).map((tab) => tab.textContent.trim())).toEqual(['SERIES', 'NOTES']);
   });
 
-  it('shows a picture on the tab of a built-in panel and only the title on any other', async () => {
+  it('shows the picture a panel names, and only the title for a panel that names none', async () => {
     const { dock, fake } = await mount();
-    fake.viewer.ui.registerPanel(panel('series'));
+    fake.viewer.ui.registerPanel(panel('series', { icon: 'series' }));
     fake.viewer.ui.registerPanel(panel('notes'));
     await dock.updateComplete;
     const [series, notes] = tabs(dock);
@@ -72,13 +72,30 @@ describe('<dv-panel-dock>', () => {
 
   it('marks the tabs that have a picture, so only they can lose their text in a narrow dock', async () => {
     const { dock, fake } = await mount();
-    fake.viewer.ui.registerPanel(panel('series'));
+    fake.viewer.ui.registerPanel(panel('first', { icon: 'series' }));
     fake.viewer.ui.registerPanel(panel('notes'));
     await dock.updateComplete;
-    const [series, notes] = tabs(dock);
-    expect(series?.classList.contains('has-icon')).toBe(true);
+    const [first, notes] = tabs(dock);
+    expect(first?.classList.contains('has-icon')).toBe(true);
     // A host's panel has no picture: its title is all that names the tab.
     expect(notes?.classList.contains('has-icon')).toBe(false);
+  });
+
+  it('does not give a host panel a picture because of its id, even the id of a built-in one', async () => {
+    const { dock, fake } = await mount();
+    // The host hid the built-in series panel and registered its own under that id.
+    fake.viewer.ui.registerPanel(panel('series'));
+    await dock.updateComplete;
+    const [tab] = tabs(dock);
+    expect(tab?.querySelector('svg')).toBeNull();
+    expect(tab?.classList.contains('has-icon')).toBe(false);
+  });
+
+  it('ignores an icon name the shell does not know', async () => {
+    const { dock, fake } = await mount();
+    fake.viewer.ui.registerPanel(panel('notes', { icon: 'no-such-picture' }));
+    await dock.updateComplete;
+    expect(tabs(dock)[0]?.querySelector('svg')).toBeNull();
   });
 
   it('names every tab by its title, and gives the tabs that are not open a tooltip too', async () => {

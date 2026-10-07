@@ -9,7 +9,7 @@ import {
   type PropertyValues,
   type TemplateResult,
 } from 'lit';
-import { type IconName, icon, iconStyles } from './icons';
+import { icon, iconStyles, isIconName } from './icons';
 import { baseStyles, themeStyles } from './theme';
 import { nextFocusIndex } from './toolbar-config';
 
@@ -19,13 +19,6 @@ interface Mounted {
   cleanup: (() => void) | undefined;
   mounted: boolean;
 }
-
-/** The pictures of the built-in panels. A panel of the host's has none, and shows its title only. */
-const PANEL_ICONS: Readonly<Record<string, IconName>> = {
-  series: 'series',
-  measurements: 'measure',
-  segmentations: 'segments',
-};
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -325,7 +318,7 @@ export class DvPanelDockElement extends LitElement {
         >
         ${entries.map(({ definition }) => {
           const selected = definition.id === this.selectedId;
-          const name = PANEL_ICONS[definition.id];
+          const name = isIconName(definition.icon) ? definition.icon : undefined;
           return html`<button
             type="button"
             role="tab"

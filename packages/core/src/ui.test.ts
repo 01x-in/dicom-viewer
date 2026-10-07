@@ -20,6 +20,13 @@ describe('the panel registry', () => {
     expect(api.panels().map((item) => item.id)).toEqual(['b', 'a']);
   });
 
+  it('keeps the icon a panel names, and none for a panel that names none', () => {
+    const { api } = createUiRegistry(() => undefined);
+    api.registerPanel(panel({ id: 'a', icon: 'series' }));
+    api.registerPanel(panel({ id: 'b' }));
+    expect(api.panels().map((item) => item.icon)).toEqual(['series', undefined]);
+  });
+
   it('announces each registration and removal with the panels that remain', () => {
     const changed = vi.fn<(panels: readonly PanelDefinition[]) => void>();
     const { api } = createUiRegistry(changed);

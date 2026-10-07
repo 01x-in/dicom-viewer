@@ -147,6 +147,14 @@ describe('<dv-viewer> structure', () => {
     ]);
   });
 
+  it('gives the three built-in panels their pictures by name, not by id', async () => {
+    const { element } = await ready();
+    const icons = Object.fromEntries(
+      (element.viewer?.ui.panels() ?? []).map((panel) => [panel.id, panel.icon]),
+    );
+    expect(icons).toEqual({ series: 'series', measurements: 'measure', segmentations: 'segments' });
+  });
+
   it('lists the SEGs of the study in the Segments tab of the right-hand panel', async () => {
     const { element } = await ready();
     const dock = shadow(element, 'dv-panel-dock[placement="right"]') as HTMLElement & {

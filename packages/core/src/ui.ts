@@ -8,6 +8,12 @@ export interface PanelDefinition {
   readonly id: string;
   /** The tab's label. */
   readonly title: string;
+  /**
+   * The name of one of the shell's pictures (`series`, `measure`, `segments`, and so on, from
+   * `@scope/viewer-elements`), shown on the tab. A name the shell does not know is ignored. Without
+   * one, the tab shows its title only, whatever its id.
+   */
+  readonly icon?: string;
   readonly placement: PanelPlacement;
   /**
    * Fills `container` the first time the panel is shown, and the content stays while the panel is

@@ -132,6 +132,13 @@ describe('<dv-toolbar>', () => {
     const keyOf = (selector: string): string | undefined =>
       toolbar.shadowRoot?.querySelector(selector)?.parentElement?.querySelector('kbd')?.textContent;
     expect(keyOf('[data-tool="pan"]')).toBe('M');
+    // The whole key list of the pan control is `M`: the key the host removed is not printed beside it.
+    const panKeys = [
+      ...(toolbar.shadowRoot
+        ?.querySelector('[data-tool="pan"]')
+        ?.parentElement?.querySelectorAll('kbd') ?? []),
+    ].map((key) => key.textContent);
+    expect(panKeys).toEqual(['M']);
     // Window / level keeps its own key, which the host did not touch.
     expect(keyOf('[data-tool="window-level"]')).toBe('W');
   });
@@ -188,6 +195,23 @@ describe('<dv-toolbar>', () => {
     await toolbar.updateComplete;
     expect(toolbar.hasAttribute('data-tips-off')).toBe(true);
     second?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, composed: true }));
+    await toolbar.updateComplete;
+    expect(toolbar.hasAttribute('data-tips-off')).toBe(false);
+  });
+
+  it('shows the tooltip of the same control again after the pointer went over a separator and came back', async () => {
+    const { toolbar } = await mount();
+    const first = nth(buttons(toolbar), 0);
+    first.focus();
+    press(first, 'Escape');
+    await toolbar.updateComplete;
+    expect(toolbar.hasAttribute('data-tips-off')).toBe(true);
+    const separator = toolbar.shadowRoot?.querySelector('.separator');
+    separator?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, composed: true }));
+    await toolbar.updateComplete;
+    expect(toolbar.hasAttribute('data-tips-off')).toBe(false);
+    // Back on the control: its tooltip is allowed, since the pointer had left it.
+    first.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, composed: true }));
     await toolbar.updateComplete;
     expect(toolbar.hasAttribute('data-tips-off')).toBe(false);
   });

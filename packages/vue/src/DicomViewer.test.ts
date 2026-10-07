@@ -288,6 +288,21 @@ describe('panels and composables', () => {
     },
   });
 
+  it('gives a panel the icon it names, and a panel that names none has no icon', async () => {
+    await mount(
+      {
+        panels: [
+          { id: 'notes', title: 'Notes', icon: 'series' },
+          { id: 'plain', title: 'Plain' },
+        ],
+      },
+      { 'panel-notes': () => h(Probe), 'panel-plain': () => h(Probe) },
+    );
+    const byId = new Map(made[0]?.viewer.ui.panels().map((panel) => [panel.id, panel.icon]));
+    expect(byId.get('notes')).toBe('series');
+    expect(byId.get('plain')).toBeUndefined();
+  });
+
   it('draws the content of a panel slot into the dock', async () => {
     await mount(
       {

@@ -282,4 +282,4 @@ Reference files:
 - **The colours are the host's choice.** `palette` is `default`, `navy`, or `graphite`, each tested for contrast in both themes, and any single colour is a `--dv-color-*` property. `labels="inline"` (`toolbar-labels`, `toolbarLabels`) puts names beside the pictures.
 - **New core API:** `viewer.tools.shortcuts()`, so a toolbar prints the key that is bound. The port's `loadSegmentation` takes the stack.
 - **A bug the first look found:** a SEG whose CT was not on screen failed to load (`reading 'rows'`). The engine now learns the images' headers and holds them with the SEG.
-- Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, and a visual regression suite (M8). A host's own panels have no icon until a panel definition has one.
+- Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, and a visual regression suite (M8). A host's panels can name one of the shell's icons but cannot add their own.
