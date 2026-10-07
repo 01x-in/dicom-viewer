@@ -26,6 +26,7 @@ We keep the ideas and leave out the mechanisms. OHIF merges with `$set`, `$push`
 - **The overlay is a list of items for each corner.** An item is `{ id, kind: 'builtin', name }` (`series`, `size`, `window`, `zoom`, `image`, `modality`), or `{ id, kind: 'tag', tag, label?, format? }`, where `tag` is a keyword or a DICOM tag and `format` is `text`, `date`, `time`, `number` (with `decimals`), or `person-name`. An item with the same `id` in a later layer replaces the earlier one in its place, a new `id` is added at the end, and `{ id, kind: 'remove' }` removes one. The built-in names are `patientName`, `patientId`, `series`, `modality`, `size`, `window`, `zoom`, `inverted`, and `image`, and the default items are the ones that give today's text. The text is set as text, never as markup. **Tags that identify a patient** (every tag of group 0010, the referring and performing physicians, the institution, the accession number, and every private tag, as a fixed rule in the core) show only when `overlay.showPatientInfo` is on, exactly as now, whatever the config says.
 - **Layers can be switched and reverted.** `viewer.config.apply(layer)` merges a layer over the current ones and returns a function that takes it off again. Objects merge key by key. `null` for a top-level key puts it back to the default. Overlay items merge by `id`. Any other array replaces, and so do the window presets. `tools.active` is read when the viewer starts, so a layer given to `apply` may not have it. Chords are written in the spelling the keymap uses before layers are merged, so `Shift+I` and `shift+i` are one key. M7 can use it for layouts, and M9 for the OncoTrace profile. Applying a layer is synchronous. It changes the keys, the window presets, and the text over the pictures, and touches no engine, so it does not go through the queue. A layer is checked, and the keys and presets are worked out, before anything changes, so a layer that cannot work leaves the viewer as it was. The shell redraws from the `config:changed` event.
 - **A config can be loaded from a URL, off by default.** `configUrl` on `<dv-viewer>` works only with `configOrigins`, an allowlist of origins. The file is fetched as JSON, limited in size, checked, and never executed. A layer that fails the check is rejected whole, with a `dv-error` that has the context `config` and the path of each problem, and the layers below it stay.
+- **The JSON Schema ships.** `viewer-config.schema.json` is made from the same Zod schema (`viewerConfigJsonSchema()`), and a test fails when the shipped file and the schema differ. A config file may name it in `$schema`, which the viewer ignores. The schema says what the shape allows. A command that is registered and a chord that can be pressed are checked when the config is read.
 - **Left out:** merge operations such as `$set`, `inheritsFrom`, `$transform`, an extension and mode module system, string namespaces for modules, and functions in a config.
 
 ## How it is built
@@ -39,9 +40,23 @@ We keep the ideas and leave out the mechanisms. OHIF merges with `$set`, `$push`
 ## Done when
 
 - The same config, as a JSON file, gives the same toolbar, overlay, keys, and palette in vanilla, React, Vue, Next, and Nuxt, and the matrix checks it.
-- A config with an unknown key, an unregistered command, a patient tag with `showPatientInfo` off, or a bad layer is rejected with a message that names the path, and the viewer still starts.
+- A config with an unknown key, an unregistered command, or a bad layer is rejected with a message that names the path, and the viewer still starts. A patient tag with `showPatientInfo` off is not rejected: it is accepted and never shown.
 - `viewer.config.apply(layer)` and the function it returns leave the toolbar, overlay, and keys as they were.
 - No config means the viewer is what it is now: every existing test passes unchanged.
+
+## As built
+
+All five slices are in, one commit each. Where the build differs from the plan above:
+
+- A removal in an overlay corner is `{ id, kind: 'remove' }`, not `{ id, remove: true }`, so the three kinds of item are told apart by `kind` and the JSON Schema is exact.
+- `commands` is also an option of `createViewer` (and a prop), so a config given at the start can name a command of the host.
+- `<dv-viewer>` reads `theme`, `palette`, and `toolbarLabels` as unset until the page sets them, and then lets the config decide. Before, they started as `dark`, `default`, and `tooltip`, which the page could not tell from a choice. A page that set one of them is unchanged.
+- A config that is fine alone but cannot work with the viewer (a toolbar that names a command nobody registered) is reported, and the viewer starts without it, so a mistake in settings does not take the viewer away. `createViewer` itself throws, because there a mistake is a bug in the host's code.
+- While writing the scenario the matrix found that the engine did not tell the viewer when invert alone changed, so the state, the overlay, and the pressed state of a toolbar button were stale after the `i` key. It does now.
+
+## Evidence
+
+Unit tests cover the schema (every key, every path named, strict keys), the merge rules, `viewer.config` (start-up layers, precedence, apply and revert, a layer that cannot work, keys turned on and off for an attached element, overlay switched), the commands, the toolbar as data, the overlay items and the patient-tag guard, the element, React, and Vue, and `config-url` (allowed, refused, failing, too large, no cookies, no redirect). The `config` scenario of `pnpm matrix` fetches `examples/viewer-config.json` in every example, in `inline` and `url` mode, and checks the palette and theme, the toolbar and its labels, the hidden panel, the lines over the picture (a tag shown, a line taken out, no patient), the keys of the file next to the usual ones, the presets from the menu and from a digit, and a command button, against the real engine.
 
 ## Consequences
 

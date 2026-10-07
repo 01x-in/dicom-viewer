@@ -110,7 +110,7 @@ const options: ViewerOptions = {
 };
 ```
 
-Each preset needs an `id` that is unique, a `label`, a `center` and a `width` in Hounsfield units. The `width` must be above zero. A preset that breaks these rules throws a `RangeError` that says which one. Presets are fixed when the viewer starts. To change the list, create the viewer again. You can apply a preset from code with `viewer.viewports.get('vp-0')?.applyWindowPreset('mediastinum')`.
+Each preset needs an `id` that is unique, a `label`, a `center` and a `width` in Hounsfield units. The `width` must be above zero. A preset that breaks these rules throws a `RangeError` that says which one. Presets are set when the viewer starts. To change the list later, put a layer with new `windowLevelPresets` on with `viewer.config.apply` (see "Settings as a config file"), or create the viewer again. You can apply a preset from code with `viewer.viewports.get('vp-0')?.applyWindowPreset('mediastinum')`.
 
 ### Keyboard shortcuts
 
@@ -217,6 +217,76 @@ viewer.ui.registerPanel({
 ```
 
 You can also put your own content in these slots of `<dv-viewer>`: `banner` (a strip above the toolbar, such as a "not for diagnosis" notice), `toolbar-start`, `toolbar-end`, `panel-left`, `panel-right`, `viewport-overlay`, and `empty-state`. React has the props `banner`, `toolbarStart`, `toolbarEnd`, `panelLeft`, and `panelRight`.
+
+### Settings as a config file
+
+Most of the settings above can also be written as data, in one JSON file that you can keep apart from your code, edit without a build, and share between pages. The file has a `version` and any of these keys: `theme`, `palette`, `toolbar`, `keybindings`, `overlay`, `panels`, `windowLevelPresets`, and `tools`. An editor completes and checks it if you point it at the schema that ships with the package (`@scope/viewer-core/viewer-config.schema.json`):
+
+```json
+{
+  "$schema": "./node_modules/@scope/viewer-core/schema/viewer-config.schema.json",
+  "version": 1,
+  "palette": "navy",
+  "toolbar": {
+    "labels": "inline",
+    "items": [
+      { "type": "tool", "tool": "window-level" },
+      { "type": "tool", "tool": "pan", "label": "Move" },
+      { "type": "separator" },
+      { "type": "command", "id": "zoom-in", "label": "Zoom in", "icon": "zoom-in", "command": "view.zoomIn" },
+      {
+        "type": "menu",
+        "id": "windows",
+        "label": "Windows",
+        "icon": "presets",
+        "items": [
+          { "id": "mediastinum", "label": "Mediastinum", "command": "preset.apply", "args": { "id": "mediastinum" } }
+        ]
+      }
+    ]
+  },
+  "keybindings": { "m": { "type": "tool", "tool": "pan" }, "r": null },
+  "windowLevelPresets": [{ "id": "mediastinum", "label": "Mediastinum", "center": 50, "width": 350 }],
+  "overlay": {
+    "corners": {
+      "topRight": [
+        { "id": "kvp", "kind": "tag", "tag": "KVP", "label": "kVp", "format": "number" },
+        { "id": "size", "kind": "remove" }
+      ]
+    }
+  },
+  "panels": { "hide": ["segmentations"] }
+}
+```
+
+How to give it to the viewer:
+
+- **In your code:** `config` on `<dv-viewer>` (a property, or an attribute with the JSON text), `config` in React and Vue, and `config` in the options of `createViewer`. Give several layers as an array, and the last one wins.
+- **From a file:** `config-url` (`configUrl`). It works only for origins that you list in `config-origins` (`configOrigins`), so a URL that comes from outside cannot send the viewer to a server of someone else's choosing. Add `location.origin` to allow the page's own server. The file is read as data, is limited to 256 KB, and is never run. No cookies go with the request.
+- **Who wins:** a setting you write in code (a prop such as `theme`, `palette`, or `toolbar`, or an option such as `keybindings`) wins over the config, and a config you give in code wins over one from `config-url`. A layer put on later with `viewer.config.apply(...)` wins over all of them.
+
+A config that has a problem is refused as a whole, and the viewer starts without it. You get a `dv-error` (or `onError`) with the context `config`, and a message that names the path of each problem, such as `toolbar.items.2.command: There is no command "acme.export".` Check the file against the schema in your editor first, and you will rarely see one.
+
+**What a toolbar button can run.** A button names a command. The built-in ones are `tool.set` (with `{ "tool": "pan" }`), `view.zoomIn`, `view.zoomOut`, `view.invert`, `view.reset`, `cine.toggle`, and `preset.apply` (with `{ "id": "bone" }`). To add one of your own, give it a name with a namespace, such as `acme.export`, in the `commands` option (or the `commands` prop), and the config can then name it. A config is data, so it cannot hold a function.
+
+```ts
+const options: ViewerOptions = {
+  dataSource,
+  commands: {
+    'acme.export': ({ viewer }) => download(JSON.stringify(viewer.measurements.exportJson())),
+  },
+};
+```
+
+**Lines over the picture.** Each corner of the overlay is a list of items. The built-in lines are `patientName`, `patientId`, `series`, `modality`, `size`, `window`, `zoom`, `inverted`, and `image`. An item with the id of an existing one replaces it in its place, a new id adds a line at the end of the corner, and `{ "id": "size", "kind": "remove" }` takes one out. A `tag` item shows a DICOM tag of the image on screen, by keyword (`KVP`, `SeriesDescription`, and about 50 more) or as eight hex digits (`"00181030"`), with an optional `label` and a `format` of `text`, `date`, `time`, `number` (with `decimals`), or `person-name`. A tag the image does not have shows no line. **A tag that can identify a patient never shows unless `overlay.showPatientInfo` is on**, whatever the items say. That covers everything in group 0010, the physicians, the institution, the accession number, and every private tag.
+
+**Changing the settings while the viewer runs.** `viewer.config.apply(layer)` puts a layer over what is in force and returns a function that takes it off. The keys, the window presets, the overlay, and the shell (palette, panels, toolbar) change at once. A layer with a problem throws a `RangeError` and changes nothing. `viewer.config.get()` shows what is in force, and the `config:changed` event tells you when it changes.
+
+```ts
+const off = viewer.config.apply({ version: 1, palette: 'graphite', overlay: false });
+// ... later
+off(); // the viewer is as it was
+```
 
 ### Reacting to the viewer, and driving it
 
