@@ -275,6 +275,9 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
 
       const enabledViewportId = viewportId;
       let stackDestroyed = false;
+      // Told of every change of view. Cornerstone reports a change of window or camera, but not a change
+      // of invert alone, so that one is passed on by hand.
+      const viewListeners = new Set<(view: ViewSnapshot) => void>();
       return {
         imageCount: stack.imageIds.length,
         getImageIndex: () => viewport.getCurrentImageIdIndex(),
@@ -301,6 +304,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
         setInvert(invert): void {
           viewport.setProperties({ invert });
           viewport.render();
+          for (const listener of viewListeners) listener(getView());
         },
         setZoom(zoom): void {
           viewport.setZoom(zoom);
@@ -325,9 +329,11 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
           };
           element.addEventListener(Enums.Events.VOI_MODIFIED, handler);
           element.addEventListener(Enums.Events.CAMERA_MODIFIED, handler);
+          viewListeners.add(listener);
           return (): void => {
             element.removeEventListener(Enums.Events.VOI_MODIFIED, handler);
             element.removeEventListener(Enums.Events.CAMERA_MODIFIED, handler);
+            viewListeners.delete(listener);
           };
         },
         async sampleHu(imageIndex, row, column): Promise<number> {

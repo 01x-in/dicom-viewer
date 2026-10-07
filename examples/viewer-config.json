@@ -1,0 +1,60 @@
+{
+  "$schema": "../packages/core/schema/viewer-config.schema.json",
+  "version": 1,
+  "theme": "light",
+  "palette": "navy",
+  "toolbar": {
+    "labels": "inline",
+    "items": [
+      { "type": "tool", "tool": "pan", "label": "Move" },
+      { "type": "tool", "tool": "window-level" },
+      { "type": "separator" },
+      {
+        "type": "command",
+        "id": "zoom-in",
+        "label": "Zoom in",
+        "icon": "zoom-in",
+        "command": "view.zoomIn"
+      },
+      {
+        "type": "menu",
+        "id": "windows",
+        "label": "Windows",
+        "icon": "presets",
+        "items": [
+          {
+            "id": "mine",
+            "label": "My window",
+            "command": "preset.apply",
+            "args": { "id": "mine" }
+          },
+          { "id": "bone", "label": "Bone", "command": "preset.apply", "args": { "id": "bone" } }
+        ]
+      }
+    ]
+  },
+  "keybindings": {
+    "m": { "type": "tool", "tool": "pan" },
+    "n": { "type": "invert" }
+  },
+  "overlay": {
+    "corners": {
+      "topLeft": [{ "id": "who", "kind": "tag", "tag": "PatientName", "format": "person-name" }],
+      "topRight": [
+        {
+          "id": "columns",
+          "kind": "tag",
+          "tag": "Columns",
+          "label": "Columns",
+          "format": "number"
+        },
+        { "id": "size", "kind": "remove" }
+      ]
+    }
+  },
+  "panels": { "hide": ["segmentations"] },
+  "windowLevelPresets": [
+    { "id": "mine", "label": "My window", "center": 300, "width": 900 },
+    { "id": "bone", "label": "Bone", "center": 480, "width": 2500 }
+  ]
+}

@@ -25,11 +25,18 @@ const options: ViewerOptions = {
   cpuRendering: params.has('cpu'),
 };
 
+// A settings file, from the same server as the images in the tests. It needs its origin listed.
+const configUrl = params.get('config') ?? undefined;
+const configOrigins =
+  configUrl === undefined ? undefined : [new URL(configUrl, location.href).origin];
+
 createApp({
   render: () =>
     h('div', { style: 'width:800px;height:600px' }, [
       h(DicomViewer, {
         options,
+        configUrl,
+        configOrigins,
         studyInstanceUid: params.get('study') ?? '',
         seriesInstanceUid: params.get('series') ?? '',
         onReady: (viewer: Viewer, viewport: ViewportApi | undefined) => {

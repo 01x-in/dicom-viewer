@@ -6,6 +6,9 @@
       "type": "number",
       "const": 1
     },
+    "$schema": {
+      "type": "string"
+    },
     "theme": {
       "anyOf": [
         {

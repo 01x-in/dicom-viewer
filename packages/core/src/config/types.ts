@@ -175,6 +175,8 @@ export interface ConfigBody {
 /** A config as a host writes it: JSON, with `version: 1`. */
 export interface ViewerConfigV1 extends ConfigBody {
   readonly version: 1;
+  /** Where the JSON Schema is, for an editor. The viewer ignores it. */
+  readonly $schema?: string | undefined;
 }
 
 /** Every layer merged, with the defaults filled in. */

@@ -161,6 +161,7 @@ const cornerSchema = z.array(overlayItemSchema).max(12, 'A corner has room for 1
 const configSchema: z.ZodType<ViewerConfigV1> = z
   .strictObject({
     version: z.literal(1),
+    $schema: z.string().optional(),
     theme: z.enum(THEME_NAMES).nullable().optional(),
     palette: z.enum(PALETTE_NAMES).nullable().optional(),
     toolbar: z

@@ -255,4 +255,8 @@ describe('parseViewerConfig', () => {
     );
     expect(errorsOf({ version: 1, keybindings: 'm' }).join()).toContain('keybindings');
   });
+
+  it('lets a file name its schema, for an editor', () => {
+    expect(parseViewerConfig({ $schema: './viewer-config.schema.json', version: 1 }).ok).toBe(true);
+  });
 });

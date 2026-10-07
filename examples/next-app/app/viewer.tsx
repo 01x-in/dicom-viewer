@@ -24,6 +24,8 @@ interface Config {
   readonly options: ViewerOptions;
   readonly study: string;
   readonly series: string;
+  readonly configUrl: string | undefined;
+  readonly configOrigins: readonly string[] | undefined;
 }
 
 // URL state is external data, so it is validated before it reaches the data source.
@@ -32,6 +34,7 @@ const queryState = z.object({
   study: z.string().min(1),
   series: z.string().min(1),
   assets: z.string().min(1).optional(),
+  config: z.string().min(1).optional(),
 });
 
 function fail(message: string): void {
@@ -50,12 +53,13 @@ export function Viewer(): JSX.Element {
       study: params.get('study') ?? undefined,
       series: params.get('series') ?? undefined,
       assets: params.get('assets') ?? undefined,
+      config: params.get('config') ?? undefined,
     });
     if (!parsed.success) {
       fail(`Invalid query string: ${parsed.error.message}`);
       return;
     }
-    const { wadoRoot, study, series, assets } = parsed.data;
+    const { wadoRoot, study, series, assets, config: configUrl } = parsed.data;
     setConfig({
       options: {
         dataSource: createDicomWebDataSource({ wadoRoot }),
@@ -64,6 +68,10 @@ export function Viewer(): JSX.Element {
       },
       study,
       series,
+      // A settings file, from the same server as the images in the tests. It needs its origin listed.
+      configUrl,
+      configOrigins:
+        configUrl === undefined ? undefined : [new URL(configUrl, location.href).origin],
     });
   }, []);
 
@@ -72,6 +80,8 @@ export function Viewer(): JSX.Element {
       {config === undefined ? null : (
         <DicomViewer
           options={config.options}
+          configUrl={config.configUrl}
+          configOrigins={config.configOrigins}
           studyInstanceUID={config.study}
           seriesInstanceUID={config.series}
           onReady={(viewer, viewport) => {

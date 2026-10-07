@@ -256,3 +256,25 @@ describe('dicomweb-mock (auth and faults)', () => {
     expect((await fetch(seriesUrl(), { headers })).status).toBe(200);
   });
 });
+
+describe('jsonFiles', () => {
+  it('serves a file as JSON, with CORS, and leaves other paths alone', async () => {
+    const file = fileURLToPath(new URL('../package.json', import.meta.url));
+    const server = await startMockServer({
+      fixturesDir: FIXTURES,
+      mode: 'oncotrace-proxy',
+      jsonFiles: { '/viewer-config.json': file },
+    });
+    try {
+      const response = await fetch(`${server.url}/viewer-config.json`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toBe('application/json');
+      expect(response.headers.get('access-control-allow-origin')).toBe('*');
+      const body: unknown = await response.json();
+      expect(body).toHaveProperty('name');
+      expect((await fetch(`${server.url}/other.json`)).status).toBe(404);
+    } finally {
+      await server.close();
+    }
+  });
+});

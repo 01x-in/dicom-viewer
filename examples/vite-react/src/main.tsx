@@ -29,10 +29,19 @@ function App(): JSX.Element {
     };
   }, []);
 
+  // A settings file, from the same server as the images in the tests. It needs its origin listed.
+  const configUrl = params.get('config') ?? undefined;
+  const configOrigins = useMemo(
+    () => (configUrl === undefined ? undefined : [new URL(configUrl, location.href).origin]),
+    [configUrl],
+  );
+
   return (
     <div style={{ width: 800, height: 600 }}>
       <DicomViewer
         options={options}
+        configUrl={configUrl}
+        configOrigins={configOrigins}
         studyInstanceUID={params.get('study') ?? ''}
         seriesInstanceUID={params.get('series') ?? ''}
         onReady={(viewer, viewport) => {

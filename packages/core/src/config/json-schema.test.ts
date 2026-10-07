@@ -33,6 +33,7 @@ describe('the JSON Schema of the config', () => {
     expect(schema.additionalProperties).toBe(false);
     expect(Object.keys(schema.properties ?? {}).sort()).toEqual(
       [
+        '$schema',
         'keybindings',
         'overlay',
         'palette',
