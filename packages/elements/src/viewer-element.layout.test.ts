@@ -330,6 +330,19 @@ describe('<dv-viewer> planes', () => {
     expect(notice(element, 0)).toBeUndefined();
   });
 
+  it('drops the notice when the viewport goes back to the same slice of ordinary slices', async () => {
+    const { element, fake } = await withTiltedSeries();
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks, {
+      orientation: 'coronal',
+      imageIndex: 2,
+    });
+    await settle(element);
+    expect(notice(element, 0)).toBeDefined();
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks, { imageIndex: 2 });
+    await settle(element);
+    expect(notice(element, 0)).toBeUndefined();
+  });
+
   it('has no notice for a plane that is drawn, or for slices nobody asked to reformat', async () => {
     const { element, fake } = await mount();
     await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ct, { orientation: 'coronal' });

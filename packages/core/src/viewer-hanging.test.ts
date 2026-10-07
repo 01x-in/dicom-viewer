@@ -122,4 +122,17 @@ describe('viewer.hangingProtocols', () => {
     const applied = await h.viewer.hangingProtocols.apply();
     expect(applied?.assignments[0]?.seriesInstanceUID).not.toBeUndefined();
   });
+
+  it('clears the plane of a viewport the protocol leaves empty', async () => {
+    const h = await loaded([pair, single]);
+    await h.viewer.setLayout('1x2');
+    await h.viewer.setViewportSeries('vp-1', CT, { orientation: 'coronal' });
+    await h.viewer.hangingProtocols.apply('pair');
+    await h.viewer.hangingProtocols.apply('single');
+    await h.viewer.setLayout('1x2');
+    expect(h.viewer.getState().viewports[1]?.orientation).toBeUndefined();
+    await h.viewer.hangingProtocols.apply('pair');
+    await h.viewer.setViewportSeries('vp-1', CT_TWO_STACKS);
+    expect(h.viewer.getState().viewports[1]?.orientation).toBeUndefined();
+  });
 });

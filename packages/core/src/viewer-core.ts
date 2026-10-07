@@ -1369,6 +1369,7 @@ export function createViewerCore(
             id,
             {
               seriesInstanceUID: undefined,
+              orientation: undefined,
               stackIndex: undefined,
               imageIndex: undefined,
               window: undefined,

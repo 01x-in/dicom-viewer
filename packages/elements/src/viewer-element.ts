@@ -770,6 +770,10 @@ export class DvViewerElement extends LitElement {
         viewer.on('viewport:mpr', () => {
           this.#refreshLabels(true);
         }),
+        // Every new picture reports its slice, so the notice follows a viewport that went back to slices.
+        viewer.on('viewport:image', () => {
+          this.#refreshLabels(false);
+        }),
         viewer.on('study:loaded', () => {
           this.#refreshLabels(false);
         }),
