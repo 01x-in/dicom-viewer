@@ -22,6 +22,7 @@ import type {
   PixelSlice,
   RenderingPort,
   RenderStackOptions,
+  SegmentationHandle,
   StackPort,
   ViewSnapshot,
   WindowLevel,
@@ -442,7 +443,25 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       return render;
     },
     readSegmentationHeader,
-    loadSegmentation: parseSegmentation,
+    async loadSegmentation(stack, bytes, header): Promise<SegmentationHandle> {
+      // A SEG can be loaded before its series was ever shown, and the labelmap images are made from
+      // what Cornerstone knows about the images they sit on. Tell it, for the images no stack has,
+      // and hold the images until the SEG is gone.
+      await Promise.all(
+        stack.instances
+          .filter((instance) => !imageUsers.has(instance.imageId))
+          .map(registerInstance),
+      );
+      claimImages(stack.imageIds);
+      try {
+        return await parseSegmentation(stack.imageIds, bytes, header, () => {
+          releaseImages(stack.imageIds);
+        });
+      } catch (error) {
+        releaseImages(stack.imageIds);
+        throw error;
+      }
+    },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;

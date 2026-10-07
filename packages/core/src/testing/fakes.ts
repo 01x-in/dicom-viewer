@@ -609,7 +609,8 @@ export function fakePort(): FakePort {
       if (header === undefined) throw new Error(`The fake knows no SEG ${uid}.`);
       return header;
     },
-    async loadSegmentation(imageIds, _bytes, header): Promise<SegmentationHandle> {
+    async loadSegmentation(stack, _bytes, header): Promise<SegmentationHandle> {
+      const { imageIds } = stack;
       segmentationLoads.push({ imageIds, header });
       await segmentationGate;
       if (segmentationFailure) {

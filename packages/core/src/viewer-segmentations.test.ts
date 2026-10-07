@@ -118,6 +118,26 @@ describe('segmentations.load', () => {
     expect(h.events['segmentation:loaded']).toHaveLength(1);
   });
 
+  it('loads a SEG whose series is not on screen, and hands the engine the whole stack it names', async () => {
+    const h = harness();
+    // The viewport shows another series: the CT the SEG names was never shown.
+    await show(h, CT_TWO_STACKS);
+    const info = await h.viewer.segmentations.load(SEG);
+    expect(info.referencedSeriesInstanceUID).toBe(CT);
+    expect(h.port.segmentationLoads[0]?.imageIds).toHaveLength(10);
+    expect(h.port.stacks.every((stack) => stack.stack.imageIds.length !== 10)).toBe(true);
+  });
+
+  it('loads a SEG before any series is shown, and draws it when the series arrives', async () => {
+    const h = harness();
+    h.viewer.viewports.attach('vp-0', h.element);
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.segmentations.load(SEG);
+    expect(h.port.stacks).toHaveLength(0);
+    await h.viewer.setViewportSeries('vp-0', CT);
+    expect(Object.keys(drawn(stackOf(h), handleOf(h))).length).toBeGreaterThan(0);
+  });
+
   it('loads a SEG once when it is asked for twice at once', async () => {
     const h = harness();
     await show(h);

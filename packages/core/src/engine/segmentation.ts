@@ -301,6 +301,8 @@ export async function parseSegmentation(
   imageIds: readonly string[],
   bytes: ArrayBuffer,
   header: SegmentationHeader,
+  /** Called once when the handle is disposed, after its segmentations are gone. */
+  onDispose: () => void = () => undefined,
 ): Promise<SegmentationHandle> {
   const labels = new Map(header.segments.map((segment) => [segment.number, segment.label]));
   const plan = planBinaryDecode(
@@ -368,6 +370,7 @@ export async function parseSegmentation(
           segmentation.removeSegmentation(layer.outlineSegmentationId);
         }
         removeFromCache(allImageIds);
+        onDispose();
       },
     };
     loadedByHandle.set(handle, loaded);

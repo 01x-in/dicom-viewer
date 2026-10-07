@@ -449,8 +449,33 @@ export async function scenarioSegmentation(
       ]);
     }
 
-    // Everything the engine held for the SEGs goes with them.
+    // A SEG loads when the series it names is not the one on screen, and is drawn when that series comes.
     await unload(fractional);
+    await page.evaluate(
+      (series) => window.__dvViewer?.setViewportSeries('vp-0', series),
+      input.evrleSeriesUid,
+    );
+    await settle(page);
+    const unseen = await page.evaluate(
+      (uid) =>
+        window.__dvViewer?.segmentations.load(uid).then(
+          (loaded) => loaded.segments.length,
+          (error: unknown) => (error instanceof Error ? error.message : String(error)),
+        ),
+      inserts,
+    );
+    if (unseen !== 4) failures.push(`the SEG of a series that is not on screen: ${String(unseen)}`);
+    await page.evaluate(
+      (series) => window.__dvViewer?.setViewportSeries('vp-0', series),
+      input.j2kSeriesUid,
+    );
+    await showImage(SLICE);
+    await expectColours(run, 'a SEG loaded before its series was shown', [
+      { at: AIR, name: 'the air insert', colour: over(plainAir, RED, 0.5) },
+    ]);
+
+    // Everything the engine held for the SEGs goes with them.
+    await unload(inserts);
     const held = await page.evaluate(() => window.__dvDiagnostics?.());
     if (held?.segmentations !== 0)
       failures.push(`${String(held?.segmentations)} segmentations are held after unloading all`);
