@@ -208,6 +208,14 @@ describe('<DicomViewer>', () => {
     expect(element().shadowRoot?.querySelector('dv-toolbar')).not.toBeNull();
   });
 
+  it('follows the palette', async () => {
+    const props = await mount({ palette: 'navy' });
+    expect(element().getAttribute('data-palette')).toBe('navy');
+    props.palette = 'default';
+    await settle();
+    expect(element().hasAttribute('data-palette')).toBe(false);
+  });
+
   it('emits every change of the state, with its origin', async () => {
     const onStateChange = vi.fn();
     await mount({ onStateChange });

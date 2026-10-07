@@ -22,7 +22,7 @@ import type { DvSegmentationListElement } from './segmentation-list';
 import { type DvSeriesBrowserElement, isDisplayableModality } from './series-browser';
 import { baseStyles, shellThemeStyles } from './theme';
 import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
-import type { ThemeName } from './tokens';
+import type { PaletteName, ThemeName } from './tokens';
 
 export type ViewerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -78,6 +78,7 @@ export class DvViewerElement extends LitElement {
     assetsBaseUrl: { attribute: 'assets-base-url' },
     cpuRendering: { type: Boolean, attribute: 'cpu-rendering' },
     theme: { reflect: true },
+    palette: { reflect: true },
     toolbarItems: { attribute: false },
     hideToolbar: { type: Boolean, attribute: 'hide-toolbar' },
     hideSeriesPanel: { type: Boolean, attribute: 'hide-series-panel' },
@@ -183,6 +184,8 @@ export class DvViewerElement extends LitElement {
   declare assetsBaseUrl: string | undefined;
   declare cpuRendering: boolean;
   declare theme: ThemeName;
+  /** The colours of the chrome: `default`, `navy`, or `graphite`. A host can still change any one with a `--dv-color-*` property. */
+  declare palette: PaletteName;
   /** What the toolbar shows. `undefined`: `DEFAULT_TOOLBAR`. */
   declare toolbarItems: readonly ToolbarItem[] | undefined;
   declare hideToolbar: boolean;
@@ -208,6 +211,7 @@ export class DvViewerElement extends LitElement {
     super();
     this.cpuRendering = false;
     this.theme = 'dark';
+    this.palette = 'default';
     this.toolbarItems = undefined;
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
@@ -240,6 +244,10 @@ export class DvViewerElement extends LitElement {
     if (changed.has('theme')) {
       if (this.theme === 'light') this.setAttribute('data-theme', 'light');
       else this.removeAttribute('data-theme');
+    }
+    if (changed.has('palette')) {
+      if (this.palette === 'default') this.removeAttribute('data-palette');
+      else this.setAttribute('data-palette', this.palette);
     }
   }
 

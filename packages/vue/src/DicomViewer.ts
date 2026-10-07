@@ -8,6 +8,7 @@ import type {
 } from '@scope/viewer-core';
 import type {
   DvViewerElement,
+  PaletteName,
   ThemeName,
   ToolbarItem,
   ViewerErrorDetail,
@@ -58,6 +59,8 @@ export interface DicomViewerProps {
   /** Hides the built-in list of SEGs and their segments, a tab in the right-hand dock. */
   readonly hideSegmentationsPanel?: boolean;
   readonly theme?: ThemeName;
+  /** The colours of the chrome: `default`, `navy`, or `graphite`. */
+  readonly palette?: PaletteName;
   readonly onReady?: (viewer: Viewer, viewport: ViewportApi | undefined) => void;
   readonly onError?: (error: Error) => void;
   readonly onStateChange?: (state: ViewerStateV1, origin: string) => void;
@@ -103,6 +106,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     hideMeasurementsPanel: { type: Boolean, default: false },
     hideSegmentationsPanel: { type: Boolean, default: false },
     theme: { type: String as PropType<ThemeName>, default: 'dark' },
+    palette: { type: String as PropType<PaletteName>, default: 'default' },
   },
   // Payloads: ready(viewer, viewport), error(error), state-change(state, origin).
   emits: ['ready', 'error', 'state-change'],
@@ -131,6 +135,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       const target = element.value;
       if (!defined.value || target === null) return;
       target.theme = props.theme ?? 'dark';
+      target.palette = props.palette ?? 'default';
       target.hideToolbar = props.toolbar === false;
       target.toolbarItems =
         props.toolbar === undefined || props.toolbar === false ? undefined : toRaw(props.toolbar);
@@ -220,6 +225,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       [
         defined,
         () => props.theme,
+        () => props.palette,
         () => props.toolbar,
         () => props.hideSeriesPanel,
         () => props.hideMeasurementsPanel,

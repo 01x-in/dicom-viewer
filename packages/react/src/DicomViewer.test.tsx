@@ -168,6 +168,13 @@ describe('<DicomViewer>', () => {
     expect(element().querySelector('[slot="panel-right"]')?.textContent).toBe('Right');
   });
 
+  it('follows the palette', async () => {
+    await render({ palette: 'graphite' });
+    expect(element().getAttribute('data-palette')).toBe('graphite');
+    await render({});
+    expect(element().hasAttribute('data-palette')).toBe(false);
+  });
+
   it('follows the theme, and can hide the toolbar', async () => {
     await render({ theme: 'light', toolbar: false });
     expect(element().getAttribute('data-theme')).toBe('light');

@@ -232,6 +232,24 @@ describe('<dv-viewer> structure', () => {
     });
     expect(element.getAttribute('data-theme')).toBe('light');
   });
+
+  it('switches palette, and the default palette has no attribute', async () => {
+    const { element } = await ready();
+    expect(element.hasAttribute('data-palette')).toBe(false);
+    element.palette = 'navy';
+    await element.updateComplete;
+    expect(element.getAttribute('data-palette')).toBe('navy');
+    element.palette = 'default';
+    await element.updateComplete;
+    expect(element.hasAttribute('data-palette')).toBe(false);
+  });
+
+  it('takes the palette from an attribute', async () => {
+    const { element } = await ready((made) => {
+      made.setAttribute('palette', 'graphite');
+    });
+    expect(element.getAttribute('data-palette')).toBe('graphite');
+  });
 });
 
 describe('<dv-viewer> theme', () => {
