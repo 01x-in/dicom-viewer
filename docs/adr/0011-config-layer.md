@@ -1,0 +1,51 @@
+# ADR 0011: One serializable config, named commands, and layers
+
+Status: proposed (M6.6). Builds on [ADR 0004](0004-viewer-state-and-ordering.md) (every change goes through one queue), [ADR 0007](0007-styled-shell.md) (slots, panels, tokens), and [ADR 0010](0010-shell-polish.md) (palettes).
+
+## Context
+
+A host sets up the viewer today in four places: `ViewerOptions` (keybindings, overlay, window presets, prefetch), attributes and props on `<dv-viewer>` (theme, palette, which panels to hide, toolbar labels), a `toolbar` array of items, and slots. That is easy to write in code and hard to move around. The toolbar items hold functions (`run`, `pressed`), so a toolbar cannot be written as JSON or HTML. The text on the overlay is fixed in code. A deployment cannot keep its settings in a file, and OncoTrace will receive settings from outside the page.
+
+OHIF is the reference (the customization service docs in `platform/docs/docs/platform/services/customization-service` of [OHIF/Viewers](https://github.com/OHIF/Viewers)). Its configurable layer has six ideas:
+1. One `window.config` object, mostly data.
+2. A command registry, so a toolbar button names a command and gives its options as data.
+3. Named customization points with defaults that a part of the viewer owns (`viewportOverlay.topLeft`), and a host overrides them by id.
+4. Layers (bootstrap, global, mode) applied in a fixed order, and a mode's changes are reverted when it ends.
+5. Features that are opt-in, with no cost when off.
+6. Customization files that are data, loaded from an allowlist, and never executed.
+
+We keep the ideas and leave out the mechanisms. OHIF merges with `$set`, `$push`, and `$apply` operations, and uses `inheritsFrom` and `$transform` functions. These are hard to type, and a function in a config file is code from outside.
+
+## Decision
+
+- **`ViewerConfigV1` is one JSON-serializable object, checked by Zod.** It has `version: 1` and these optional keys: `theme`, `palette`, `toolbar` (with `labels`), `keybindings`, `overlay`, `panels` (`hide`), and `windowLevelPresets`. Unknown keys are an error, so a typo is found, not ignored. A JSON Schema is generated from the Zod schema, for editors.
+- **Where it goes in.** `createViewer({ config })`, `<dv-viewer config>` (a property, or an attribute with JSON), `config` in React, and `config` in Vue. `viewer.getConfig()` returns what is in force.
+- **The code wins over the config.** Precedence, last wins: built-in defaults, then the config layers in order, then the options and props written in code. A config can come from outside the page, so the host's own code must be able to overrule it. The existing options and props stay, unchanged, and `hideSeriesPanel` and the other two become aliases of `panels.hide`.
+- **Commands are a registry.** `viewer.commands` has `register(id, handler)`, `run(id, args)`, and `list()`. The built-ins are the ones the toolbar uses: `tool.set`, `view.zoomIn`, `view.zoomOut`, `view.invert`, `view.reset`, `cine.toggle`, and `preset.apply`. A command runs through the same queue as the API it calls (ADR 0004), so it adds no new path to the engine. A host registers its own, and a config names it.
+- **The toolbar can be data.** A config item is `{ type: 'tool', tool }`, `{ type: 'command', id, label, icon?, command, args? }`, `{ type: 'menu', ... }` with entries of the same kind, or `{ type: 'separator' }`. The shell turns it into the `ToolbarItem` it already draws. The code form (`run`, `pressed`, `custom`) stays for what data cannot say, and is not allowed in a config. `icon` is a name from `icons.ts`. A command that is not registered is an error when the config is read, not when the button is pressed.
+- **The overlay is a list of items for each corner.** An item is `{ id, kind: 'builtin', name }` (`series`, `size`, `window`, `zoom`, `image`, `modality`), or `{ id, kind: 'tag', tag, label?, format? }`, where `tag` is a keyword or a DICOM tag and `format` is `text`, `date`, `time`, `number` (with `decimals`), or `person-name`. An item with the same `id` in a later layer replaces the earlier one, and `{ id, remove: true }` removes it. The text is set as text, never as markup. **Tags that identify a patient** (name, ID, birth date, address, and the like, as a fixed list in the core) show only when `overlay.showPatientInfo` is on, exactly as now, whatever the config says.
+- **Layers can be switched and reverted.** `viewer.config.apply(layer)` merges a layer over the current ones and returns a function that takes it off again. Objects merge key by key, `null` removes a key, an array of items with an `id` merges by id, and any other array replaces. M7 can use it for layouts, and M9 for the OncoTrace profile. Applying a layer is one queued step, and the shell redraws from the result.
+- **A config can be loaded from a URL, off by default.** `configUrl` on `<dv-viewer>` works only with `configOrigins`, an allowlist of origins. The file is fetched as JSON, limited in size, checked, and never executed. A layer that fails the check is rejected whole, with a `dv-error` that has the context `config` and the path of each problem, and the layers below it stay.
+- **Left out:** merge operations such as `$set`, `inheritsFrom`, `$transform`, an extension and mode module system, string namespaces for modules, and functions in a config.
+
+## How it is built
+
+1. The schema, `mergeConfig`, the layers, and the order of precedence, in the core, with tests.
+2. The command registry, and the toolbar from a config.
+3. The overlay items from a config, with the patient-tag guard.
+4. Panels, keybindings, palette, and labels from a config in the element, React, and Vue.
+5. `configUrl` with its allowlist, the JSON Schema, a config file in `examples/vanilla`, and the guide.
+
+## Done when
+
+- The same config, as a JSON file, gives the same toolbar, overlay, keys, and palette in vanilla, React, Vue, Next, and Nuxt, and the matrix checks it.
+- A config with an unknown key, an unregistered command, a patient tag with `showPatientInfo` off, or a bad layer is rejected with a message that names the path, and the viewer still starts.
+- `viewer.config.apply(layer)` and the function it returns leave the toolbar, overlay, and keys as they were.
+- No config means the viewer is what it is now: every existing test passes unchanged.
+
+## Consequences
+
+- **A second way to say the same thing.** The props and the config overlap, and the precedence rule is the only thing that keeps that clear. The guide must show it.
+- **A config is not a plugin system.** A host that needs behavior writes a command in code and names it from the config.
+- **The overlay item list is a new public shape.** `overlayLines` and `OverlayOptions` stay, and the old options map onto the new items.
+- **Open:** whether `windowLevelPresets` and `prefetch` belong in a config or only in code, and whether layers need names so that `apply` can be listed.
