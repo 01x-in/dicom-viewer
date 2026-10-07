@@ -3,6 +3,7 @@ import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@scope/viewer-core/
 import { afterEach, describe, expect, it } from 'vitest';
 import './define';
 import { describeSeries, isDisplayableModality } from './index';
+import { readSeriesDrag, SERIES_DRAG_TYPE } from './series-drag';
 import type { DvSeriesBrowserElement } from './series-browser';
 
 const open: FakeViewer[] = [];
@@ -194,6 +195,35 @@ describe('<dv-series-browser>', () => {
         ?.seriesInstanceUID,
     ).toBe(FAKE_IDS.ct);
     expect(fake.viewer.getState().viewports[0]?.seriesInstanceUID).toBe(FAKE_IDS.ctTwoStacks);
+  });
+
+  it('can be dragged from, with the series and its study', async () => {
+    const { browser, fake } = await mount();
+    const data = new Map<string, string>();
+    const dragstart = new Event('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(dragstart, 'dataTransfer', {
+      value: {
+        types: [] as string[],
+        effectAllowed: 'none',
+        setData: (type: string, value: string): void => {
+          data.set(type, value);
+        },
+      },
+    });
+    const source = row(browser, FAKE_IDS.ct);
+    expect(source.getAttribute('draggable')).toBe('true');
+    source.dispatchEvent(dragstart);
+    expect(readSeriesDrag(data.get(SERIES_DRAG_TYPE) ?? '')).toEqual({
+      studyInstanceUID: FAKE_IDS.study,
+      seriesInstanceUID: FAKE_IDS.ct,
+    });
+    expect([...data.keys()]).toEqual([SERIES_DRAG_TYPE]);
+    expect(fake.viewer.getState().studyInstanceUID).toBe(FAKE_IDS.study);
+  });
+
+  it('does not let a SEG be dragged, since there is nothing to show', async () => {
+    const { browser } = await mount();
+    expect(row(browser, FAKE_IDS.seg).getAttribute('draggable')).toBe('false');
   });
 
   it('shows a SEG as unavailable, does not draw it, and ignores a click on it', async () => {

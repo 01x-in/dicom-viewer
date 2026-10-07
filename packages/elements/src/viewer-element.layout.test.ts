@@ -2,7 +2,8 @@
 import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@scope/viewer-core/testing';
 import type { ViewerOptions, ViewerStateV1 } from '@scope/viewer-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DvViewerElement } from './viewer-element';
+import { SERIES_DRAG_TYPE, seriesDragData } from './series-drag';
+import type { DvViewerElement, ViewerErrorDetail } from './viewer-element';
 
 const made: FakeViewer[] = [];
 
@@ -133,5 +134,86 @@ describe('<dv-viewer> layouts', () => {
     );
     expect(labels[0]).toMatch(/^Viewport 1 of 2, /);
     expect(labels[1]).toBe('Viewport 2 of 2, No image shown');
+  });
+});
+
+function drag(type: string, payload: string | undefined): Event {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'dataTransfer', {
+    value: {
+      types: payload === undefined ? ['Files'] : [SERIES_DRAG_TYPE],
+      dropEffect: 'none',
+      getData: (kind: string): string => (kind === SERIES_DRAG_TYPE ? (payload ?? '') : ''),
+    },
+  });
+  return event;
+}
+
+const stateOf = (fake: FakeViewer, id: string): string | undefined =>
+  fake.viewer.getState().viewports.find((viewport) => viewport.id === id)?.seriesInstanceUID;
+
+describe('<dv-viewer> drop of a series', () => {
+  async function twoUp(): Promise<{ element: DvViewerElement; fake: FakeViewer }> {
+    const { element, fake } = await mount();
+    await fake.viewer.setLayout('1x2');
+    await settle(element);
+    return { element, fake };
+  }
+
+  it('shows the series in the viewport it is dropped on, and makes that viewport active', async () => {
+    const { element, fake } = await twoUp();
+    const second = cells(element)[1];
+    second?.dispatchEvent(drag('drop', seriesDragData(FAKE_IDS.study, FAKE_IDS.ctTwoStacks)));
+    await settle(element);
+    expect(stateOf(fake, 'vp-1')).toBe(FAKE_IDS.ctTwoStacks);
+    expect(stateOf(fake, 'vp-0')).not.toBe(FAKE_IDS.ctTwoStacks);
+    expect(fake.viewer.viewports.active).toBe('vp-1');
+  });
+
+  it('accepts the drag over a viewport, shows where it would land, and stops when it leaves', async () => {
+    const { element } = await twoUp();
+    const second = cells(element)[1];
+    const over = drag('dragover', seriesDragData(FAKE_IDS.study, FAKE_IDS.ct));
+    second?.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(true);
+    expect(second?.hasAttribute('data-drop-target')).toBe(true);
+    second?.dispatchEvent(drag('dragleave', undefined));
+    expect(second?.hasAttribute('data-drop-target')).toBe(false);
+  });
+
+  it('does not accept files or text, so the browser keeps its own behaviour', async () => {
+    const { element } = await twoUp();
+    const over = drag('dragover', undefined);
+    cells(element)[1]?.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(false);
+    expect(cells(element)[1]?.hasAttribute('data-drop-target')).toBe(false);
+  });
+
+  it('ignores a drop from another study, and one that is not a series', async () => {
+    const { element, fake } = await twoUp();
+    cells(element)[1]?.dispatchEvent(drag('drop', seriesDragData('1.9.9', FAKE_IDS.ct)));
+    cells(element)[1]?.dispatchEvent(drag('drop', 'not a payload'));
+    await settle(element);
+    expect(stateOf(fake, 'vp-1')).toBeUndefined();
+  });
+
+  it('reports a series that cannot be shown as a dv-error, and leaves the viewport as it was', async () => {
+    const { element, fake } = await twoUp();
+    const errors: ViewerErrorDetail[] = [];
+    element.addEventListener('dv-error', (event) => {
+      errors.push((event as CustomEvent<ViewerErrorDetail>).detail);
+    });
+    cells(element)[1]?.dispatchEvent(drag('drop', seriesDragData(FAKE_IDS.study, FAKE_IDS.seg)));
+    await settle(element);
+    expect(errors.map((detail) => detail.context)).toEqual(['drop']);
+    expect(stateOf(fake, 'vp-1')).toBeUndefined();
+  });
+
+  it('replaces what a viewport shows', async () => {
+    const { element, fake } = await twoUp();
+    const first = cells(element)[0];
+    first?.dispatchEvent(drag('drop', seriesDragData(FAKE_IDS.study, FAKE_IDS.ctTwoStacks)));
+    await settle(element);
+    expect(stateOf(fake, 'vp-0')).toBe(FAKE_IDS.ctTwoStacks);
   });
 });

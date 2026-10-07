@@ -9,6 +9,7 @@ import {
   type PropertyValues,
   type TemplateResult,
 } from 'lit';
+import { SERIES_DRAG_TYPE, seriesDragData } from './series-drag';
 import { nextFocusIndex } from './toolbar-config';
 import { baseStyles, themeStyles } from './theme';
 
@@ -297,6 +298,21 @@ export class DvSeriesBrowserElement extends LitElement {
     rows[next]?.focus();
   }
 
+  /** A series can be dragged onto a viewport. The payload is the series and its study, as one type only. */
+  #onDragStart(event: DragEvent, summary: SeriesSummary, displayable: boolean): void {
+    const studyInstanceUID = this.viewer?.getState().studyInstanceUID;
+    const { dataTransfer } = event;
+    if (!displayable || studyInstanceUID === undefined || dataTransfer === null) {
+      event.preventDefault();
+      return;
+    }
+    dataTransfer.setData(
+      SERIES_DRAG_TYPE,
+      seriesDragData(studyInstanceUID, summary.seriesInstanceUID),
+    );
+    dataTransfer.effectAllowed = 'copy';
+  }
+
   #renderRow(summary: SeriesSummary, position: number): TemplateResult {
     const { title, detail } = describeSeries(summary);
     const selected = summary.seriesInstanceUID === this.shownUid;
@@ -310,6 +326,10 @@ export class DvSeriesBrowserElement extends LitElement {
       aria-selected=${selected ? 'true' : 'false'}
       aria-disabled=${displayable ? nothing : 'true'}
       aria-label=${`${title}, ${detail}`}
+      draggable=${displayable ? 'true' : 'false'}
+      @dragstart=${(event: DragEvent): void => {
+        this.#onDragStart(event, summary, displayable);
+      }}
       @click=${(): void => {
         this.#choose(summary);
       }}

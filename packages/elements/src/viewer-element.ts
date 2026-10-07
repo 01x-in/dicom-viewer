@@ -20,6 +20,7 @@ import {
   type TemplateResult,
 } from 'lit';
 import { layoutCells } from './layout';
+import { hasSeriesDrag, readSeriesDrag, SERIES_DRAG_TYPE } from './series-drag';
 import { createThrottledAnnouncer, describeViewport, type ThrottledAnnouncer } from './live-label';
 import type { DvMeasurementListElement } from './measurement-list';
 import type { DvSegmentationListElement } from './segmentation-list';
@@ -182,6 +183,15 @@ export class DvViewerElement extends LitElement {
       /* The viewport the toolbar acts on, when there is more than one. */
       ::slotted([data-viewport-id][data-active]) {
         box-shadow: inset 0 0 0 2px var(--dv-color-accent);
+      }
+      /* Where a dragged series would land. Over the viewport, which fills its cell. */
+      .cell[data-drop-target]::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        border: 3px solid var(--dv-color-accent);
+        pointer-events: none;
       }
       .overlay {
         position: absolute;
@@ -543,6 +553,42 @@ export class DvViewerElement extends LitElement {
     this.#refreshActive(viewer);
   }
 
+  #onDragOver(event: DragEvent): void {
+    if (!hasSeriesDrag(event.dataTransfer)) return;
+    // Cancelling the event is what makes the cell a place the series can be dropped.
+    event.preventDefault();
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'copy';
+    if (event.currentTarget instanceof HTMLElement) {
+      event.currentTarget.toggleAttribute('data-drop-target', true);
+    }
+  }
+
+  #onDragLeave(event: DragEvent): void {
+    if (event.currentTarget instanceof HTMLElement) {
+      event.currentTarget.toggleAttribute('data-drop-target', false);
+    }
+  }
+
+  /** A series dropped on a viewport is shown there, and the viewport becomes the active one. */
+  #onDrop(event: DragEvent, viewportId: string): void {
+    if (event.currentTarget instanceof HTMLElement) {
+      event.currentTarget.toggleAttribute('data-drop-target', false);
+    }
+    const { dataTransfer } = event;
+    const viewer = this.#viewer;
+    if (viewer === undefined || dataTransfer === null || !hasSeriesDrag(dataTransfer)) return;
+    event.preventDefault();
+    // A drop can come from another page, or another viewer on this one: only this study's series.
+    const dropped = readSeriesDrag(dataTransfer.getData(SERIES_DRAG_TYPE));
+    if (dropped === undefined || dropped.studyInstanceUID !== viewer.getState().studyInstanceUID) {
+      return;
+    }
+    viewer.viewports.setActive(viewportId);
+    viewer.setViewportSeries(viewportId, dropped.seriesInstanceUID).catch((error: unknown) => {
+      this.#fail(error, 'drop');
+    });
+  }
+
   /** Marks the viewport the toolbar acts on, but only where there is more than one to tell apart. */
   #refreshActive(viewer: Viewer): void {
     const many = this.#viewportElements.length > 1;
@@ -805,7 +851,11 @@ export class DvViewerElement extends LitElement {
         >
           ${cells.map(
             (cell) =>
-              html`<div class="cell" style=${`grid-column: ${cell.column.toString()} / span ${cell.columnSpan.toString()}; grid-row: ${cell.row.toString()} / span ${cell.rowSpan.toString()};`}><slot name="viewport-${cell.id}"></slot></div>`,
+              html`<div class="cell" @dragover=${this.#onDragOver} @dragleave=${this.#onDragLeave} @drop=${(
+                event: DragEvent,
+              ): void => {
+                this.#onDrop(event, cell.id);
+              }} style=${`grid-column: ${cell.column.toString()} / span ${cell.columnSpan.toString()}; grid-row: ${cell.row.toString()} / span ${cell.rowSpan.toString()};`}><slot name="viewport-${cell.id}"></slot></div>`,
           )}
           <div class="overlay"><slot name="viewport-overlay"></slot></div>
           ${

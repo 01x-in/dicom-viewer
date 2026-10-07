@@ -1,5 +1,6 @@
 export { createDicomWebDataSource } from './data/dicomweb';
 export { DataSourceError } from './data/errors';
+export { isDicomUid } from './data/uid';
 export type { DicomWebDataSourceOptions } from './data/dicomweb';
 export type { DicomWebRequest, RetryOptions } from './data/request';
 export type {
