@@ -184,6 +184,21 @@ describe('<dv-viewer config>', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it('starts without a config whose layers cannot work together, and says why', async () => {
+    // Each layer is fine alone, but a key for a preset that no layer has cannot be built.
+    const { element, errors } = await ready((el) => {
+      el.config = layer({
+        palette: 'navy',
+        keybindings: { m: { type: 'preset', id: 'nope' } },
+      });
+    });
+    expect(element.status).toBe('ready');
+    expect(element.hasAttribute('data-palette')).toBe(false);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.context).toBe('config');
+    expect(errors[0]?.error.message).toMatch(/preset/);
+  });
+
   it('keeps the built-in toolbar, and says why, when the config names a command that is not there', async () => {
     const { element, errors } = await ready((el) => {
       el.config = layer({
@@ -358,5 +373,56 @@ describe('<dv-viewer config-url>', () => {
     vi.stubGlobal('fetch', fetchMock);
     await ready();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('puts the config in the options of the page over the file', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(reply(layer({ palette: 'graphite', theme: 'light' }))),
+    );
+    const { element } = await ready((el) => {
+      el.options = { dataSource: createFakeViewer().source, config: layer({ palette: 'navy' }) };
+      el.configUrl = URL_OK;
+      el.configOrigins = ['https://cdn.example.org'];
+    });
+    expect(element.getAttribute('data-palette')).toBe('navy');
+    expect(element.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('is aborted, and says nothing, when the inputs change while the file is on its way', async () => {
+    const pending: { reject: (error: Error) => void; signal: AbortSignal | undefined }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      (_url: URL, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          pending.push({ reject, signal: init.signal ?? undefined });
+        }),
+    );
+    const element = document.createElement(elementTag('viewer')) as DvViewerElement;
+    element.options = { dataSource: createFakeViewer().source };
+    element.studyInstanceUid = FAKE_IDS.study;
+    element.configUrl = URL_OK;
+    element.configOrigins = ['https://cdn.example.org'];
+    const errors: ViewerErrorDetail[] = [];
+    element.addEventListener('dv-error', (event) => {
+      errors.push((event as CustomEvent<ViewerErrorDetail>).detail);
+    });
+    document.body.append(element);
+    await vi.waitFor(() => {
+      expect(pending).toHaveLength(1);
+    });
+    // The page takes the file away: the viewer starts again, without it.
+    const ready = new Promise<void>((resolve) => {
+      element.addEventListener('dv-ready', () => {
+        resolve();
+      });
+    });
+    element.configUrl = undefined;
+    await ready;
+    expect(pending[0]?.signal?.aborted).toBe(true);
+    // The old request fails now, too late to matter.
+    pending[0]?.reject(new DOMException('Aborted', 'AbortError'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(errors).toEqual([]);
+    expect(element.status).toBe('ready');
   });
 });

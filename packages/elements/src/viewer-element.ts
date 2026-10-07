@@ -344,6 +344,8 @@ export class DvViewerElement extends LitElement {
       );
     }
     for (const stop of this.#cleanups.splice(0)) stop();
+    this.#configRequest?.abort();
+    this.#configRequest = undefined;
     this.#removeSeriesPanel?.();
     this.#removeSeriesPanel = undefined;
     this.#removeMeasurementsPanel?.();
@@ -375,9 +377,11 @@ export class DvViewerElement extends LitElement {
    * The config file at `configUrl`, if the page asked for one and its origin is allowed. Every
    * failure is reported and is `undefined`, so a file that cannot be had does not take the viewer away.
    */
-  async #fetchConfig(): Promise<ViewerConfigV1 | undefined> {
+  async #fetchConfig(generation: number): Promise<ViewerConfigV1 | undefined> {
     const { configUrl } = this;
     if (configUrl === undefined || configUrl === '') return undefined;
+    const request = new AbortController();
+    this.#configRequest = request;
     try {
       const url = new URL(configUrl, document.baseURI);
       if (!(this.configOrigins ?? []).includes(url.origin)) {
@@ -386,7 +390,11 @@ export class DvViewerElement extends LitElement {
         );
       }
       // No cookies go to it, and a redirect (which could leave the list) is an error.
-      const response = await fetch(url, { credentials: 'omit', redirect: 'error' });
+      const response = await fetch(url, {
+        credentials: 'omit',
+        redirect: 'error',
+        signal: request.signal,
+      });
       if (!response.ok) {
         throw new Error(`The config at ${url.href} answered ${response.status.toString()}.`);
       }
@@ -409,8 +417,11 @@ export class DvViewerElement extends LitElement {
       }
       return parsed.config;
     } catch (error) {
-      this.#fail(error, 'config');
+      // A load that was replaced has no one to tell: its failure is not the new one's.
+      if (generation === this.#generation) this.#fail(error, 'config');
       return undefined;
+    } finally {
+      if (this.#configRequest === request) this.#configRequest = undefined;
     }
   }
 
@@ -456,14 +467,21 @@ export class DvViewerElement extends LitElement {
       this.commands === undefined
         ? options
         : { ...options, commands: { ...options.commands, ...this.commands } };
-    // The file first, so the page's own config wins over it.
-    const layers = [...(fetched === undefined ? [] : [fetched]), ...this.#configLayers()];
+    // The file first, then the config of the page's options, then its `config` property: the page's own wins.
+    const layers = [
+      ...(fetched === undefined ? [] : [fetched]),
+      ...fromOptions,
+      ...this.#configLayers(),
+    ];
     if (layers.length === 0) return createViewer(withCommands);
     try {
-      return createViewer({ ...withCommands, config: [...fromOptions, ...layers] });
+      return createViewer({ ...withCommands, config: layers });
     } catch (error) {
-      if (!(error instanceof RangeError) || !error.message.startsWith('Invalid config'))
-        throw error;
+      // A layer can pass the check alone and still not work with the others, or with this viewer: a
+      // key for a window preset that no layer has, a toolbar that names a command nobody registered.
+      // Those are a `RangeError` from the viewer. Without the layers the viewer is made, or fails
+      // for its own reason, which is then the load's failure.
+      if (!(error instanceof RangeError)) throw error;
       this.#fail(error, 'config');
       return createViewer(withCommands);
     }
@@ -616,7 +634,7 @@ export class DvViewerElement extends LitElement {
     }
     this.status = 'loading';
     try {
-      const fetched = await this.#fetchConfig();
+      const fetched = await this.#fetchConfig(generation);
       if (generation !== this.#generation) return;
       const viewer = this.#makeViewer(options, fetched);
       this.#viewer = viewer;
@@ -704,6 +722,9 @@ export class DvViewerElement extends LitElement {
     }
     if (candidates.length > 0) throw toError(failure);
   }
+
+  /** Stops the config request of a load that was replaced or torn down. */
+  #configRequest: AbortController | undefined;
 
   #compiledToolbar: { viewer: Viewer; source: unknown; items: readonly ToolbarItem[] } | undefined;
 
