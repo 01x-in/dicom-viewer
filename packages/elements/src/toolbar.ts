@@ -31,7 +31,13 @@ export interface ToolbarErrorDetail {
 
 export type ToolbarLabels = 'tooltip' | 'inline';
 
-const EVENTS = ['tool:active', 'viewport:voi', 'viewport:cine', 'state:changed'] as const;
+const EVENTS = [
+  'tool:active',
+  'viewport:voi',
+  'viewport:cine',
+  'state:changed',
+  'config:changed',
+] as const;
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));

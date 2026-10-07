@@ -1,7 +1,11 @@
 import {
+  type CommandInput,
   createDicomWebDataSource,
   createViewer,
+  parseViewerConfig,
+  type ResolvedViewerConfig,
   type Viewer,
+  type ViewerConfigV1,
   type ViewerOptions,
   type ViewportApi,
 } from '@scope/viewer-core';
@@ -24,6 +28,7 @@ import { baseStyles, shellThemeStyles } from './theme';
 import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
 import type { PaletteName, ThemeName } from './tokens';
 import type { ToolbarLabels } from './toolbar';
+import { toolbarFromConfig } from './toolbar-from-config';
 
 export type ViewerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -51,6 +56,8 @@ const INPUTS = [
   'seriesInstanceUid',
   'assetsBaseUrl',
   'cpuRendering',
+  'config',
+  'commands',
 ] as const;
 
 function toError(error: unknown): Error {
@@ -80,6 +87,9 @@ export class DvViewerElement extends LitElement {
     cpuRendering: { type: Boolean, attribute: 'cpu-rendering' },
     theme: { reflect: true },
     palette: { reflect: true },
+    config: {},
+    commands: { attribute: false },
+    resolved: { state: true },
     toolbarItems: { attribute: false },
     toolbarLabels: { attribute: 'toolbar-labels' },
     hideToolbar: { type: Boolean, attribute: 'hide-toolbar' },
@@ -188,14 +198,25 @@ export class DvViewerElement extends LitElement {
   /** When set, assets are loaded in `url` mode from here instead of the inline default. */
   declare assetsBaseUrl: string | undefined;
   declare cpuRendering: boolean;
-  declare theme: ThemeName;
+  declare theme: ThemeName | undefined;
   /** The colours of the chrome: `default`, `navy`, or `graphite`. A host can still change any one with a `--dv-color-*` property. */
-  declare palette: PaletteName;
+  declare palette: PaletteName | undefined;
   /** What the toolbar shows. `undefined`: `DEFAULT_TOOLBAR`. */
   declare toolbarItems: readonly ToolbarItem[] | undefined;
   /** `tooltip` (default): toolbar buttons show a picture and a tooltip. `inline`: the name is beside the picture. */
-  declare toolbarLabels: ToolbarLabels;
+  declare toolbarLabels: ToolbarLabels | undefined;
   declare hideToolbar: boolean;
+  /**
+   * Settings as data: a `ViewerConfigV1`, several of them (the last one wins), or JSON text (the
+   * attribute). A setting made by the page, such as `theme` or `toolbarItems`, wins over the config.
+   * A config with a problem is refused whole with a `dv-error` (context `config`), and the viewer
+   * starts without it.
+   */
+  declare config: ViewerConfigV1 | readonly ViewerConfigV1[] | string | undefined;
+  /** Commands of your own, for a config to name: `{ 'acme.export': () => ... }`. */
+  declare commands: Readonly<Record<string, CommandInput>> | undefined;
+  /** What the viewer's config comes to now, so the shell draws it. */
+  declare resolved: ResolvedViewerConfig | undefined;
   declare hideSeriesPanel: boolean;
   declare hideMeasurementsPanel: boolean;
   declare hideSegmentationsPanel: boolean;
@@ -217,10 +238,13 @@ export class DvViewerElement extends LitElement {
   constructor() {
     super();
     this.cpuRendering = false;
-    this.theme = 'dark';
-    this.palette = 'default';
+    this.theme = undefined;
+    this.palette = undefined;
+    this.config = undefined;
+    this.commands = undefined;
+    this.resolved = undefined;
     this.toolbarItems = undefined;
-    this.toolbarLabels = 'tooltip';
+    this.toolbarLabels = undefined;
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
     this.hideMeasurementsPanel = false;
@@ -249,13 +273,16 @@ export class DvViewerElement extends LitElement {
   }
 
   override willUpdate(changed: PropertyValues<this>): void {
-    if (changed.has('theme')) {
-      if (this.theme === 'light') this.setAttribute('data-theme', 'light');
+    if (changed.has('theme') || changed.has('resolved')) {
+      // What the page set wins over the config, and `dark` is what is left.
+      const theme = this.theme ?? this.resolved?.theme;
+      if (theme === 'light') this.setAttribute('data-theme', 'light');
       else this.removeAttribute('data-theme');
     }
-    if (changed.has('palette')) {
-      if (this.palette === 'default') this.removeAttribute('data-palette');
-      else this.setAttribute('data-palette', this.palette);
+    if (changed.has('palette') || changed.has('resolved')) {
+      const palette = this.palette ?? this.resolved?.palette;
+      if (palette === undefined || palette === 'default') this.removeAttribute('data-palette');
+      else this.setAttribute('data-palette', palette);
     }
   }
 
@@ -298,6 +325,7 @@ export class DvViewerElement extends LitElement {
     this.#announcer = undefined;
     this.#viewer?.destroy();
     this.#viewer = undefined;
+    this.resolved = undefined;
     this.requestUpdate();
     for (const element of this.#viewportElements.splice(0)) element.remove();
     this.shown = false;
@@ -312,6 +340,60 @@ export class DvViewerElement extends LitElement {
         composed: true,
       }),
     );
+  }
+
+  /** The layers of the `config` property that pass the check. A layer that does not is reported, and left out. */
+  #configLayers(): ViewerConfigV1[] {
+    let given: unknown = this.config;
+    if (given === undefined || given === '') return [];
+    if (typeof given === 'string') {
+      try {
+        given = JSON.parse(given) as unknown;
+      } catch {
+        this.#fail(new SyntaxError('The config is not valid JSON.'), 'config');
+        return [];
+      }
+    }
+    const layers: unknown[] = Array.isArray(given) ? given : [given];
+    const valid: ViewerConfigV1[] = [];
+    layers.forEach((layer, index) => {
+      const parsed = parseViewerConfig(layer);
+      if (parsed.ok) {
+        valid.push(parsed.config);
+        return;
+      }
+      const where = layers.length === 1 ? 'config' : `config[${index.toString()}]`;
+      this.#fail(new RangeError(`Invalid ${where}:\n${parsed.errors.join('\n')}`), 'config');
+    });
+    return valid;
+  }
+
+  /**
+   * The viewer, with the config. A config that checks out alone but cannot work with this viewer
+   * (a toolbar that names a command nobody registered) is reported, and the viewer is made without
+   * it, so a mistake in settings does not take the viewer away.
+   */
+  #makeViewer(options: ViewerOptions): Viewer {
+    const fromOptions =
+      options.config === undefined
+        ? []
+        : Array.isArray(options.config)
+          ? (options.config as readonly ViewerConfigV1[])
+          : [options.config as ViewerConfigV1];
+    const withCommands: ViewerOptions =
+      this.commands === undefined
+        ? options
+        : { ...options, commands: { ...options.commands, ...this.commands } };
+    const layers = this.#configLayers();
+    if (layers.length === 0) return createViewer(withCommands);
+    try {
+      return createViewer({ ...withCommands, config: [...fromOptions, ...layers] });
+    } catch (error) {
+      if (!(error instanceof RangeError) || !error.message.startsWith('Invalid config'))
+        throw error;
+      this.#fail(error, 'config');
+      return createViewer(withCommands);
+    }
   }
 
   #resolveOptions(): ViewerOptions | undefined {
@@ -374,8 +456,13 @@ export class DvViewerElement extends LitElement {
     if (announce) this.#announcer?.push(spoken.join('. '));
   }
 
+  /** A built-in panel is left out when the page says so, or the config does. */
+  #hidden(panel: 'series' | 'measurements' | 'segmentations', asked: boolean): boolean {
+    return asked || this.resolved?.panels.hide.includes(panel) === true;
+  }
+
   #syncSeriesPanel(viewer: Viewer): void {
-    if (this.hideSeriesPanel) {
+    if (this.#hidden('series', this.hideSeriesPanel)) {
       this.#removeSeriesPanel?.();
       this.#removeSeriesPanel = undefined;
       return;
@@ -398,7 +485,7 @@ export class DvViewerElement extends LitElement {
   }
 
   #syncMeasurementsPanel(viewer: Viewer): void {
-    if (this.hideMeasurementsPanel) {
+    if (this.#hidden('measurements', this.hideMeasurementsPanel)) {
       this.#removeMeasurementsPanel?.();
       this.#removeMeasurementsPanel = undefined;
       return;
@@ -421,7 +508,7 @@ export class DvViewerElement extends LitElement {
   }
 
   #syncSegmentationsPanel(viewer: Viewer): void {
-    if (this.hideSegmentationsPanel) {
+    if (this.#hidden('segmentations', this.hideSegmentationsPanel)) {
       this.#removeSegmentationsPanel?.();
       this.#removeSegmentationsPanel = undefined;
       return;
@@ -456,8 +543,9 @@ export class DvViewerElement extends LitElement {
     }
     this.status = 'loading';
     try {
-      const viewer = createViewer(options);
+      const viewer = this.#makeViewer(options);
       this.#viewer = viewer;
+      this.resolved = viewer.config.get();
       this.requestUpdate();
       this.#announcer = createThrottledAnnouncer((text) => {
         this.announcement = text;
@@ -471,6 +559,12 @@ export class DvViewerElement extends LitElement {
         }),
         viewer.on('study:loaded', () => {
           this.#refreshLabels(false);
+        }),
+        viewer.on('config:changed', ({ config }) => {
+          this.resolved = config;
+          this.#syncSeriesPanel(viewer);
+          this.#syncMeasurementsPanel(viewer);
+          this.#syncSegmentationsPanel(viewer);
         }),
       );
       this.#syncSeriesPanel(viewer);
@@ -536,15 +630,28 @@ export class DvViewerElement extends LitElement {
     if (candidates.length > 0) throw toError(failure);
   }
 
+  #compiledToolbar: { viewer: Viewer; source: unknown; items: readonly ToolbarItem[] } | undefined;
+
+  /** The buttons: the page's own, else the config's, else the built-in ones. A config's are made once, not on every draw. */
+  #toolbarItems(viewer: Viewer | undefined): readonly ToolbarItem[] {
+    if (this.toolbarItems !== undefined) return this.toolbarItems;
+    const source = this.resolved?.toolbar.items;
+    if (source === undefined || viewer === undefined) return DEFAULT_TOOLBAR;
+    if (this.#compiledToolbar?.viewer !== viewer || this.#compiledToolbar.source !== source) {
+      this.#compiledToolbar = { viewer, source, items: toolbarFromConfig(source, viewer) };
+    }
+    return this.#compiledToolbar.items;
+  }
+
   override render(): TemplateResult {
     const viewer = this.#viewer;
     const { ids, columns, rows } = layoutCells(viewer?.getState().layout ?? '1x1');
     return html`<div class="shell" part="shell" role="region" aria-label=${this.label}>
       <div class="banner" part="banner"><slot name="banner"></slot></div>
       ${
-        this.hideToolbar
+        this.hideToolbar || this.resolved?.toolbar.hidden === true
           ? nothing
-          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.toolbarItems ?? DEFAULT_TOOLBAR} .labels=${this.toolbarLabels}>
+          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.#toolbarItems(viewer)} .labels=${this.toolbarLabels ?? this.resolved?.toolbar.labels ?? 'tooltip'}>
             <slot name="toolbar-start" slot="start"></slot>
             <slot name="toolbar-end" slot="end"></slot>
           </dv-toolbar>`

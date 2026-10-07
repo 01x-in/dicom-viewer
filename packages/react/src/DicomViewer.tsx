@@ -1,7 +1,9 @@
 import type {
+  CommandInput,
   NavigateTarget,
   PanelPlacement,
   Viewer,
+  ViewerConfigV1,
   ViewerOptions,
   ViewerStateV1,
   ViewportApi,
@@ -47,6 +49,14 @@ export interface DicomViewerProps {
   readonly studyInstanceUID: string;
   /** Default: the series a restored `initialState` had, else the first with pictures. */
   readonly seriesInstanceUID?: string | undefined;
+  /**
+   * Settings as data: a `ViewerConfigV1`, or several (the last one wins). The props below, such as
+   * `theme`, `palette` and `toolbar`, win over it. Keep the object stable: a new one restarts the
+   * viewer. A config with a problem is refused whole and reported to `onError`.
+   */
+  readonly config?: ViewerConfigV1 | readonly ViewerConfigV1[] | undefined;
+  /** Commands of your own, for a config to name. Keep the object stable. */
+  readonly commands?: Readonly<Record<string, CommandInput>> | undefined;
   /** Shows an instance, now and whenever the target changes, once the viewer is ready. */
   readonly navigate?: NavigateTarget | undefined;
   /** Read when the viewer starts. Later changes are ignored: use the viewer's API to change the view. */
@@ -105,7 +115,17 @@ function targetKey(target: NavigateTarget | undefined): string {
  * the engine are loaded in an effect.
  */
 export function DicomViewer(props: DicomViewerProps): JSX.Element {
-  const { options, studyInstanceUID, seriesInstanceUID, className, style, theme, palette } = props;
+  const {
+    options,
+    studyInstanceUID,
+    seriesInstanceUID,
+    className,
+    style,
+    theme,
+    palette,
+    config,
+    commands,
+  } = props;
   const elementRef = useRef<DvViewerElement | null>(null);
   // Callbacks and render functions change identity every render; nothing may restart for them.
   const latest = useRef(props);
@@ -156,19 +176,21 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     if (!defined || element === null) return;
     const { initialState } = latest.current;
     element.options = initialState === undefined ? options : { ...options, initialState };
+    element.config = config;
+    element.commands = commands;
     element.studyInstanceUid = studyInstanceUID;
     element.seriesInstanceUid = seriesInstanceUID;
-  }, [defined, options, studyInstanceUID, seriesInstanceUID]);
+  }, [defined, options, config, commands, studyInstanceUID, seriesInstanceUID]);
 
   const { toolbar, toolbarLabels, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel } =
     props;
   useEffect(() => {
     const element = elementRef.current;
     if (!defined || element === null) return;
-    element.theme = theme ?? 'dark';
-    element.palette = palette ?? 'default';
+    element.theme = theme;
+    element.palette = palette;
     element.hideToolbar = toolbar === false;
-    element.toolbarLabels = toolbarLabels ?? 'tooltip';
+    element.toolbarLabels = toolbarLabels;
     element.toolbarItems = toolbar === undefined || toolbar === false ? undefined : toolbar;
     element.hideSeriesPanel = hideSeriesPanel === true;
     element.hideMeasurementsPanel = hideMeasurementsPanel === true;

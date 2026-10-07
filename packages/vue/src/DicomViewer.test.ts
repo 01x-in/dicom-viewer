@@ -39,9 +39,11 @@ vi.mock('@scope/viewer-core', async (importOriginal) => {
     ...actual,
     createViewer: (options: ViewerOptions): unknown => {
       received.push(options);
-      const fake = make(
-        options.initialState === undefined ? {} : { initialState: options.initialState },
-      );
+      const fake = make({
+        ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
+        ...(options.config === undefined ? {} : { config: options.config }),
+        ...(options.commands === undefined ? {} : { commands: options.commands }),
+      });
       made.push(fake);
       return fake.viewer;
     },
@@ -215,6 +217,33 @@ describe('<DicomViewer>', () => {
     props.toolbarLabels = 'tooltip';
     await settle();
     expect(element().toolbarLabels).toBe('tooltip');
+    props.toolbarLabels = undefined;
+    await settle();
+    expect(element().toolbarLabels).toBeUndefined();
+  });
+
+  it('takes a config, and the props win over it', async () => {
+    await mount({
+      config: { version: 1, palette: 'navy', theme: 'light', panels: { hide: ['series'] } },
+      theme: 'dark',
+    });
+    expect(element().getAttribute('data-palette')).toBe('navy');
+    expect(element().hasAttribute('data-theme')).toBe(false);
+    expect(made[0]?.viewer.ui.panels().some((panel) => panel.id === 'series')).toBe(false);
+  });
+
+  it('gives the viewer the commands a config can name', async () => {
+    await mount({
+      commands: { 'acme.hello': () => undefined },
+      config: {
+        version: 1,
+        toolbar: {
+          items: [{ type: 'command', id: 'hello', label: 'Hello', command: 'acme.hello' }],
+        },
+      },
+    });
+    expect(made[0]?.viewer.commands.has('acme.hello')).toBe(true);
+    expect(made[0]?.viewer.config.get().toolbar.items).toHaveLength(1);
   });
 
   it('follows the palette', async () => {
