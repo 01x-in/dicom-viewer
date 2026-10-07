@@ -110,7 +110,7 @@ describe('<dv-toolbar>', () => {
     expect(tip?.textContent).toContain('Window / level');
   });
 
-  it('prints the key that is bound in the tooltip, and follows a rebinding', async () => {
+  it('prints the key that is bound in the tooltip', async () => {
     const { toolbar } = await mount();
     const keyOf = (selector: string): string | undefined =>
       toolbar.shadowRoot?.querySelector(selector)?.parentElement?.querySelector('kbd')?.textContent;
@@ -118,6 +118,22 @@ describe('<dv-toolbar>', () => {
     expect(keyOf('[data-action="cine"]')).toBe('Space');
     expect(keyOf('[data-action="zoom-in"]')).toBe('+');
     expect(keyOf('[data-action="invert"]')).toBe('I');
+  });
+
+  it('prints a rebound key, and none for a key the host removed', async () => {
+    const fake = createFakeViewer({
+      keybindings: { m: { type: 'tool', tool: 'pan' }, p: null, x: null },
+    });
+    open.push(fake);
+    const toolbar = document.createElement('dv-toolbar') as DvToolbarElement;
+    toolbar.viewer = fake.viewer;
+    document.body.append(toolbar);
+    await toolbar.updateComplete;
+    const keyOf = (selector: string): string | undefined =>
+      toolbar.shadowRoot?.querySelector(selector)?.parentElement?.querySelector('kbd')?.textContent;
+    expect(keyOf('[data-tool="pan"]')).toBe('M');
+    // Window / level keeps its own key, which the host did not touch.
+    expect(keyOf('[data-tool="window-level"]')).toBe('W');
   });
 
   it('shows no key it does not have: the keyboard is off', async () => {
@@ -156,6 +172,22 @@ describe('<dv-toolbar>', () => {
     expect(toolbar.hasAttribute('data-tips-off')).toBe(true);
     toolbar.shadowRoot?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }));
     first.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }));
+    await toolbar.updateComplete;
+    expect(toolbar.hasAttribute('data-tips-off')).toBe(false);
+  });
+
+  it('shows the tooltips again when the pointer comes onto another control', async () => {
+    const { toolbar } = await mount();
+    const [first, second] = buttons(toolbar);
+    first?.focus();
+    press(nth(buttons(toolbar), 0), 'Escape');
+    await toolbar.updateComplete;
+    expect(toolbar.hasAttribute('data-tips-off')).toBe(true);
+    // Still over the control whose tooltip was closed: nothing changes.
+    first?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, composed: true }));
+    await toolbar.updateComplete;
+    expect(toolbar.hasAttribute('data-tips-off')).toBe(true);
+    second?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, composed: true }));
     await toolbar.updateComplete;
     expect(toolbar.hasAttribute('data-tips-off')).toBe(false);
   });

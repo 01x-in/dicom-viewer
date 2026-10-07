@@ -8,6 +8,7 @@ import type {
   ViewportApi,
 } from '@scope/viewer-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DvViewerElement } from '@scope/viewer-elements';
 import {
   type App,
   createApp,
@@ -65,8 +66,8 @@ afterEach(() => {
   received.length = 0;
 });
 
-const element = (): HTMLElement => {
-  const found = host.querySelector<HTMLElement>('dv-viewer');
+const element = (): DvViewerElement => {
+  const found = host.querySelector<DvViewerElement>('dv-viewer');
   if (found === null) throw new Error('No <dv-viewer>');
   return found;
 };

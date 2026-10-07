@@ -261,6 +261,8 @@ export class DvToolbarElement extends LitElement {
   #unsubscribe: (() => void)[] = [];
   #subscribedTo: Viewer | undefined;
   #rovingIndex = 0;
+  /** The control whose tooltip Escape closed, so the pointer resting on it does not bring it back. */
+  #dismissedAt: Element | null = null;
 
   constructor() {
     super();
@@ -350,7 +352,10 @@ export class DvToolbarElement extends LitElement {
   #onKeydown(event: KeyboardEvent): void {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    if (event.key === 'Escape' && this.openMenu === undefined) this.tipsOff = true;
+    if (event.key === 'Escape' && this.openMenu === undefined) {
+      this.tipsOff = true;
+      this.#dismissedAt = target.closest('.item, .menu-wrap');
+    }
     if (this.openMenu !== undefined && target.closest('[role="menu"]') !== null) {
       this.#onMenuKey(event);
       return;
@@ -407,6 +412,15 @@ export class DvToolbarElement extends LitElement {
     void this.updateComplete.then(() => {
       this.renderRoot.querySelector<HTMLElement>('[role="menu"] [role^="menuitem"]')?.focus();
     });
+  }
+
+  /** The pointer coming onto a control is a new reason to show its tooltip, so Escape's dismissal ends. */
+  #onPointerover(event: PointerEvent): void {
+    if (!this.tipsOff || !(event.target instanceof Element)) return;
+    // Over the same control whose tooltip Escape closed, the pointer has not moved on.
+    const item = event.target.closest('.item, .menu-wrap');
+    if (item === null || item === this.#dismissedAt) return;
+    this.tipsOff = false;
   }
 
   #onFocusin(event: FocusEvent): void {
@@ -602,6 +616,7 @@ export class DvToolbarElement extends LitElement {
       @keydown=${this.#onKeydown}
       @focusin=${this.#onFocusin}
       @focusout=${this.#onFocusout}
+      @pointerover=${this.#onPointerover}
     >
       <slot name="start"></slot>
       ${context === undefined ? nothing : this.items.map((item) => this.#renderItem(item, context, position))}

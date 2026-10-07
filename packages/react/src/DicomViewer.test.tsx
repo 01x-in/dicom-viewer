@@ -4,6 +4,7 @@ import type { Viewer, ViewerOptions, ViewerStateV1 } from '@scope/viewer-core';
 import { type JSX, type RefObject, StrictMode, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
+import type { DvViewerElement } from '@scope/viewer-elements';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DicomViewer,
@@ -53,8 +54,8 @@ afterEach(() => {
   made.length = 0;
 });
 
-const element = (): HTMLElement => {
-  const found = host.querySelector<HTMLElement>('dv-viewer');
+const element = (): DvViewerElement => {
+  const found = host.querySelector<DvViewerElement>('dv-viewer');
   if (found === null) throw new Error('No <dv-viewer>');
   return found;
 };

@@ -130,10 +130,10 @@ export class DvPanelDockElement extends LitElement {
       }
       /* A narrow dock names only the tab that is open; the others are pictures, named by a tooltip. */
       @container (max-width: 24rem) {
-        [role='tab'][aria-selected='false'] .tab-text {
+        [role='tab'].has-icon[aria-selected='false'] .tab-text {
           display: none;
         }
-        [role='tab'][aria-selected='false'] {
+        [role='tab'].has-icon[aria-selected='false'] {
           padding: 0 calc(var(--dv-space, 0.25rem) * 2);
         }
       }
@@ -330,6 +330,7 @@ export class DvPanelDockElement extends LitElement {
             type="button"
             role="tab"
             part="panel-tab"
+            class=${name === undefined ? '' : 'has-icon'}
             id=${`dv-tab-${definition.id}`}
             data-panel=${definition.id}
             aria-selected=${selected && !collapsed ? 'true' : 'false'}

@@ -70,6 +70,17 @@ describe('<dv-panel-dock>', () => {
     expect(notes?.querySelector('svg')).toBeNull();
   });
 
+  it('marks the tabs that have a picture, so only they can lose their text in a narrow dock', async () => {
+    const { dock, fake } = await mount();
+    fake.viewer.ui.registerPanel(panel('series'));
+    fake.viewer.ui.registerPanel(panel('notes'));
+    await dock.updateComplete;
+    const [series, notes] = tabs(dock);
+    expect(series?.classList.contains('has-icon')).toBe(true);
+    // A host's panel has no picture: its title is all that names the tab.
+    expect(notes?.classList.contains('has-icon')).toBe(false);
+  });
+
   it('names every tab by its title, and gives the tabs that are not open a tooltip too', async () => {
     const { dock, fake } = await mount();
     fake.viewer.ui.registerPanel(panel('series'));
