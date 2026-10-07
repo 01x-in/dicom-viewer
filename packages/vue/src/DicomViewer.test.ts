@@ -291,6 +291,9 @@ describe('panels and composables', () => {
   it('gives a panel the icon it names, and a panel that names none has no icon', async () => {
     await mount(
       {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
         panels: [
           { id: 'notes', title: 'Notes', icon: 'series' },
           { id: 'plain', title: 'Plain' },

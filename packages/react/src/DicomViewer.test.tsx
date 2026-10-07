@@ -303,6 +303,9 @@ describe('panels and hooks', () => {
 
   it('gives a panel the icon it names, and a panel that names none has no icon', async () => {
     await render({
+      hideSeriesPanel: true,
+      hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
       panels: {
         notes: { title: 'Notes', icon: 'series', render: () => <Probe /> },
         plain: { title: 'Plain', render: () => <Probe /> },
