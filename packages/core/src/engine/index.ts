@@ -18,14 +18,15 @@ import {
 } from '@cornerstonejs/metadata';
 import type { FrameRequestPolicy, SeriesInstance, SeriesStack } from '../data/types';
 import { provideEngineDiagnostics } from '../diagnostics';
-import type {
-  PixelSlice,
-  RenderingPort,
-  RenderStackOptions,
-  SegmentationHandle,
-  StackPort,
-  ViewSnapshot,
-  WindowLevel,
+import {
+  VolumeUnsupportedError,
+  type PixelSlice,
+  type RenderingPort,
+  type RenderStackOptions,
+  type SegmentationHandle,
+  type StackPort,
+  type ViewSnapshot,
+  type WindowLevel,
 } from '../rendering-port';
 import { isLocalFileImageId, registerLocalFile } from './local-files';
 import { annotation as annotationApi, utilities as toolsUtilities } from '@cornerstonejs/tools';
@@ -447,6 +448,9 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       };
       render.then(done, done);
       return render;
+    },
+    renderVolume(): Promise<StackPort> {
+      return Promise.reject(new VolumeUnsupportedError('Volumes are not drawn yet.'));
     },
     readSegmentationHeader,
     async loadSegmentation(stack, bytes, header): Promise<SegmentationHandle> {

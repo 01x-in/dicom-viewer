@@ -34,6 +34,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       ...(options.hangingProtocols === undefined
         ? {}
         : { hangingProtocols: options.hangingProtocols }),
+      ...(options.memory === undefined ? {} : { memory: options.memory }),
       ...(options.prefetch === undefined ? {} : { prefetch: options.prefetch }),
       ...(options.overlay === undefined ? {} : { overlay: options.overlay }),
       ...(options.keybindings === undefined ? {} : { keybindings: options.keybindings }),

@@ -13,7 +13,20 @@ import {
   parseHangingProtocols,
 } from './hanging';
 import { assertLayout, type LayoutId, layoutViewportIds } from './layouts';
-import type { RenderingPort, StackPort, ViewSnapshot, WindowLevel } from './rendering-port';
+import {
+  type RenderingPort,
+  type StackPort,
+  type ViewSnapshot,
+  VolumeUnsupportedError,
+  type WindowLevel,
+} from './rendering-port';
+import {
+  decideMpr,
+  defaultMaxCacheBytes,
+  isMprOrientation,
+  type MprFallbackReason,
+  type MprOrientation,
+} from './mpr';
 import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
 import { type CommandsApi, createCommands, type CommandInput } from './commands';
@@ -84,6 +97,8 @@ export interface ViewerEvents extends MeasurementEvents, SegmentationEvents {
     readonly zoom: number;
     readonly origin: StateOrigin;
   };
+  /** A viewport that asked for a plane is drawn: as a volume, or as slices with the reason. */
+  'viewport:mpr': ViewportMprInfo & { readonly viewportId: string };
   /** Another viewport became the one the toolbar and the commands act on. */
   'viewport:active': { readonly viewportId: string; readonly previous: string };
   /** The tool the left mouse button drives changed. */
@@ -117,6 +132,12 @@ export interface ViewerStatePatch {
 export interface SetViewportSeriesOptions {
   /** Which stack of the series, when it splits into several. Default 0. */
   readonly stackIndex?: number;
+  /**
+   * A plane to reformat the series in. A series that cannot be (see `viewport.mpr`) is shown as
+   * slices. Without one the slices are shown as they were acquired. Then `imageIndex` counts slices
+   * along the plane.
+   */
+  readonly orientation?: MprOrientation;
   /** Default: the middle slice. */
   readonly imageIndex?: number;
 }
@@ -155,8 +176,18 @@ export interface NavigateResult {
   }[];
 }
 
+/** What a viewport that asked for a plane got. */
+export interface ViewportMprInfo {
+  readonly requested: MprOrientation;
+  /** `volume`: reformatted in the plane. `stack`: the slices are shown, and `reason` says why. */
+  readonly mode: 'volume' | 'stack';
+  readonly reason?: MprFallbackReason;
+}
+
 export interface ViewportApi {
   readonly id: string;
+  /** Set when the viewport asked for a plane: whether it got one. `undefined` for plain slices. */
+  readonly mpr: ViewportMprInfo | undefined;
   /** What the viewport shows now. `undefined` until a series is displayed. */
   readonly series: ViewportSeriesInfo | undefined;
   /** 0 when no series is displayed. */
@@ -340,6 +371,13 @@ export interface ViewerCoreOptions {
   readonly overlay?: false | OverlayOptions;
   /** Replaces the usual CT windows (lung, soft tissue, bone, brain, liver). */
   readonly windowLevelPresets?: readonly WindowPreset[];
+  readonly memory?: {
+    /**
+     * How much memory volumes (reformatted planes) may take in all. A series whose volume would not
+     * fit is shown as slices. Default 1 GiB, or 512 MiB on a device that reports 4 GiB or less.
+     */
+    readonly maxCacheBytes?: number;
+  };
 }
 
 interface Shown {
@@ -355,6 +393,10 @@ interface Shown {
   readonly modality: string;
   readonly description: string | undefined;
   overlay: OverlayView | undefined;
+  /** The plane the viewport asked for, and what it got. */
+  readonly mpr: ViewportMprInfo | undefined;
+  /** Set when the viewport draws a volume: the claim on its memory, given back with the viewport. */
+  readonly volumeKey: string | undefined;
 }
 
 interface Runtime {
@@ -372,6 +414,13 @@ interface Runtime {
 }
 
 const noop = (): void => undefined;
+
+/** `navigator.deviceMemory` in GiB, in the browsers that report it. */
+function deviceMemory(): number | undefined {
+  if (typeof navigator === 'undefined' || !('deviceMemory' in navigator)) return undefined;
+  const value = navigator.deviceMemory;
+  return typeof value === 'number' ? value : undefined;
+}
 
 const DEFAULT_PREFETCH_RADIUS = 64;
 
@@ -532,6 +581,34 @@ export function createViewerCore(
   });
   const runtimes = new Map<string, Runtime>();
   let activeViewport = 'vp-0';
+  const maxVolumeBytes = options.memory?.maxCacheBytes ?? defaultMaxCacheBytes(deviceMemory());
+  if (!(Number.isFinite(maxVolumeBytes) && maxVolumeBytes > 0)) {
+    throw new RangeError(
+      `memory.maxCacheBytes must be a number above zero, not ${String(maxVolumeBytes)}.`,
+    );
+  }
+  /** The volumes drawn now, by series and stack, with how many viewports use each. */
+  const volumes = new Map<string, { readonly bytes: number; users: number }>();
+
+  function volumeBytesInUse(): number {
+    let total = 0;
+    for (const { bytes } of volumes.values()) total += bytes;
+    return total;
+  }
+
+  function claimVolume(key: string, bytes: number): void {
+    const held = volumes.get(key);
+    if (held === undefined) volumes.set(key, { bytes, users: 1 });
+    else held.users += 1;
+  }
+
+  function releaseVolume(key: string | undefined): void {
+    if (key === undefined) return;
+    const held = volumes.get(key);
+    if (held === undefined) return;
+    held.users -= 1;
+    if (held.users <= 0) volumes.delete(key);
+  }
   const seriesCache = new Map<string, Promise<LoadedSeriesData>>();
   let destroyed = false;
   let queue: Promise<void> = Promise.resolve();
@@ -571,7 +648,9 @@ export function createViewerCore(
     navigateNow: (target) => navigateNow(target),
     imageIndexOf: (viewportId, seriesInstanceUID, stackIndex) => {
       const shown = runtimes.get(viewportId)?.shown;
-      return shown?.seriesInstanceUID === seriesInstanceUID && shown.stack.index === stackIndex
+      return shown?.seriesInstanceUID === seriesInstanceUID &&
+        shown.stack.index === stackIndex &&
+        shown.volumeKey === undefined
         ? shown.port.getImageIndex()
         : undefined;
     },
@@ -618,12 +697,15 @@ export function createViewerCore(
     shown.overlay?.destroy();
     shown.off();
     shown.port.destroy();
+    releaseVolume(shown.volumeKey);
   }
 
   /** Redraws the text over the picture from what is on screen now. */
   function updateOverlay(shown: Shown): void {
     if (shown.overlay === undefined || overlayOptions === undefined || shown.lastIndex < 0) return;
-    const metadata = shown.stack.instances[shown.lastIndex]?.metadata;
+    // A plane is made of every slice: its headers are the first image's, whatever the index.
+    const metadata =
+      shown.stack.instances[shown.volumeKey === undefined ? shown.lastIndex : 0]?.metadata;
     if (metadata === undefined) return;
     shown.overlay.update(
       renderOverlay(
@@ -632,7 +714,7 @@ export function createViewerCore(
           seriesDescription: shown.description,
           metadata,
           imageIndex: shown.lastIndex,
-          imageCount: shown.stack.imageIds.length,
+          imageCount: shown.port.imageCount,
           view: shown.view,
         }),
         overlayOptions.corners,
@@ -655,8 +737,9 @@ export function createViewerCore(
     events.emit('viewport:image', {
       viewportId: runtime.id,
       imageIndex: index,
-      imageCount: shown.stack.imageIds.length,
-      sopInstanceUID: shown.stack.instances[index]?.sopInstanceUID,
+      imageCount: shown.port.imageCount,
+      sopInstanceUID:
+        shown.volumeKey === undefined ? shown.stack.instances[index]?.sopInstanceUID : undefined,
       origin,
     });
   }
@@ -748,6 +831,62 @@ export function createViewerCore(
     reportImage(runtime, shown, shown.port.getImageIndex(), origin);
   }
 
+  /**
+   * Draws a stack, or the plane of it that the viewport asked for. A plane needs a stack that can
+   * be reformatted and a volume that fits the budget; otherwise, or when the engine cannot, the
+   * slices are drawn and the reason is kept. Runs inside the queue.
+   */
+  async function drawPlane(
+    port: RenderingPort,
+    element: HTMLElement,
+    stack: SeriesStack,
+    seriesInstanceUID: string,
+    desired: ViewportStateV1,
+  ): Promise<{
+    readonly port: StackPort;
+    readonly mpr: ViewportMprInfo | undefined;
+    readonly volumeKey: string | undefined;
+  }> {
+    const renderOptions = { imageIndex: desired.imageIndex, prefetchRadius };
+    const requested = desired.orientation;
+    if (requested === undefined) {
+      return {
+        port: await port.renderStack(element, stack, renderOptions),
+        mpr: undefined,
+        volumeKey: undefined,
+      };
+    }
+    const key = `${seriesInstanceUID}/${stack.index.toString()}`;
+    const held = volumes.get(key);
+    // Planes of one volume share it, so a second plane costs nothing.
+    const decision =
+      held === undefined
+        ? decideMpr(stack, { maxBytes: maxVolumeBytes, inUseBytes: volumeBytesInUse() })
+        : ({ ok: true, bytes: held.bytes } as const);
+    let reason: MprFallbackReason;
+    if (decision.ok) {
+      claimVolume(key, decision.bytes);
+      try {
+        const volume = await port.renderVolume(element, stack, {
+          ...renderOptions,
+          orientation: requested,
+        });
+        return { port: volume, mpr: { requested, mode: 'volume' }, volumeKey: key };
+      } catch (error) {
+        releaseVolume(key);
+        if (!(error instanceof VolumeUnsupportedError)) throw error;
+        reason = 'engine-unsupported';
+      }
+    } else {
+      reason = decision.reason;
+    }
+    return {
+      port: await port.renderStack(element, stack, renderOptions),
+      mpr: { requested, mode: 'stack', reason },
+      volumeKey: undefined,
+    };
+  }
+
   /** Makes the engine show what the state says this viewport should show. Runs inside the queue. */
   async function syncViewport(id: string, origin: StateOrigin = 'api'): Promise<void> {
     const runtime = runtimes.get(id);
@@ -770,7 +909,8 @@ export function createViewerCore(
     if (
       shown?.seriesInstanceUID === seriesInstanceUID &&
       shown.stack.index === stackIndex &&
-      shown.element === element
+      shown.element === element &&
+      shown.mpr?.requested === desired.orientation
     ) {
       const wanted = desired.imageIndex;
       if (wanted !== undefined && wanted !== shown.port.getImageIndex()) {
@@ -794,13 +934,12 @@ export function createViewerCore(
         );
       }
       const port = await portPromise;
-      const stackPort = await port.renderStack(element, stack, {
-        imageIndex: desired.imageIndex,
-        prefetchRadius,
-      });
+      const drawn = await drawPlane(port, element, stack, seriesInstanceUID, desired);
+      const { port: stackPort, mpr, volumeKey } = drawn;
       if (destroyed || runtime.element !== element) {
         // Detached or destroyed while the render was in flight.
         stackPort.destroy();
+        releaseVolume(volumeKey);
         return;
       }
       const next: Shown = {
@@ -812,8 +951,13 @@ export function createViewerCore(
         lastIndex: -1,
         view: stackPort.getView(),
         modality: series.modality,
-        description: series.description,
+        description:
+          volumeKey === undefined
+            ? series.description
+            : `${series.description ?? series.modality} (${mpr?.requested ?? 'plane'})`,
         overlay: overlayOptions === undefined ? undefined : createOverlayView(element),
+        mpr,
+        volumeKey,
       };
       const offImage = stackPort.onImageChange((index) => {
         reportImage(
@@ -827,16 +971,15 @@ export function createViewerCore(
         reportView(runtime, next, view, runtime.viewOrigin ?? 'user');
       });
       runtime.shown = next;
-      const detachMeasurements = measurements.attach({
-        seriesInstanceUID,
-        stack,
-        port: stackPort,
-      });
-      const detachSegmentations = segmentations.attach({
-        seriesInstanceUID,
-        stack,
-        port: stackPort,
-      });
+      // Shapes and SEGs are drawn on stacks of slices, not on a plane of a volume.
+      const detachMeasurements =
+        volumeKey === undefined
+          ? measurements.attach({ seriesInstanceUID, stack, port: stackPort })
+          : noop;
+      const detachSegmentations =
+        volumeKey === undefined
+          ? segmentations.attach({ seriesInstanceUID, stack, port: stackPort })
+          : noop;
       next.off = (): void => {
         offImage();
         offView();
@@ -844,6 +987,14 @@ export function createViewerCore(
         detachSegmentations();
       };
       stackPort.setPrimaryTool(activeTool);
+      if (mpr !== undefined) {
+        events.emit('viewport:mpr', {
+          viewportId: id,
+          requested: mpr.requested,
+          mode: mpr.mode,
+          ...(mpr.reason === undefined ? {} : { reason: mpr.reason }),
+        });
+      }
       // The state describes what is on screen: the stack and the slice that are showing now.
       reportImage(runtime, next, stackPort.getImageIndex(), origin, { stackIndex: stack.index });
       applyView(runtime, viewportState(id) ?? desired, origin);
@@ -856,6 +1007,7 @@ export function createViewerCore(
           {
             seriesInstanceUID: undefined,
             stackIndex: undefined,
+            orientation: undefined,
             imageIndex: undefined,
             window: undefined,
             invert: undefined,
@@ -884,7 +1036,7 @@ export function createViewerCore(
         return enqueue(async () => {
           const { shown } = runtime;
           if (shown === undefined) return false;
-          const last = shown.stack.imageIds.length - 1;
+          const last = shown.port.imageCount - 1;
           const current = shown.port.getImageIndex();
           if (current >= last && !loop) return false;
           await moveTo(runtime, shown, current >= last ? 0 : current + 1, 'api');
@@ -916,15 +1068,18 @@ export function createViewerCore(
           : {
               seriesInstanceUID: shown.seriesInstanceUID,
               stackIndex: shown.stack.index,
-              imageCount: shown.stack.imageIds.length,
+              imageCount: shown.port.imageCount,
             };
       },
+      get mpr(): ViewportMprInfo | undefined {
+        return runtime.shown?.mpr;
+      },
       get imageCount(): number {
-        return runtime.shown?.stack.imageIds.length ?? 0;
+        return runtime.shown?.port.imageCount ?? 0;
       },
       getImageIndex: () => runtime.shown?.port.getImageIndex(),
       setImageIndex(index): Promise<void> {
-        const count = runtime.shown?.stack.imageIds.length ?? 0;
+        const count = runtime.shown?.port.imageCount ?? 0;
         if (
           runtime.shown !== undefined &&
           !(Number.isInteger(index) && index >= 0 && index < count)
@@ -942,7 +1097,7 @@ export function createViewerCore(
           const shown = requireShown();
           const target = Math.min(
             Math.max(0, shown.port.getImageIndex() + Math.trunc(delta)),
-            shown.stack.imageIds.length - 1,
+            shown.port.imageCount - 1,
           );
           return moveTo(runtime, shown, target, 'api');
         });
@@ -959,7 +1114,7 @@ export function createViewerCore(
           return enqueue(() => {
             const shown = requireShown();
             // A stop, or a later play, made after this call supersedes it, even though it is still queued.
-            if (mine === cineCalls && shown.stack.imageIds.length > 1) cine.play(cineOptions);
+            if (mine === cineCalls && shown.port.imageCount > 1) cine.play(cineOptions);
             return Promise.resolve();
           });
         },
@@ -1210,18 +1365,25 @@ export function createViewerCore(
     const sameStack =
       shown?.seriesInstanceUID === seriesInstanceUID &&
       shown.stack.index === (seriesOptions.stackIndex ?? 0);
+    // Another plane of the same series keeps its window, but not its slice or its zoom.
+    const sameView = sameStack && shown.mpr?.requested === seriesOptions.orientation;
     updateViewport(
       viewportId,
       {
         seriesInstanceUID,
         stackIndex: seriesOptions.stackIndex,
-        imageIndex:
-          seriesOptions.imageIndex ?? (sameStack ? shown.port.getImageIndex() : undefined),
+        orientation: seriesOptions.orientation,
+        imageIndex: seriesOptions.imageIndex ?? (sameView ? shown.port.getImageIndex() : undefined),
         // Another series starts with its own window, no inversion, and fit to the viewport.
-        ...(sameStack ? {} : { window: undefined, invert: undefined, zoom: undefined }),
+        ...(sameStack ? {} : { window: undefined, invert: undefined }),
+        ...(sameView ? {} : { zoom: undefined }),
       },
       'api',
     );
+    // A viewport that fell back to slices tries for the plane again when it is asked again: memory
+    // may have been freed, or the engine may have changed, since it was decided.
+    const runtime = runtimes.get(viewportId);
+    if (shown?.mpr?.mode === 'stack' && runtime !== undefined) teardown(runtime);
     await syncViewport(viewportId);
   }
 
@@ -1236,6 +1398,12 @@ export function createViewerCore(
       const { imageIndex } = seriesOptions;
       if (imageIndex !== undefined && !Number.isInteger(imageIndex)) {
         throw new RangeError(`A slice number is a whole number, not ${String(imageIndex)}.`);
+      }
+      const { orientation } = seriesOptions;
+      if (orientation !== undefined && !isMprOrientation(orientation)) {
+        throw new RangeError(
+          `There is no plane ${String(orientation)}. The planes are axial, sagittal, and coronal.`,
+        );
       }
     } catch (error) {
       return Promise.reject(toError(error));

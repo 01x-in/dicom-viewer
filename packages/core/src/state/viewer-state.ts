@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isDicomUid } from '../data/uid';
 import { isLayout, type LayoutId, layoutViewportIds } from '../layouts';
+import { isMprOrientation, type MprOrientation } from '../mpr';
 import { MAX_ZOOM, MIN_ZOOM } from '../view';
 
 /** A window as DICOM defines it: the value at the middle of the grey scale, and the width around it. */
@@ -15,6 +16,12 @@ export interface ViewportStateV1 {
   readonly seriesInstanceUID?: string | undefined;
   /** Which stack of the series, when it splits into several. Default 0. */
   readonly stackIndex?: number | undefined;
+  /**
+   * A plane to reformat the series in. Absent: the slices as they were acquired. A series that
+   * cannot be reformatted is shown as slices whatever this says (see `viewport.mpr`).
+   */
+  readonly orientation?: MprOrientation | undefined;
+  /** The slice on screen: counted along the stack, or along the plane when there is an `orientation`. */
   readonly imageIndex?: number | undefined;
   /** Window and level. Absent: the one the images ask for. */
   readonly window?: WindowLevel | undefined;
@@ -50,6 +57,9 @@ const viewportSchema: z.ZodType<ViewportStateV1> = z.object({
   id: z.string().regex(/^vp-[0-3]$/, 'Viewport ids are vp-0 to vp-3'),
   seriesInstanceUID: uid.optional(),
   stackIndex: z.number().int().min(0).optional(),
+  orientation: z
+    .custom<MprOrientation>((value) => isMprOrientation(value), 'Not an orientation')
+    .optional(),
   imageIndex: z.number().int().min(0).optional(),
   window: windowSchema.optional(),
   invert: z.boolean().optional(),
@@ -105,11 +115,13 @@ export type ParseResult =
 
 /** The same viewport without the fields that are `undefined`, so "not set" is one thing and not two. */
 export function compactViewport(viewport: ViewportStateV1): ViewportStateV1 {
-  const { id, seriesInstanceUID, stackIndex, imageIndex, window, invert, zoom } = viewport;
+  const { id, seriesInstanceUID, stackIndex, orientation, imageIndex, window, invert, zoom } =
+    viewport;
   return {
     id,
     ...(seriesInstanceUID === undefined ? {} : { seriesInstanceUID }),
     ...(stackIndex === undefined ? {} : { stackIndex }),
+    ...(orientation === undefined ? {} : { orientation }),
     ...(imageIndex === undefined ? {} : { imageIndex }),
     ...(window === undefined ? {} : { window }),
     ...(invert === undefined ? {} : { invert }),

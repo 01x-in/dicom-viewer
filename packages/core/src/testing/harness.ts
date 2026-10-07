@@ -38,6 +38,7 @@ export function harness(
     'viewport:image': [],
     'viewport:voi': [],
     'viewport:camera': [],
+    'viewport:mpr': [],
     'viewport:active': [],
     'tool:active': [],
     'viewport:cine': [],
@@ -60,6 +61,7 @@ export function harness(
   viewer.on('viewport:voi', (event) => events['viewport:voi'].push(event));
   viewer.on('viewport:camera', (event) => events['viewport:camera'].push(event));
   viewer.on('viewport:cine', (event) => events['viewport:cine'].push(event));
+  viewer.on('viewport:mpr', (event) => events['viewport:mpr'].push(event));
   viewer.on('viewport:active', (event) => events['viewport:active'].push(event));
   viewer.on('tool:active', (event) => events['tool:active'].push(event));
   viewer.on('ui:panels', (event) => events['ui:panels'].push(event));
