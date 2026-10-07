@@ -18,11 +18,13 @@
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
     },
+    "./viewer-config.schema.json": "./schema/viewer-config.schema.json",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "assets"
+    "assets",
+    "schema"
   ],
   "scripts": {
     "generate": "node scripts/build-workers.ts --if-missing",

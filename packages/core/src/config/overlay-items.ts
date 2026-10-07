@@ -48,7 +48,7 @@ export function mergeById(
 export function resolveCorners(corners: OverlayCornersConfig | undefined): Corners {
   const resolve = (corner: OverlayCorner): readonly OverlayShownItem[] =>
     mergeById(DEFAULT_OVERLAY_CORNERS[corner], corners?.[corner] ?? []).filter(
-      (item): item is OverlayShownItem => !('remove' in item),
+      (item): item is OverlayShownItem => item.kind !== 'remove',
     );
   return {
     topLeft: resolve('topLeft'),

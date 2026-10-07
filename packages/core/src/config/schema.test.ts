@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PRIMARY_TOOLS } from '../tools';
 import { parseViewerConfig } from './schema';
 
 function errorsOf(input: unknown): readonly string[] {
@@ -186,7 +187,7 @@ describe('parseViewerConfig', () => {
     const overlay = {
       showPatientInfo: false,
       corners: {
-        topLeft: [{ id: 'patientId', remove: true }],
+        topLeft: [{ id: 'patientId', kind: 'remove' }],
         topRight: [
           { id: 'kvp', kind: 'tag', tag: 'KVP', label: 'kVp', format: 'number', decimals: 1 },
           { id: 'protocol', kind: 'tag', tag: '00181030' },
@@ -210,8 +211,8 @@ describe('parseViewerConfig', () => {
             { id: 'b', kind: 'builtin', name: 'colour' },
             { id: 'c', kind: 'tag', tag: 'KVP', format: 'hex' },
             { id: 'd', kind: 'tag', tag: 'KVP', decimals: 20 },
-            { id: 'Bad Id', remove: true },
-            { id: 'e', remove: false },
+            { id: 'Bad Id', kind: 'remove' },
+            { id: 'e', kind: 'remove', extra: 1 },
           ],
           middle: [],
         },
@@ -222,7 +223,7 @@ describe('parseViewerConfig', () => {
     expect(errors).toContain('overlay.corners.topLeft.2.format');
     expect(errors).toContain('overlay.corners.topLeft.3.decimals');
     expect(errors).toContain('overlay.corners.topLeft.4.id');
-    expect(errors).toContain('overlay.corners.topLeft.5.remove');
+    expect(errors).toContain('overlay.corners.topLeft.5');
     expect(errors).toContain('middle');
   });
 
@@ -239,5 +240,19 @@ describe('parseViewerConfig', () => {
     expect(errorsOf({ version: 1, overlay: { corners: { topLeft: many } } }).join()).toContain(
       'overlay.corners.topLeft',
     );
+  });
+
+  it('knows every tool the viewer has, and no other', () => {
+    for (const tool of PRIMARY_TOOLS) {
+      expect(parseViewerConfig({ version: 1, tools: { active: tool.id } }).ok, tool.id).toBe(true);
+    }
+    expect(parseViewerConfig({ version: 1, tools: { active: 'laser' } }).ok).toBe(false);
+  });
+
+  it('shows the problem inside an option of a union, not a bare "no option matched"', () => {
+    expect(errorsOf({ version: 1, overlay: { showPatientInfo: 'yes' } }).join()).toContain(
+      'overlay.showPatientInfo',
+    );
+    expect(errorsOf({ version: 1, keybindings: 'm' }).join()).toContain('keybindings');
   });
 });

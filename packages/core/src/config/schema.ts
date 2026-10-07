@@ -1,15 +1,12 @@
 import { z } from 'zod';
 import { type KeyAction, normalizeChord } from '../keyboard';
-import { isPrimaryTool, type PrimaryTool } from '../tools';
+import type { PrimaryTool } from '../tools';
 import type { WindowPreset } from '../window-presets';
 import { resolveTag } from './tags';
 import {
   OVERLAY_BUILTINS,
   OVERLAY_FORMATS,
-  type OverlayBuiltinItem,
   type OverlayItemConfig,
-  type OverlayRemoveItem,
-  type OverlayTagItem,
   PALETTE_NAMES,
   PANEL_IDS,
   THEME_NAMES,
@@ -17,6 +14,22 @@ import {
   type ToolbarItemConfig,
   type ViewerConfigV1,
 } from './types';
+
+/** The ids of the tools, written once more so Zod (and the JSON Schema) can list them. A test keeps it equal to `PRIMARY_TOOLS`. */
+const PRIMARY_TOOL_IDS = [
+  'window-level',
+  'pan',
+  'zoom',
+  'stack-scroll',
+  'length',
+  'bidirectional',
+  'ellipse',
+  'rectangle',
+  'probe',
+  'angle',
+] as const satisfies readonly PrimaryTool[];
+
+const toolSchema: z.ZodType<PrimaryTool> = z.enum(PRIMARY_TOOL_IDS);
 
 const keyActionSchema: z.ZodType<KeyAction> = z.discriminatedUnion('type', [
   z.strictObject({
@@ -38,7 +51,7 @@ const keyActionSchema: z.ZodType<KeyAction> = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('cine') }),
   z.strictObject({
     type: z.literal('tool'),
-    tool: z.custom<PrimaryTool>((value) => isPrimaryTool(value), 'There is no such tool.'),
+    tool: toolSchema,
   }),
   z.strictObject({ type: z.literal('preset'), id: z.string().min(1) }),
   z.strictObject({ type: z.literal('delete-measurement') }),
@@ -50,27 +63,6 @@ const windowPresetSchema: z.ZodType<WindowPreset> = z.strictObject({
   center: z.number(),
   width: z.number().positive(),
 });
-
-/**
- * `false`, or what `schema` says. A plain union would report a mistake inside the object as "no
- * option matched", with no path, so the object's own problems are passed on with their paths.
- */
-function orFalse<T>(schema: z.ZodType<T>): z.ZodType<false | T> {
-  return z.unknown().transform((value, context): false | T => {
-    if (value === false) return false;
-    const result = schema.safeParse(value);
-    if (result.success) return result.data;
-    for (const issue of result.error.issues) {
-      context.issues.push({
-        code: 'custom',
-        message: issue.message,
-        path: issue.path,
-        input: value,
-      });
-    }
-    return z.NEVER;
-  });
-}
 
 /** What JSON can say: no functions, no `undefined`, no cycles, and not so deep that it is a trap. */
 function isJson(value: unknown, depth = 0): boolean {
@@ -109,7 +101,7 @@ const menuEntrySchema = z.strictObject({
 const toolbarItemSchema: z.ZodType<ToolbarItemConfig> = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('tool'),
-    tool: z.custom<PrimaryTool>((value) => isPrimaryTool(value), 'There is no such tool.'),
+    tool: toolSchema,
     label: z.string().min(1).optional(),
     icon: z.string().optional(),
   }),
@@ -131,23 +123,6 @@ const toolbarItemSchema: z.ZodType<ToolbarItemConfig> = z.discriminatedUnion('ty
   z.strictObject({ type: z.literal('separator') }),
 ]);
 
-/** Which schema an item answers to, by its shape, so a mistake inside an item keeps its own path. */
-function byShape<T>(pick: (value: unknown) => z.ZodType<T>): z.ZodType<T> {
-  return z.unknown().transform((value, context): T => {
-    const result = pick(value).safeParse(value);
-    if (result.success) return result.data;
-    for (const issue of result.error.issues) {
-      context.issues.push({
-        code: 'custom',
-        message: issue.message,
-        path: issue.path,
-        input: value,
-      });
-    }
-    return z.NEVER;
-  });
-}
-
 const overlayItemId = z
   .string()
   .regex(
@@ -155,12 +130,12 @@ const overlayItemId = z
     'An id uses letters, digits and single hyphens, and starts with a letter.',
   );
 
-const overlayBuiltinSchema: z.ZodType<OverlayBuiltinItem> = z.strictObject({
+const overlayBuiltinSchema = z.strictObject({
   id: overlayItemId,
   kind: z.literal('builtin'),
   name: z.enum(OVERLAY_BUILTINS),
 });
-const overlayTagSchema: z.ZodType<OverlayTagItem> = z.strictObject({
+const overlayTagSchema = z.strictObject({
   id: overlayItemId,
   kind: z.literal('tag'),
   tag: z
@@ -173,18 +148,13 @@ const overlayTagSchema: z.ZodType<OverlayTagItem> = z.strictObject({
   format: z.enum(OVERLAY_FORMATS).optional(),
   decimals: z.number().int().min(0).max(6).optional(),
 });
-const overlayRemoveSchema: z.ZodType<OverlayRemoveItem> = z.strictObject({
-  id: overlayItemId,
-  remove: z.literal(true),
-});
+const overlayRemoveSchema = z.strictObject({ id: overlayItemId, kind: z.literal('remove') });
 
-const overlayItemSchema: z.ZodType<OverlayItemConfig> = byShape<OverlayItemConfig>((value) => {
-  if (typeof value === 'object' && value !== null) {
-    if ('remove' in value) return overlayRemoveSchema;
-    if ('kind' in value && value.kind === 'tag') return overlayTagSchema;
-  }
-  return overlayBuiltinSchema;
-});
+const overlayItemSchema: z.ZodType<OverlayItemConfig> = z.discriminatedUnion('kind', [
+  overlayBuiltinSchema,
+  overlayTagSchema,
+  overlayRemoveSchema,
+]);
 
 const cornerSchema = z.array(overlayItemSchema).max(12, 'A corner has room for 12 lines.');
 
@@ -201,20 +171,25 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
       })
       .nullable()
       .optional(),
-    keybindings: orFalse(z.record(z.string(), keyActionSchema.nullable())).nullable().optional(),
-    overlay: orFalse(
-      z.strictObject({
-        showPatientInfo: z.boolean().optional(),
-        corners: z
-          .strictObject({
-            topLeft: cornerSchema.optional(),
-            topRight: cornerSchema.optional(),
-            bottomLeft: cornerSchema.optional(),
-            bottomRight: cornerSchema.optional(),
-          })
-          .optional(),
-      }),
-    )
+    keybindings: z
+      .union([z.literal(false), z.record(z.string(), keyActionSchema.nullable())])
+      .nullable()
+      .optional(),
+    overlay: z
+      .union([
+        z.literal(false),
+        z.strictObject({
+          showPatientInfo: z.boolean().optional(),
+          corners: z
+            .strictObject({
+              topLeft: cornerSchema.optional(),
+              topRight: cornerSchema.optional(),
+              bottomLeft: cornerSchema.optional(),
+              bottomRight: cornerSchema.optional(),
+            })
+            .optional(),
+        }),
+      ])
       .nullable()
       .optional(),
     panels: z
@@ -224,9 +199,7 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
     windowLevelPresets: z.array(windowPresetSchema).nullable().optional(),
     tools: z
       .strictObject({
-        active: z
-          .custom<PrimaryTool>((value) => isPrimaryTool(value), 'There is no such tool.')
-          .optional(),
+        active: toolSchema.optional(),
       })
       .nullable()
       .optional(),
@@ -310,6 +283,16 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
     });
   });
 
+/**
+ * The JSON Schema of `ViewerConfigV1`, for an editor that completes and checks a config file.
+ * Shipped as `viewer-config.schema.json`. It says what the shape allows. The checks that need more
+ * than the shape (a command that is registered, a chord that can be pressed) are made when the
+ * config is read.
+ */
+export function viewerConfigJsonSchema(): Record<string, unknown> {
+  return z.toJSONSchema(configSchema, { io: 'input', unrepresentable: 'any' });
+}
+
 export type ParsedViewerConfig =
   | { readonly ok: true; readonly config: ViewerConfigV1 }
   | { readonly ok: false; readonly errors: readonly string[] };
@@ -317,6 +300,34 @@ export type ParsedViewerConfig =
 /** `a.b.0.c` for a path, or `config` for the root. */
 function pathText(path: readonly PropertyKey[]): string {
   return path.length === 0 ? 'config' : path.map(String).join('.');
+}
+
+interface Problem {
+  readonly path: readonly PropertyKey[];
+  readonly message: string;
+}
+
+/**
+ * The problems of a parse, each with its full path. A union (`false`, or an object) reports "no
+ * option matched" and keeps the problems of each option inside it, so the option that got furthest
+ * is the one the mistake belongs to, and its problems are the ones to show.
+ */
+function flatten(
+  issues: readonly z.core.$ZodIssue[],
+  prefix: readonly PropertyKey[] = [],
+): Problem[] {
+  return issues.flatMap((issue): Problem[] => {
+    const path = [...prefix, ...issue.path];
+    if (issue.code !== 'invalid_union' || issue.errors.length === 0) {
+      return [{ path, message: issue.message }];
+    }
+    const depth = (branch: readonly z.core.$ZodIssue[]): number =>
+      Math.max(0, ...branch.map((item) => item.path.length));
+    const best = issue.errors.reduce((chosen, branch) =>
+      depth(branch) > depth(chosen) ? branch : chosen,
+    );
+    return depth(best) === 0 ? [{ path, message: issue.message }] : flatten(best, path);
+  });
 }
 
 /**
@@ -329,6 +340,8 @@ export function parseViewerConfig(input: unknown): ParsedViewerConfig {
   if (result.success) return { ok: true, config: result.data };
   return {
     ok: false,
-    errors: result.error.issues.map((issue) => `${pathText(issue.path)}: ${issue.message}`),
+    errors: flatten(result.error.issues).map(
+      (problem) => `${pathText(problem.path)}: ${problem.message}`,
+    ),
   };
 }

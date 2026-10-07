@@ -187,11 +187,11 @@ describe('overlay items', () => {
   it('take a line out, change one, and add one, by id', () => {
     const lines = overlayLines(info, {
       corners: {
-        topRight: [{ id: 'size', remove: true }],
+        topRight: [{ id: 'size', kind: 'remove' }],
         bottomRight: [{ id: 'image', kind: 'builtin', name: 'modality' }],
         bottomLeft: [
-          { id: 'zoom', remove: true },
-          { id: 'inverted', remove: true },
+          { id: 'zoom', kind: 'remove' },
+          { id: 'inverted', kind: 'remove' },
         ],
       },
     });

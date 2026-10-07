@@ -120,7 +120,7 @@ export interface OverlayTagItem {
 /** Takes the item with this id out of its corner. */
 export interface OverlayRemoveItem {
   readonly id: string;
-  readonly remove: true;
+  readonly kind: 'remove';
 }
 
 export type OverlayItemConfig = OverlayBuiltinItem | OverlayTagItem | OverlayRemoveItem;

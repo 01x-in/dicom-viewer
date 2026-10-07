@@ -77,7 +77,7 @@ describe('mergeLayers', () => {
         overlay: {
           corners: {
             topRight: [{ id: 'kvp', kind: 'tag', tag: 'KVP', label: 'kVp' }],
-            bottomLeft: [{ id: 'zoom', remove: true }],
+            bottomLeft: [{ id: 'zoom', kind: 'remove' }],
           },
         },
       },
@@ -97,12 +97,12 @@ describe('mergeLayers', () => {
       throw new Error('no overlay');
     expect(overlay.corners?.topRight?.map((item) => item.id)).toEqual(['kvp', 'mas']);
     expect(overlay.corners?.topRight?.[0]).toMatchObject({ label: 'kV' });
-    expect(overlay.corners?.bottomLeft).toEqual([{ id: 'zoom', remove: true }]);
+    expect(overlay.corners?.bottomLeft).toEqual([{ id: 'zoom', kind: 'remove' }]);
   });
 
   it('resolves the overlay corners over the defaults, with removals acted on', () => {
     const resolved = resolveConfig([
-      { overlay: { corners: { bottomLeft: [{ id: 'zoom', remove: true }] } } },
+      { overlay: { corners: { bottomLeft: [{ id: 'zoom', kind: 'remove' }] } } },
     ]);
     if (resolved.overlay === false) throw new Error('no overlay');
     expect(resolved.overlay.corners.bottomLeft.map((item) => item.id)).toEqual([

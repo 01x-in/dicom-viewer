@@ -260,7 +260,7 @@ describe('viewer.config.apply', () => {
             corners: {
               topRight: [
                 { id: 'rows', kind: 'tag', tag: 'Rows', label: 'Rows', format: 'number' },
-                { id: 'size', remove: true },
+                { id: 'size', kind: 'remove' },
               ],
             },
           },
@@ -295,7 +295,7 @@ describe('viewer.config.apply', () => {
       const h = harness({
         viewer: {
           config: layer({
-            overlay: { corners: { bottomRight: [{ id: 'image', remove: true }] } },
+            overlay: { corners: { bottomRight: [{ id: 'image', kind: 'remove' }] } },
           }),
           overlay: {
             corners: { bottomRight: [{ id: 'image', kind: 'builtin', name: 'modality' }] },

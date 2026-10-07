@@ -135,7 +135,7 @@ export type {
   ToolsConfig,
   ViewerConfigV1,
 } from './config/types';
-export { parseViewerConfig } from './config/schema';
+export { parseViewerConfig, viewerConfigJsonSchema } from './config/schema';
 export type {
   ToolbarCommandItemConfig,
   ToolbarItemConfig,

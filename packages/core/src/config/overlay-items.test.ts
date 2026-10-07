@@ -31,11 +31,11 @@ describe('mergeById', () => {
   });
 
   it('keeps a removal, so it can act on the defaults', () => {
-    expect(mergeById([a], [{ id: 'z', remove: true }])).toEqual([a, { id: 'z', remove: true }]);
+    expect(mergeById([a], [{ id: 'z', kind: 'remove' }])).toEqual([a, { id: 'z', kind: 'remove' }]);
   });
 
   it('lets a later item put back what a removal took out', () => {
-    const removed = mergeById([a], [{ id: 'a', remove: true }]);
+    const removed = mergeById([a], [{ id: 'a', kind: 'remove' }]);
     expect(mergeById(removed, [a])).toEqual([a]);
   });
 
@@ -53,7 +53,7 @@ describe('resolveCorners', () => {
 
   it('takes an item out, adds one, and changes one, and leaves a corner that is not mentioned', () => {
     const resolved = resolveCorners({
-      topLeft: [{ id: 'patientId', remove: true }],
+      topLeft: [{ id: 'patientId', kind: 'remove' }],
       topRight: [{ id: 'kvp', kind: 'tag', tag: 'KVP', label: 'kVp' }],
       bottomRight: [{ id: 'image', kind: 'builtin', name: 'image' }],
     });
