@@ -17,6 +17,10 @@ describe('createViewer', () => {
     });
     try {
       expect(viewer.commands.has('acme.export')).toBe(true);
+      // The config reached the viewer too, not only the commands.
+      expect(viewer.config.get().toolbar.items).toContainEqual(
+        expect.objectContaining({ id: 'export', command: 'acme.export' }),
+      );
     } finally {
       viewer.destroy();
     }

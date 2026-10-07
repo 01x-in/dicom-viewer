@@ -373,6 +373,8 @@ function codeLayerOf(options: ViewerCoreOptions): ConfigBody {
 
 /** A toolbar that names a command that is not there, gives it arguments it will not take, or asks for a window preset that is not there, is refused. */
 function assertConfigCommands(config: ResolvedViewerConfig, commands: CommandsApi): void {
+  // Checked first: a preset that is not an object would fail the lookup below with a `TypeError`.
+  assertWindowPresets(config.windowLevelPresets);
   const presets = new Set(config.windowLevelPresets.map((preset) => preset.id));
   const problems = findCommandProblems(config.toolbar.items ?? [], (id, args) => {
     const problem = commands.check(id, args);

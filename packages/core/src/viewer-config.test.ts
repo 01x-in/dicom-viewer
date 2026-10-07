@@ -187,6 +187,13 @@ describe('viewer.config.apply', () => {
     expect(h.viewer.tools.shortcuts().some((entry) => entry.chord === 'm')).toBe(false);
   });
 
+  it('refuses window presets from the code that are not presets, with a RangeError', () => {
+    // A host without types can pass anything; the cast is the point of the test.
+    const anything = (value: unknown): WindowPreset => value as WindowPreset;
+    const bad = [anything(null)];
+    expect(() => harness({ viewer: { windowLevelPresets: bad } })).toThrow(RangeError);
+  });
+
   it('refuses a toolbar button for a window preset that no layer has, and names the path', () => {
     const h = harness();
     expect(() =>
