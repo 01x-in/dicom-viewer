@@ -70,6 +70,18 @@ describe('<dv-panel-dock>', () => {
     expect(notes?.querySelector('svg')).toBeNull();
   });
 
+  it('names every tab by its title, and gives the tabs that are not open a tooltip too', async () => {
+    const { dock, fake } = await mount();
+    fake.viewer.ui.registerPanel(panel('series'));
+    fake.viewer.ui.registerPanel(panel('notes'));
+    await dock.updateComplete;
+    const [open, other] = tabs(dock);
+    expect(open?.getAttribute('aria-label')).toBe('SERIES');
+    expect(other?.getAttribute('aria-label')).toBe('NOTES');
+    expect(open?.hasAttribute('title')).toBe(false);
+    expect(other?.getAttribute('title')).toBe('NOTES');
+  });
+
   it('folds to a strip of pictures, keeps what the panels hold, and opens on a click on a tab', async () => {
     const { dock, fake } = await mount('right');
     fake.viewer.ui.registerPanel(panel('series', { placement: 'right' }));

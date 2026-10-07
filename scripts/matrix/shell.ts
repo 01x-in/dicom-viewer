@@ -393,9 +393,10 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
     }
     // Segments: the second tab of the right-hand dock. Load a SEG, change how a segment looks,
     // go to it, load one that does not fit the images, and unload them.
-    const segmentsTab = page.locator('dv-panel-dock[placement="right"] [role="tab"]', {
-      hasText: 'Segments',
-    });
+    // A narrow dock shows the name of the open tab only, so the tab is found by its panel.
+    const segmentsTab = page.locator(
+      'dv-panel-dock[placement="right"] [role="tab"][data-panel="segmentations"]',
+    );
     await segmentsTab.click();
     const seg = (uid: string): ReturnType<Page['locator']> =>
       page.locator(`dv-segmentation-list [data-segmentation="${uid}"]`);

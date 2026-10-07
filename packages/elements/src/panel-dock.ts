@@ -54,6 +54,7 @@ export class DvPanelDockElement extends LitElement {
         flex-direction: column;
         min-height: 0;
         background: var(--dv-color-surface, #171b21);
+        container-type: inline-size;
       }
       :host([hidden]) {
         display: none;
@@ -126,6 +127,15 @@ export class DvPanelDockElement extends LitElement {
       }
       [role='tabpanel'][hidden] {
         display: none;
+      }
+      /* A narrow dock names only the tab that is open; the others are pictures, named by a tooltip. */
+      @container (max-width: 24rem) {
+        [role='tab'][aria-selected='false'] .tab-text {
+          display: none;
+        }
+        [role='tab'][aria-selected='false'] {
+          padding: 0 calc(var(--dv-space, 0.25rem) * 2);
+        }
       }
       /* Folded: a strip of pictures down the edge. */
       :host([collapsed]) .head {
@@ -324,8 +334,8 @@ export class DvPanelDockElement extends LitElement {
             data-panel=${definition.id}
             aria-selected=${selected && !collapsed ? 'true' : 'false'}
             aria-controls=${`dv-panel-${definition.id}`}
-            aria-label=${collapsed ? definition.title : nothing}
-            title=${collapsed ? definition.title : nothing}
+            aria-label=${definition.title}
+            title=${selected && !collapsed ? nothing : definition.title}
             tabindex=${selected ? 0 : -1}
             @click=${(): void => {
               this.selectedId = definition.id;
