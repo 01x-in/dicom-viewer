@@ -75,9 +75,73 @@ export interface ToolbarConfig {
   readonly hidden?: boolean | undefined;
 }
 
+export const OVERLAY_CORNERS = ['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const;
+export type OverlayCorner = (typeof OVERLAY_CORNERS)[number];
+
+/** The lines the overlay has of its own. */
+export const OVERLAY_BUILTINS = [
+  'patientName',
+  'patientId',
+  'series',
+  'modality',
+  'size',
+  'window',
+  'zoom',
+  'inverted',
+  'image',
+] as const;
+export type OverlayBuiltin = (typeof OVERLAY_BUILTINS)[number];
+
+export const OVERLAY_FORMATS = ['text', 'date', 'time', 'number', 'person-name'] as const;
+export type OverlayFormat = (typeof OVERLAY_FORMATS)[number];
+
+/** A line the overlay has of its own. */
+export interface OverlayBuiltinItem {
+  /** Unique in its corner. A later layer's item with the same id replaces this one. */
+  readonly id: string;
+  readonly kind: 'builtin';
+  readonly name: OverlayBuiltin;
+}
+
+/** A line from a DICOM tag of the image on screen. */
+export interface OverlayTagItem {
+  readonly id: string;
+  readonly kind: 'tag';
+  /** A keyword such as `KVP`, or eight hex digits such as `00181030`. */
+  readonly tag: string;
+  /** Written before the value: `kVp 120`. */
+  readonly label?: string | undefined;
+  /** Default `text`. */
+  readonly format?: OverlayFormat | undefined;
+  /** For `number`: how many decimals. Default: up to two, without trailing zeros. */
+  readonly decimals?: number | undefined;
+}
+
+/** Takes the item with this id out of its corner. */
+export interface OverlayRemoveItem {
+  readonly id: string;
+  readonly remove: true;
+}
+
+export type OverlayItemConfig = OverlayBuiltinItem | OverlayTagItem | OverlayRemoveItem;
+export type OverlayShownItem = OverlayBuiltinItem | OverlayTagItem;
+
 export interface OverlayConfig {
-  /** Show the patient's name and ID. Off by default. */
+  /**
+   * Show the patient's name and ID, and every tag that can identify a patient. Off by default,
+   * whatever the items say.
+   */
   readonly showPatientInfo?: boolean | undefined;
+  /** What each corner shows. Items merge with the built-in ones by `id`. */
+  readonly corners?: OverlayCornersConfig | undefined;
+}
+
+/** The items of each corner a layer changes. A corner a layer leaves out is left as it was. */
+export interface OverlayCornersConfig {
+  readonly topLeft?: readonly OverlayItemConfig[] | undefined;
+  readonly topRight?: readonly OverlayItemConfig[] | undefined;
+  readonly bottomLeft?: readonly OverlayItemConfig[] | undefined;
+  readonly bottomRight?: readonly OverlayItemConfig[] | undefined;
 }
 
 export interface PanelsConfig {
@@ -125,7 +189,12 @@ export interface ResolvedViewerConfig {
     readonly items: readonly ToolbarItemConfig[] | undefined;
   };
   readonly keybindings: false | KeybindingsConfig;
-  readonly overlay: false | { readonly showPatientInfo: boolean };
+  readonly overlay:
+    | false
+    | {
+        readonly showPatientInfo: boolean;
+        readonly corners: Readonly<Record<OverlayCorner, readonly OverlayShownItem[]>>;
+      };
   readonly panels: { readonly hide: readonly PanelId[] };
   readonly windowLevelPresets: readonly WindowPreset[];
   readonly tools: { readonly active: PrimaryTool };

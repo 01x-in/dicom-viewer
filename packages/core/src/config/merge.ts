@@ -1,14 +1,19 @@
 import { normalizeChord } from '../keyboard';
 import { DEFAULT_PRIMARY_TOOL } from '../tools';
 import { DEFAULT_WINDOW_PRESETS } from '../window-presets';
-import type {
-  ConfigBody,
-  KeybindingsConfig,
-  OverlayConfig,
-  PanelsConfig,
-  ResolvedViewerConfig,
-  ToolbarConfig,
-  ToolsConfig,
+import { mergeById, resolveCorners } from './overlay-items';
+import {
+  type ConfigBody,
+  type KeybindingsConfig,
+  OVERLAY_CORNERS,
+  type OverlayConfig,
+  type OverlayCornersConfig,
+  type OverlayCorner,
+  type OverlayItemConfig,
+  type PanelsConfig,
+  type ResolvedViewerConfig,
+  type ToolbarConfig,
+  type ToolsConfig,
 } from './types';
 
 /** A copy with every chord written the way the keymap spells it, so `Shift+I` and `shift+i` are one key. */
@@ -34,6 +39,21 @@ function mergeKeybindings(
   return { ...kept, ...normalizeKeybindings(next) };
 }
 
+/** Each corner by item id, so a layer can change one line and leave the rest. */
+function mergeCorners(
+  base: OverlayCornersConfig | undefined,
+  next: OverlayCornersConfig,
+): OverlayCornersConfig {
+  const merged: Partial<Record<OverlayCorner, readonly OverlayItemConfig[] | undefined>> = {
+    ...base,
+  };
+  for (const corner of OVERLAY_CORNERS) {
+    const items = next[corner];
+    if (items !== undefined) merged[corner] = mergeById(base?.[corner] ?? [], items);
+  }
+  return merged;
+}
+
 function mergeOverlay(
   base: false | OverlayConfig | undefined,
   next: false | OverlayConfig,
@@ -43,6 +63,7 @@ function mergeOverlay(
   return {
     ...kept,
     ...(next.showPatientInfo === undefined ? {} : { showPatientInfo: next.showPatientInfo }),
+    ...(next.corners === undefined ? {} : { corners: mergeCorners(kept.corners, next.corners) }),
   };
 }
 
@@ -117,7 +138,10 @@ export function resolveConfig(layers: readonly ConfigBody[]): ResolvedViewerConf
     overlay:
       merged.overlay === false
         ? false
-        : { showPatientInfo: merged.overlay?.showPatientInfo ?? false },
+        : {
+            showPatientInfo: merged.overlay?.showPatientInfo ?? false,
+            corners: resolveCorners(merged.overlay?.corners),
+          },
     panels: { hide: merged.panels?.hide ?? [] },
     windowLevelPresets: merged.windowLevelPresets ?? DEFAULT_WINDOW_PRESETS,
     tools: { active: merged.tools?.active ?? DEFAULT_PRIMARY_TOOL },

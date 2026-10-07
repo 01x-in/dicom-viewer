@@ -27,8 +27,8 @@ import {
 import {
   createOverlayView,
   describeOverlay,
-  overlayLines,
   type OverlayOptions,
+  renderOverlay,
   type OverlayView,
 } from './overlay';
 import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
@@ -379,8 +379,10 @@ function assertConfigCommands(config: ResolvedViewerConfig, commands: CommandsAp
   if (problems.length > 0) throw new RangeError(`Invalid config:\n${problems.join('\n')}`);
 }
 
-function overlayOptionsOf(config: ResolvedViewerConfig): OverlayOptions | undefined {
-  return config.overlay === false ? undefined : { showPatientInfo: config.overlay.showPatientInfo };
+type ResolvedOverlay = Exclude<ResolvedViewerConfig['overlay'], false>;
+
+function overlayOptionsOf(config: ResolvedViewerConfig): ResolvedOverlay | undefined {
+  return config.overlay === false ? undefined : config.overlay;
 }
 
 /** The keymap of a config, or `undefined` when the keyboard is off. Throws for a key or an action that cannot work. */
@@ -435,7 +437,7 @@ export function createViewerCore(
       `The prefetch radius must be a whole number, 0 or more, not ${prefetchRadius.toString()}.`,
     );
   }
-  let overlayOptions: OverlayOptions | undefined = overlayOptionsOf(resolved);
+  let overlayOptions: ResolvedOverlay | undefined = overlayOptionsOf(resolved);
   let keymap = keymapOf(resolved);
   const store = createStore<ViewerStateV1>(initial?.state ?? createInitialState());
   const events = createEmitter<ViewerEvents>();
@@ -559,7 +561,7 @@ export function createViewerCore(
     const metadata = shown.stack.instances[shown.lastIndex]?.metadata;
     if (metadata === undefined) return;
     shown.overlay.update(
-      overlayLines(
+      renderOverlay(
         describeOverlay({
           modality: shown.modality,
           seriesDescription: shown.description,
@@ -568,7 +570,8 @@ export function createViewerCore(
           imageCount: shown.stack.imageIds.length,
           view: shown.view,
         }),
-        overlayOptions,
+        overlayOptions.corners,
+        overlayOptions.showPatientInfo,
       ),
     );
   }

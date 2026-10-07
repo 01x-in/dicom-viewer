@@ -2,7 +2,14 @@ import { z } from 'zod';
 import { type KeyAction, normalizeChord } from '../keyboard';
 import { isPrimaryTool, type PrimaryTool } from '../tools';
 import type { WindowPreset } from '../window-presets';
+import { resolveTag } from './tags';
 import {
+  OVERLAY_BUILTINS,
+  OVERLAY_FORMATS,
+  type OverlayBuiltinItem,
+  type OverlayItemConfig,
+  type OverlayRemoveItem,
+  type OverlayTagItem,
   PALETTE_NAMES,
   PANEL_IDS,
   THEME_NAMES,
@@ -79,6 +86,7 @@ function isJson(value: unknown, depth = 0): boolean {
   return false;
 }
 
+const OVERLAY_ITEM_ID = /^[a-zA-Z][a-zA-Z0-9]*(?:-[a-zA-Z0-9]+)*$/;
 const ITEM_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const itemId = z
   .string()
@@ -123,6 +131,63 @@ const toolbarItemSchema: z.ZodType<ToolbarItemConfig> = z.discriminatedUnion('ty
   z.strictObject({ type: z.literal('separator') }),
 ]);
 
+/** Which schema an item answers to, by its shape, so a mistake inside an item keeps its own path. */
+function byShape<T>(pick: (value: unknown) => z.ZodType<T>): z.ZodType<T> {
+  return z.unknown().transform((value, context): T => {
+    const result = pick(value).safeParse(value);
+    if (result.success) return result.data;
+    for (const issue of result.error.issues) {
+      context.issues.push({
+        code: 'custom',
+        message: issue.message,
+        path: issue.path,
+        input: value,
+      });
+    }
+    return z.NEVER;
+  });
+}
+
+const overlayItemId = z
+  .string()
+  .regex(
+    OVERLAY_ITEM_ID,
+    'An id uses letters, digits and single hyphens, and starts with a letter.',
+  );
+
+const overlayBuiltinSchema: z.ZodType<OverlayBuiltinItem> = z.strictObject({
+  id: overlayItemId,
+  kind: z.literal('builtin'),
+  name: z.enum(OVERLAY_BUILTINS),
+});
+const overlayTagSchema: z.ZodType<OverlayTagItem> = z.strictObject({
+  id: overlayItemId,
+  kind: z.literal('tag'),
+  tag: z
+    .string()
+    .refine(
+      (spec) => resolveTag(spec) !== undefined,
+      'Not a tag the viewer knows by that keyword, and not eight hex digits such as 00181030.',
+    ),
+  label: z.string().optional(),
+  format: z.enum(OVERLAY_FORMATS).optional(),
+  decimals: z.number().int().min(0).max(6).optional(),
+});
+const overlayRemoveSchema: z.ZodType<OverlayRemoveItem> = z.strictObject({
+  id: overlayItemId,
+  remove: z.literal(true),
+});
+
+const overlayItemSchema: z.ZodType<OverlayItemConfig> = byShape<OverlayItemConfig>((value) => {
+  if (typeof value === 'object' && value !== null) {
+    if ('remove' in value) return overlayRemoveSchema;
+    if ('kind' in value && value.kind === 'tag') return overlayTagSchema;
+  }
+  return overlayBuiltinSchema;
+});
+
+const cornerSchema = z.array(overlayItemSchema).max(12, 'A corner has room for 12 lines.');
+
 const configSchema: z.ZodType<ViewerConfigV1> = z
   .strictObject({
     version: z.literal(1),
@@ -137,7 +202,19 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
       .nullable()
       .optional(),
     keybindings: orFalse(z.record(z.string(), keyActionSchema.nullable())).nullable().optional(),
-    overlay: orFalse(z.strictObject({ showPatientInfo: z.boolean().optional() }))
+    overlay: orFalse(
+      z.strictObject({
+        showPatientInfo: z.boolean().optional(),
+        corners: z
+          .strictObject({
+            topLeft: cornerSchema.optional(),
+            topRight: cornerSchema.optional(),
+            bottomLeft: cornerSchema.optional(),
+            bottomRight: cornerSchema.optional(),
+          })
+          .optional(),
+      }),
+    )
       .nullable()
       .optional(),
     panels: z
@@ -177,6 +254,21 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
           });
         }
         seen.add(chord);
+      }
+    }
+    if (typeof config.overlay === 'object' && config.overlay !== null) {
+      for (const [corner, items] of Object.entries(config.overlay.corners ?? {})) {
+        const seen = new Set<string>();
+        (items ?? []).forEach((item, index) => {
+          if (seen.has(item.id)) {
+            context.addIssue({
+              code: 'custom',
+              path: ['overlay', 'corners', corner, index, 'id'],
+              message: `The overlay id "${item.id}" is used twice in ${corner}.`,
+            });
+          }
+          seen.add(item.id);
+        });
       }
     }
     const buttonIds = new Set<string>();

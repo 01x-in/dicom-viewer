@@ -181,4 +181,63 @@ describe('parseViewerConfig', () => {
       }).join(),
     ).toContain('toolbar.items.0.items.1.id');
   });
+
+  it('accepts overlay items: lines of its own, tags by keyword or by number, and removals', () => {
+    const overlay = {
+      showPatientInfo: false,
+      corners: {
+        topLeft: [{ id: 'patientId', remove: true }],
+        topRight: [
+          { id: 'kvp', kind: 'tag', tag: 'KVP', label: 'kVp', format: 'number', decimals: 1 },
+          { id: 'protocol', kind: 'tag', tag: '00181030' },
+          { id: 'size', kind: 'builtin', name: 'size' },
+        ],
+      },
+    };
+    expect(parseViewerConfig({ version: 1, overlay })).toEqual({
+      ok: true,
+      config: { version: 1, overlay },
+    });
+  });
+
+  it('refuses overlay items that cannot work, and names each path', () => {
+    const errors = errorsOf({
+      version: 1,
+      overlay: {
+        corners: {
+          topLeft: [
+            { id: 'a', kind: 'tag', tag: 'NotAKeyword' },
+            { id: 'b', kind: 'builtin', name: 'colour' },
+            { id: 'c', kind: 'tag', tag: 'KVP', format: 'hex' },
+            { id: 'd', kind: 'tag', tag: 'KVP', decimals: 20 },
+            { id: 'Bad Id', remove: true },
+            { id: 'e', remove: false },
+          ],
+          middle: [],
+        },
+      },
+    }).join('\n');
+    expect(errors).toContain('overlay.corners.topLeft.0.tag');
+    expect(errors).toContain('overlay.corners.topLeft.1.name');
+    expect(errors).toContain('overlay.corners.topLeft.2.format');
+    expect(errors).toContain('overlay.corners.topLeft.3.decimals');
+    expect(errors).toContain('overlay.corners.topLeft.4.id');
+    expect(errors).toContain('overlay.corners.topLeft.5.remove');
+    expect(errors).toContain('middle');
+  });
+
+  it('refuses two overlay items of one corner with one id, and a corner with too many lines', () => {
+    const item = { id: 'a', kind: 'builtin', name: 'series' };
+    expect(
+      errorsOf({ version: 1, overlay: { corners: { topLeft: [item, item] } } }).join(),
+    ).toContain('overlay.corners.topLeft.1.id');
+    const many = Array.from({ length: 13 }, (_, index) => ({
+      id: `line-${index.toString()}`,
+      kind: 'builtin',
+      name: 'series',
+    }));
+    expect(errorsOf({ version: 1, overlay: { corners: { topLeft: many } } }).join()).toContain(
+      'overlay.corners.topLeft',
+    );
+  });
 });

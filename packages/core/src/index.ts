@@ -34,7 +34,7 @@ export {
   viewerStateV1Schema,
 } from './state/viewer-state';
 export type { ParseResult, ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
-export { describeOverlay, overlayLines } from './overlay';
+export { describeOverlay, overlayLines, renderOverlay } from './overlay';
 export type { OverlayInfo, OverlayLines, OverlayOptions } from './overlay';
 export { DEFAULT_KEYBINDINGS } from './keyboard';
 export type { KeyAction, KeybindingOverrides } from './keyboard';

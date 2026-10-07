@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mergeLayers, resolveConfig } from './merge';
+import { DEFAULT_OVERLAY_CORNERS } from './overlay-items';
 
 describe('mergeLayers', () => {
   it('lets a later scalar win and keeps what the later layer does not mention', () => {
@@ -70,6 +71,47 @@ describe('mergeLayers', () => {
     ).toEqual({ showPatientInfo: true });
   });
 
+  it('merges the overlay corners by item id, across layers', () => {
+    const merged = mergeLayers([
+      {
+        overlay: {
+          corners: {
+            topRight: [{ id: 'kvp', kind: 'tag', tag: 'KVP', label: 'kVp' }],
+            bottomLeft: [{ id: 'zoom', remove: true }],
+          },
+        },
+      },
+      {
+        overlay: {
+          corners: {
+            topRight: [
+              { id: 'kvp', kind: 'tag', tag: 'KVP', label: 'kV' },
+              { id: 'mas', kind: 'tag', tag: 'XRayTubeCurrent' },
+            ],
+          },
+        },
+      },
+    ]);
+    const overlay = merged.overlay;
+    if (overlay === false || overlay === undefined || overlay === null)
+      throw new Error('no overlay');
+    expect(overlay.corners?.topRight?.map((item) => item.id)).toEqual(['kvp', 'mas']);
+    expect(overlay.corners?.topRight?.[0]).toMatchObject({ label: 'kV' });
+    expect(overlay.corners?.bottomLeft).toEqual([{ id: 'zoom', remove: true }]);
+  });
+
+  it('resolves the overlay corners over the defaults, with removals acted on', () => {
+    const resolved = resolveConfig([
+      { overlay: { corners: { bottomLeft: [{ id: 'zoom', remove: true }] } } },
+    ]);
+    if (resolved.overlay === false) throw new Error('no overlay');
+    expect(resolved.overlay.corners.bottomLeft.map((item) => item.id)).toEqual([
+      'window',
+      'inverted',
+    ]);
+    expect(resolved.overlay.corners.topLeft).toEqual(DEFAULT_OVERLAY_CORNERS.topLeft);
+  });
+
   it('does not change the layers it is given', () => {
     const first = { keybindings: { r: null } };
     const frozen = JSON.stringify(first);
@@ -91,7 +133,10 @@ describe('resolveConfig', () => {
     expect(resolved.palette).toBeUndefined();
     expect(resolved.toolbar).toEqual({ labels: undefined, hidden: false, items: undefined });
     expect(resolved.keybindings).toEqual({});
-    expect(resolved.overlay).toEqual({ showPatientInfo: false });
+    expect(resolved.overlay).toEqual({
+      showPatientInfo: false,
+      corners: DEFAULT_OVERLAY_CORNERS,
+    });
     expect(resolved.panels).toEqual({ hide: [] });
     expect(resolved.windowLevelPresets.map((preset) => preset.id)).toEqual([
       'lung',

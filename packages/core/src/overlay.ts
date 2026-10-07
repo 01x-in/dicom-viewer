@@ -2,10 +2,24 @@ import { firstNumber, optionalString } from './data/dicom-json';
 import type { DicomJsonInstance } from './data/types';
 import type { ViewSnapshot, WindowLevel } from './rendering-port';
 import { sameZoom } from './view';
+import { resolveCorners } from './config/overlay-items';
+import { isSensitiveTag, resolveTag } from './config/tags';
+import type {
+  OverlayBuiltin,
+  OverlayCorner,
+  OverlayCornersConfig,
+  OverlayShownItem,
+  OverlayTagItem,
+} from './config/types';
 
 export interface OverlayOptions {
-  /** Show the patient's name and ID. Off by default: a screenshot or a shared screen should not carry them. */
+  /**
+   * Show the patient's name and ID, and every tag that can identify a patient. Off by default: a
+   * screenshot or a shared screen should not carry them, whatever the items say.
+   */
   readonly showPatientInfo?: boolean;
+  /** Lines to change, add, or take out of each corner, by `id`. */
+  readonly corners?: OverlayCornersConfig;
 }
 
 export interface OverlayInfo {
@@ -20,6 +34,8 @@ export interface OverlayInfo {
   readonly zoom: number;
   readonly patientName: string | undefined;
   readonly patientId: string | undefined;
+  /** The headers of the image on screen, for the lines that show a tag. */
+  readonly metadata?: DicomJsonInstance | undefined;
 }
 
 export interface OverlayLines {
@@ -36,37 +52,15 @@ function formatWindowValue(value: number): string {
     : (Math.round(value * 10) / 10).toString();
 }
 
-/** What the four corners say. Pure, so a host that draws its own overlay can use the same text. */
-export function overlayLines(info: OverlayInfo, options: OverlayOptions): OverlayLines {
-  const topLeft: string[] = [];
-  if (options.showPatientInfo === true) {
-    if (info.patientName !== undefined) topLeft.push(info.patientName);
-    if (info.patientId !== undefined) topLeft.push(info.patientId);
-  }
-  if (info.seriesDescription !== undefined) topLeft.push(info.seriesDescription);
+/** The longest line the overlay draws: a tag can hold a paragraph. */
+const MAX_LINE_LENGTH = 120;
 
-  const topRight = [info.modality];
-  if (info.rows !== undefined && info.columns !== undefined) {
-    topRight.push(`${info.columns.toString()} × ${info.rows.toString()}`);
-  }
-
-  const bottomLeft = [
-    `W ${formatWindowValue(info.window.width)}  L ${formatWindowValue(info.window.center)}`,
-  ];
-  if (!sameZoom(info.zoom, 1)) bottomLeft.push(`Zoom ${Math.round(info.zoom * 100).toString()}%`);
-  if (info.invert) bottomLeft.push('Inverted');
-
-  return {
-    topLeft,
-    topRight,
-    bottomLeft,
-    bottomRight: [`Image ${(info.imageIndex + 1).toString()} / ${info.imageCount.toString()}`],
-  };
+function clip(text: string): string {
+  return text.length > MAX_LINE_LENGTH ? `${text.slice(0, MAX_LINE_LENGTH - 1)}\u2026` : text;
 }
 
 /** A PN value as DICOM JSON carries it, in the form a person reads: `DOE^JANE^^^` becomes `DOE JANE`. */
-function personName(metadata: DicomJsonInstance, tag: string): string | undefined {
-  const value = metadata[tag]?.Value?.[0];
+function nameOf(value: unknown): string | undefined {
   const text =
     typeof value === 'string'
       ? value
@@ -76,6 +70,126 @@ function personName(metadata: DicomJsonInstance, tag: string): string | undefine
   if (typeof text !== 'string') return undefined;
   const name = text.split('^').filter(Boolean).join(' ');
   return name === '' ? undefined : name;
+}
+
+function dateOf(value: string): string {
+  return /^\d{8}$/.test(value)
+    ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6)}`
+    : value;
+}
+
+function timeOf(value: string): string {
+  const match = /^(\d{2})(\d{2})?(\d{2})?/.exec(value);
+  if (match === null) return value;
+  return [match[1], match[2], match[3]].filter((part) => part !== undefined).join(':');
+}
+
+/** A line from one tag of the image on screen, or `undefined` when the image has no value for it. */
+function tagLine(info: OverlayInfo, item: OverlayTagItem): string | undefined {
+  const tag = resolveTag(item.tag);
+  const entry = tag === undefined ? undefined : info.metadata?.[tag];
+  const values: readonly unknown[] = entry?.Value ?? [];
+  const [first] = values;
+  let text: string | undefined;
+  switch (item.format ?? 'text') {
+    case 'person-name':
+      text = nameOf(first);
+      break;
+    case 'date':
+      text = typeof first === 'string' ? dateOf(first) : undefined;
+      break;
+    case 'time':
+      text = typeof first === 'string' ? timeOf(first) : undefined;
+      break;
+    case 'number': {
+      const number = typeof first === 'string' ? Number(first) : first;
+      if (typeof number !== 'number' || !Number.isFinite(number)) break;
+      text =
+        item.decimals === undefined
+          ? (Math.round(number * 100) / 100).toString()
+          : number.toFixed(item.decimals);
+      break;
+    }
+    case 'text': {
+      const parts = values.flatMap((value) => {
+        if (typeof value === 'string' || typeof value === 'number') return [String(value)];
+        const name = nameOf(value);
+        return name === undefined ? [] : [name];
+      });
+      text = parts.length === 0 ? undefined : parts.join(' ');
+      break;
+    }
+  }
+  if (text === undefined || text === '') return undefined;
+  return clip(item.label === undefined ? text : `${item.label} ${text}`);
+}
+
+/** A line the overlay has of its own, or `undefined` when there is nothing to say. */
+function builtinLine(
+  info: OverlayInfo,
+  name: OverlayBuiltin,
+  showPatientInfo: boolean,
+): string | undefined {
+  switch (name) {
+    case 'patientName':
+      return showPatientInfo ? info.patientName : undefined;
+    case 'patientId':
+      return showPatientInfo ? info.patientId : undefined;
+    case 'series':
+      return info.seriesDescription;
+    case 'modality':
+      return info.modality;
+    case 'size':
+      return info.rows !== undefined && info.columns !== undefined
+        ? `${info.columns.toString()} \u00d7 ${info.rows.toString()}`
+        : undefined;
+    case 'window':
+      return `W ${formatWindowValue(info.window.width)}  L ${formatWindowValue(info.window.center)}`;
+    case 'zoom':
+      return sameZoom(info.zoom, 1) ? undefined : `Zoom ${Math.round(info.zoom * 100).toString()}%`;
+    case 'inverted':
+      return info.invert ? 'Inverted' : undefined;
+    case 'image':
+      return `Image ${(info.imageIndex + 1).toString()} / ${info.imageCount.toString()}`;
+  }
+}
+
+/**
+ * What the four corners say, from the items of each. A tag that can identify a patient is left out
+ * unless `showPatientInfo` is on, whatever the items say.
+ */
+export function renderOverlay(
+  info: OverlayInfo,
+  corners: Readonly<Record<OverlayCorner, readonly OverlayShownItem[]>>,
+  showPatientInfo: boolean,
+): OverlayLines {
+  const lines = (corner: OverlayCorner): string[] =>
+    corners[corner].flatMap((item) => {
+      let line: string | undefined;
+      if (item.kind === 'builtin') {
+        line = builtinLine(info, item.name, showPatientInfo);
+      } else {
+        const tag = resolveTag(item.tag);
+        if (tag === undefined || (!showPatientInfo && isSensitiveTag(tag))) return [];
+        line = tagLine(info, item);
+      }
+      return line === undefined ? [] : [line];
+    });
+  return {
+    topLeft: lines('topLeft'),
+    topRight: lines('topRight'),
+    bottomLeft: lines('bottomLeft'),
+    bottomRight: lines('bottomRight'),
+  };
+}
+
+/** What the four corners say. Pure, so a host that draws its own overlay can use the same text. */
+export function overlayLines(info: OverlayInfo, options: OverlayOptions): OverlayLines {
+  return renderOverlay(info, resolveCorners(options.corners), options.showPatientInfo === true);
+}
+
+function personName(metadata: DicomJsonInstance, tag: string): string | undefined {
+  return nameOf(metadata[tag]?.Value?.[0]);
 }
 
 export function describeOverlay(source: {
@@ -100,6 +214,7 @@ export function describeOverlay(source: {
     zoom: view.zoom,
     patientName: personName(metadata, '00100010'),
     patientId: optionalString(metadata, '00100020'),
+    metadata,
   };
 }
 

@@ -246,6 +246,67 @@ describe('viewer.config.apply', () => {
     expect(() => h.viewer.config.apply(layer({ palette: 'navy' }))).toThrow();
   });
 
+  describe('overlay items in the config', () => {
+    const corner = (h: Harness, name: string): string | undefined =>
+      h.element.querySelector(`[data-dv-corner="${name}"]`)?.textContent;
+
+    it('add a line from a tag to the overlay on screen, and take it off with the layer', async () => {
+      const h = harness();
+      await show(h);
+      expect(corner(h, 'top-right')).toBe('CT\n512 \u00d7 256');
+      const off = h.viewer.config.apply(
+        layer({
+          overlay: {
+            corners: {
+              topRight: [
+                { id: 'rows', kind: 'tag', tag: 'Rows', label: 'Rows', format: 'number' },
+                { id: 'size', remove: true },
+              ],
+            },
+          },
+        }),
+      );
+      expect(corner(h, 'top-right')).toBe('CT\nRows 256');
+      off();
+      expect(corner(h, 'top-right')).toBe('CT\n512 \u00d7 256');
+    });
+
+    it('keep a patient tag off the picture until showPatientInfo is on, from any layer', async () => {
+      const h = harness({
+        viewer: {
+          config: layer({
+            overlay: {
+              corners: {
+                topLeft: [{ id: 'name', kind: 'tag', tag: 'PatientName', format: 'person-name' }],
+              },
+            },
+          }),
+        },
+      });
+      await show(h);
+      expect(corner(h, 'top-left')).toBe('CT');
+      const off = h.viewer.config.apply(layer({ overlay: { showPatientInfo: true } }));
+      expect(corner(h, 'top-left')).toContain('DOE JANE');
+      off();
+      expect(corner(h, 'top-left')).toBe('CT');
+    });
+
+    it('take the items from the options in code, over the config', async () => {
+      const h = harness({
+        viewer: {
+          config: layer({
+            overlay: { corners: { bottomRight: [{ id: 'image', remove: true }] } },
+          }),
+          overlay: {
+            corners: { bottomRight: [{ id: 'image', kind: 'builtin', name: 'modality' }] },
+          },
+        },
+      });
+      await show(h);
+      expect(corner(h, 'bottom-right')).toBe('CT');
+    });
+  });
+
   describe('a toolbar in the config', () => {
     const button = (command: string, args?: unknown): ViewerConfigV1 =>
       layer({
