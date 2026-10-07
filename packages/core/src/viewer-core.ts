@@ -3,6 +3,9 @@ import { assertDicomUid } from './data/uid';
 import type { RenderingPort, StackPort, ViewSnapshot, WindowLevel } from './rendering-port';
 import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
+import { resolveConfig } from './config/merge';
+import { parseViewerConfig } from './config/schema';
+import type { ConfigBody, ResolvedViewerConfig, ViewerConfigV1 } from './config/types';
 import {
   compactViewport,
   createInitialState,
@@ -10,14 +13,8 @@ import {
   type ViewerStateV1,
   type ViewportStateV1,
 } from './state/viewer-state';
-import {
-  DEFAULT_PRIMARY_TOOL,
-  isPrimaryTool,
-  PRIMARY_TOOLS,
-  type PrimaryTool,
-  type ToolInfo,
-} from './tools';
-import { assertWindowPresets, DEFAULT_WINDOW_PRESETS, type WindowPreset } from './window-presets';
+import { isPrimaryTool, PRIMARY_TOOLS, type PrimaryTool, type ToolInfo } from './tools';
+import { assertWindowPresets, type WindowPreset } from './window-presets';
 import {
   buildKeymap,
   chordOf,
@@ -83,6 +80,8 @@ export interface ViewerEvents extends MeasurementEvents, SegmentationEvents {
     readonly previous: ViewerStateV1;
     readonly origin: StateOrigin;
   };
+  /** A layer was put on, or taken off: what is in force now. */
+  'config:changed': { readonly config: ResolvedViewerConfig };
   /** A failure that no call is waiting for, such as restoring `initialState` once an element is attached. */
   error: {
     readonly error: Error;
@@ -205,6 +204,8 @@ export interface Viewer {
   readonly measurements: MeasurementsApi;
   /** SEG overlays: what is loaded, how each segment looks, and where each one is. */
   readonly segmentations: SegmentationsApi;
+  /** The settings in force, and layers to put over them. */
+  readonly config: ConfigApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
   setViewportSeries(
     viewportId: string,
@@ -232,8 +233,26 @@ export interface Viewer {
   destroy(): void;
 }
 
+/** What `viewer.config` offers: what is in force, and layers that go on and come off. */
+export interface ConfigApi {
+  /** Every layer merged, with the defaults filled in. */
+  get(): ResolvedViewerConfig;
+  /**
+   * Puts a layer over what is in force and returns a function that takes it off again. A layer is
+   * a `ViewerConfigV1`. One with a problem is refused whole with a `RangeError` that names each
+   * path, and nothing changes. The keys, the window presets, and the overlay change at once;
+   * `tools.active` is read when the viewer starts, so a layer given here may not have it.
+   */
+  apply(layer: unknown): () => void;
+}
+
 export interface ViewerCoreOptions {
   readonly dataSource: DataSource;
+  /**
+   * Settings as data (`ViewerConfigV1`), one layer or several, the last one winning. The options
+   * below win over it, and layers given to `viewer.config.apply` win over both.
+   */
+  readonly config?: ViewerConfigV1 | readonly ViewerConfigV1[];
   /** A state to restore, for example one decoded from the URL. It is validated. */
   readonly initialState?: ViewerStateV1;
   readonly tools?: {
@@ -317,6 +336,43 @@ function withViewport(
  * browser. The state is what the viewer should show; every change to it is applied to the engine
  * one at a time, in the order it was made.
  */
+/** The layers a host gave as `config`, each checked. A problem is a `RangeError` that names every path. */
+function readConfigLayers(config: ViewerCoreOptions['config']): ConfigBody[] {
+  if (config === undefined) return [];
+  const layers = Array.isArray(config) ? config : [config];
+  return layers.map((layer, index) => {
+    const parsed = parseViewerConfig(layer);
+    if (!parsed.ok) {
+      const where = layers.length === 1 ? 'config' : `config[${index.toString()}]`;
+      throw new RangeError(`Invalid ${where}:\n${parsed.errors.join('\n')}`);
+    }
+    return parsed.config;
+  });
+}
+
+/** The options written in code, as the layer they are: only what the host set. */
+function codeLayerOf(options: ViewerCoreOptions): ConfigBody {
+  return {
+    ...(options.keybindings === undefined ? {} : { keybindings: options.keybindings }),
+    ...(options.overlay === undefined ? {} : { overlay: options.overlay }),
+    ...(options.windowLevelPresets === undefined
+      ? {}
+      : { windowLevelPresets: options.windowLevelPresets }),
+    ...(options.tools === undefined ? {} : { tools: options.tools }),
+  };
+}
+
+function overlayOptionsOf(config: ResolvedViewerConfig): OverlayOptions | undefined {
+  return config.overlay === false ? undefined : { showPatientInfo: config.overlay.showPatientInfo };
+}
+
+/** The keymap of a config, or `undefined` when the keyboard is off. Throws for a key or an action that cannot work. */
+function keymapOf(config: ResolvedViewerConfig): Map<string, KeyAction> | undefined {
+  return config.keybindings === false
+    ? undefined
+    : buildKeymap(config.windowLevelPresets, config.keybindings);
+}
+
 export function createViewerCore(
   options: ViewerCoreOptions,
   loadPort: () => Promise<RenderingPort>,
@@ -327,13 +383,24 @@ export function createViewerCore(
     throw new Error(`Invalid initialState: ${initial.error}`);
   }
   const { dataSource } = options;
-  const initialTool = options.tools?.active ?? DEFAULT_PRIMARY_TOOL;
+  // The settings come in layers, the last one winning: the config the host gave at the start, then
+  // the options written in code, then whatever `viewer.config.apply` puts on later.
+  const configLayers = readConfigLayers(options.config);
+  const codeLayer = codeLayerOf(options);
+  const applied: { readonly body: ConfigBody }[] = [];
+  const layersOf = (extra: readonly { readonly body: ConfigBody }[]): ConfigBody[] => [
+    ...configLayers,
+    codeLayer,
+    ...extra.map((entry) => entry.body),
+  ];
+  let resolved = resolveConfig(layersOf(applied));
+  const initialTool = resolved.tools.active;
   if (!isPrimaryTool(initialTool)) {
     throw new RangeError(`There is no tool ${String(initialTool)}.`);
   }
   let activeTool: PrimaryTool = initialTool;
-  const windowPresets = options.windowLevelPresets ?? DEFAULT_WINDOW_PRESETS;
-  assertWindowPresets(windowPresets);
+  assertWindowPresets(resolved.windowLevelPresets);
+  let windowPresets = resolved.windowLevelPresets;
   const prefetchRadius =
     options.prefetch === false ? 0 : (options.prefetch?.radius ?? DEFAULT_PREFETCH_RADIUS);
   if (!Number.isInteger(prefetchRadius) || prefetchRadius < 0) {
@@ -341,12 +408,8 @@ export function createViewerCore(
       `The prefetch radius must be a whole number, 0 or more, not ${prefetchRadius.toString()}.`,
     );
   }
-  const overlayOptions: OverlayOptions | undefined =
-    options.overlay === false ? undefined : (options.overlay ?? {});
-  const keymap =
-    options.keybindings === false
-      ? undefined
-      : buildKeymap(windowPresets, options.keybindings ?? {});
+  let overlayOptions: OverlayOptions | undefined = overlayOptionsOf(resolved);
+  let keymap = keymapOf(resolved);
   const store = createStore<ViewerStateV1>(initial?.state ?? createInitialState());
   const events = createEmitter<ViewerEvents>();
   store.onChange((state, previous, origin) => {
@@ -1140,9 +1203,11 @@ export function createViewerCore(
     const addedTabIndex = !element.hasAttribute('tabindex');
     if (addedTabIndex) element.tabIndex = 0;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || isTypingTarget(event.target)) return;
+      // Read each time, since a layer may change the keys while the element is listening.
+      const map = keymap;
+      if (map === undefined || event.defaultPrevented || isTypingTarget(event.target)) return;
       const chord = chordOf(event);
-      const action = chord === undefined ? undefined : keymap.get(chord);
+      const action = chord === undefined ? undefined : map.get(chord);
       const { api } = runtime;
       // With nothing on screen there is nothing to act on, and the key is not ours to swallow.
       if (action === undefined || api === undefined || runtime.shown === undefined) return;
@@ -1167,6 +1232,71 @@ export function createViewerCore(
       if (addedTabIndex) element.removeAttribute('tabindex');
     };
   }
+
+  /** Draws the overlay again for every stack on screen, or removes it where the config no longer has one. */
+  function refreshOverlays(): void {
+    for (const runtime of runtimes.values()) {
+      const { shown } = runtime;
+      if (shown === undefined) continue;
+      if (overlayOptions === undefined) {
+        shown.overlay?.destroy();
+        shown.overlay = undefined;
+        continue;
+      }
+      shown.overlay ??= createOverlayView(shown.element);
+      updateOverlay(shown);
+    }
+  }
+
+  /** Listens for keys again on every element, since the keyboard may have been turned on or off. */
+  function relistenAll(): void {
+    for (const runtime of runtimes.values()) {
+      if (runtime.element === undefined) continue;
+      runtime.stopKeys?.();
+      runtime.stopKeys = listenForKeys(runtime, runtime.element);
+    }
+  }
+
+  /**
+   * Makes the layers in `next` the ones in force. Everything that can throw is worked out first, so
+   * a layer that cannot work leaves the viewer as it was.
+   */
+  function commitConfig(next: readonly { readonly body: ConfigBody }[]): void {
+    const config = resolveConfig(layersOf(next));
+    assertWindowPresets(config.windowLevelPresets);
+    const nextKeymap = keymapOf(config);
+    const keyboardChanged = (nextKeymap === undefined) !== (keymap === undefined);
+    resolved = config;
+    windowPresets = config.windowLevelPresets;
+    keymap = nextKeymap;
+    overlayOptions = overlayOptionsOf(config);
+    applied.splice(0, applied.length, ...next);
+    if (keyboardChanged) relistenAll();
+    refreshOverlays();
+    events.emit('config:changed', { config });
+  }
+
+  const configApi: ConfigApi = {
+    get: () => resolved,
+    apply(layer): () => void {
+      assertAlive();
+      const parsed = parseViewerConfig(layer);
+      if (!parsed.ok) {
+        throw new RangeError(`Invalid config layer:\n${parsed.errors.join('\n')}`);
+      }
+      if (parsed.config.tools !== undefined && parsed.config.tools !== null) {
+        throw new RangeError(
+          'A layer given to apply cannot have tools: the active tool is read when the viewer starts. Use viewer.tools.setActive.',
+        );
+      }
+      const entry = { body: parsed.config };
+      commitConfig([...applied, entry]);
+      return (): void => {
+        if (destroyed || !applied.includes(entry)) return;
+        commitConfig(applied.filter((item) => item !== entry));
+      };
+    },
+  };
 
   const viewports: ViewportsApi = {
     attach(viewportId, element): void {
@@ -1228,6 +1358,7 @@ export function createViewerCore(
     thumbnails: thumbnails.api,
     measurements: measurements.api,
     segmentations: segmentations.api,
+    config: configApi,
     ui: {
       registerPanel(panel): Unsubscribe {
         assertAlive();

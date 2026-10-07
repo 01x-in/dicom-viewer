@@ -116,7 +116,29 @@ export type { ThumbnailOptions, ThumbnailsApi } from './thumbnails';
 export type { PanelDefinition, PanelPlacement, UiApi } from './ui';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
+export {
+  PALETTE_NAMES,
+  PANEL_IDS,
+  THEME_NAMES,
+  TOOLBAR_LABELS,
+} from './config/types';
 export type {
+  KeybindingsConfig,
+  OverlayConfig,
+  PaletteName,
+  PanelId,
+  PanelsConfig,
+  ResolvedViewerConfig,
+  ThemeName,
+  ToolbarConfig,
+  ToolbarLabels,
+  ToolsConfig,
+  ViewerConfigV1,
+} from './config/types';
+export { parseViewerConfig } from './config/schema';
+export type { ParsedViewerConfig } from './config/schema';
+export type {
+  ConfigApi,
   NavigateResult,
   NavigateTarget,
   SetViewportSeriesOptions,
