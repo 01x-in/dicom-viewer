@@ -55,6 +55,14 @@ export interface DicomViewerProps {
    * viewer. A config with a problem is refused whole and reported to `onError`.
    */
   readonly config?: ViewerConfigV1 | readonly ViewerConfigV1[] | undefined;
+  /**
+   * A config file to fetch. Off unless `configOrigins` lists its origin. The file is data, checked,
+   * and never run. A `config` prop wins over it. A failure goes to `onError`, and the viewer starts
+   * without the file. A new value restarts the viewer.
+   */
+  readonly configUrl?: string | undefined;
+  /** The origins `configUrl` may be on, such as `https://cdn.example.org`. Keep the array stable. */
+  readonly configOrigins?: readonly string[] | undefined;
   /** Commands of your own, for a config to name. Keep the object stable. */
   readonly commands?: Readonly<Record<string, CommandInput>> | undefined;
   /** Shows an instance, now and whenever the target changes, once the viewer is ready. */
@@ -125,6 +133,8 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     palette,
     config,
     commands,
+    configUrl,
+    configOrigins,
   } = props;
   const elementRef = useRef<DvViewerElement | null>(null);
   // Callbacks and render functions change identity every render; nothing may restart for them.
@@ -178,9 +188,20 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     element.options = initialState === undefined ? options : { ...options, initialState };
     element.config = config;
     element.commands = commands;
+    element.configUrl = configUrl;
+    element.configOrigins = configOrigins;
     element.studyInstanceUid = studyInstanceUID;
     element.seriesInstanceUid = seriesInstanceUID;
-  }, [defined, options, config, commands, studyInstanceUID, seriesInstanceUID]);
+  }, [
+    defined,
+    options,
+    config,
+    commands,
+    configUrl,
+    configOrigins,
+    studyInstanceUID,
+    seriesInstanceUID,
+  ]);
 
   const { toolbar, toolbarLabels, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel } =
     props;

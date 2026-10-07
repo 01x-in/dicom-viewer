@@ -188,6 +188,18 @@ describe('<DicomViewer>', () => {
     expect(made[0]?.viewer.ui.panels().some((panel) => panel.id === 'series')).toBe(false);
   });
 
+  it('fetches a config file from an allowed origin and applies it', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(new Response(JSON.stringify({ version: 1, palette: 'graphite' }))),
+    );
+    await render({
+      configUrl: 'https://cdn.example.org/viewer-config.json',
+      configOrigins: ['https://cdn.example.org'],
+    });
+    expect(element().getAttribute('data-palette')).toBe('graphite');
+    vi.unstubAllGlobals();
+  });
+
   it('gives the viewer the commands a config can name', async () => {
     await render({
       commands: { 'acme.hello': () => undefined },

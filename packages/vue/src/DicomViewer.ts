@@ -74,6 +74,10 @@ export interface DicomViewerProps {
    * as an `error` event.
    */
   readonly config?: ViewerConfigV1 | readonly ViewerConfigV1[];
+  /** A config file to fetch. Off unless `configOrigins` lists its origin; see `<dv-viewer config-url>`. */
+  readonly configUrl?: string;
+  /** The origins `configUrl` may be on. */
+  readonly configOrigins?: readonly string[];
   /** Commands of your own, for a config to name. */
   readonly commands?: Readonly<Record<string, CommandInput>>;
   readonly onReady?: (viewer: Viewer, viewport: ViewportApi | undefined) => void;
@@ -131,6 +135,8 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       type: Object as PropType<Readonly<Record<string, CommandInput>>>,
       default: undefined,
     },
+    configUrl: { type: String, default: undefined },
+    configOrigins: { type: Array as PropType<readonly string[]>, default: undefined },
   },
   // Payloads: ready(viewer, viewport), error(error), state-change(state, origin).
   emits: ['ready', 'error', 'state-change'],
@@ -153,6 +159,9 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       target.options = initialState === undefined ? options : { ...options, initialState };
       target.config = props.config === undefined ? undefined : toRaw(props.config);
       target.commands = props.commands === undefined ? undefined : toRaw(props.commands);
+      target.configUrl = props.configUrl;
+      target.configOrigins =
+        props.configOrigins === undefined ? undefined : toRaw(props.configOrigins);
       target.studyInstanceUid = props.studyInstanceUid;
       target.seriesInstanceUid = props.seriesInstanceUid;
     }
@@ -250,6 +259,8 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
         () => props.options,
         () => props.config,
         () => props.commands,
+        () => props.configUrl,
+        () => props.configOrigins,
         () => props.studyInstanceUid,
         () => props.seriesInstanceUid,
       ],

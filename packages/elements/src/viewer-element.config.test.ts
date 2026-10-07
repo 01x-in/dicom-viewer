@@ -29,6 +29,7 @@ await import('./define');
 const { elementTag } = await import('./tags');
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   document.body.replaceChildren();
   for (const fake of made.splice(0)) fake.viewer.destroy();
 });
@@ -234,5 +235,128 @@ describe('<dv-viewer config>', () => {
     await element.updateComplete;
     expect(made).toHaveLength(2);
     expect(element.getAttribute('data-palette')).toBe('graphite');
+  });
+});
+
+describe('<dv-viewer config-url>', () => {
+  const URL_OK = 'https://cdn.example.org/viewer-config.json';
+  const reply = (body: unknown, init: ResponseInit = {}): Response =>
+    new Response(typeof body === 'string' ? body : JSON.stringify(body), init);
+
+  it('fetches the file from an allowed origin, and applies it', async () => {
+    const fetchMock = vi.fn<(url: URL, init: RequestInit) => Promise<Response>>(() =>
+      Promise.resolve(reply(layer({ palette: 'graphite' }))),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { element } = await ready((el) => {
+      el.configUrl = URL_OK;
+      el.configOrigins = ['https://cdn.example.org'];
+    });
+    expect(element.getAttribute('data-palette')).toBe('graphite');
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toBe(URL_OK);
+    // No cookies go to it, and a redirect that could leave the list is an error.
+    expect(init).toMatchObject({ credentials: 'omit', redirect: 'error' });
+  });
+
+  it('takes the url and the origins as attributes', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(reply(layer({ palette: 'navy' }))));
+    const { element } = await ready((el) => {
+      el.setAttribute('config-url', URL_OK);
+      el.setAttribute('config-origins', 'https://other.example.org, https://cdn.example.org');
+    });
+    expect(element.getAttribute('data-palette')).toBe('navy');
+  });
+
+  it('does not ask for a file whose origin is not in the list, and says so', async () => {
+    const fetchMock = vi.fn<() => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+    const { element, errors } = await ready((el) => {
+      el.configUrl = 'https://evil.example.net/config.json';
+      el.configOrigins = ['https://cdn.example.org'];
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(element.status).toBe('ready');
+    expect(errors[0]?.context).toBe('config');
+    expect(errors[0]?.error.message).toContain('https://evil.example.net');
+  });
+
+  it("is off with no origins at all, even for the page's own origin", async () => {
+    const fetchMock = vi.fn<() => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+    const { errors } = await ready((el) => {
+      el.configUrl = '/viewer-config.json';
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(errors[0]?.error.message).toContain('config-origins');
+  });
+
+  it("allows the page's own origin when it is listed, and reads a relative url against the page", async () => {
+    const fetchMock = vi.fn<(url: URL) => Promise<Response>>(() =>
+      Promise.resolve(reply(layer({ palette: 'navy' }))),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { element } = await ready((el) => {
+      el.configUrl = '/viewer-config.json';
+      el.configOrigins = [location.origin];
+    });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`${location.origin}/viewer-config.json`);
+    expect(element.getAttribute('data-palette')).toBe('navy');
+  });
+
+  it.each([
+    ['a failing answer', () => reply('nope', { status: 404 }), /answered 404/],
+    ['text that is not JSON', () => reply('{not json'), /not valid JSON/],
+    [
+      'a config with a problem',
+      () => reply({ version: 1, palette: 'pink' }),
+      /Invalid config at[\s\S]*palette/,
+    ],
+    [
+      'a file that is too large',
+      () => reply(JSON.stringify({ version: 1, pad: 'x'.repeat(300_000) })),
+      /larger than/,
+    ],
+  ])('starts without the file, and reports %s', async (_name, answer, message) => {
+    vi.stubGlobal('fetch', () => Promise.resolve(answer()));
+    const { element, errors } = await ready((el) => {
+      el.configUrl = URL_OK;
+      el.configOrigins = ['https://cdn.example.org'];
+    });
+    expect(element.status).toBe('ready');
+    expect(element.hasAttribute('data-palette')).toBe(false);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.context).toBe('config');
+    expect(errors[0]?.error.message).toMatch(message);
+  });
+
+  it('starts without the file when the request itself fails', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new TypeError('Failed to fetch')));
+    const { element, errors } = await ready((el) => {
+      el.configUrl = URL_OK;
+      el.configOrigins = ['https://cdn.example.org'];
+    });
+    expect(element.status).toBe('ready');
+    expect(errors[0]?.error.message).toBe('Failed to fetch');
+  });
+
+  it("puts the page's own config over the file", async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(reply(layer({ palette: 'graphite', theme: 'light' }))),
+    );
+    const { element } = await ready((el) => {
+      el.configUrl = URL_OK;
+      el.configOrigins = ['https://cdn.example.org'];
+      el.config = layer({ palette: 'navy' });
+    });
+    expect(element.getAttribute('data-palette')).toBe('navy');
+    expect(element.getAttribute('data-theme')).toBe('light');
+  });
+
+  it('asks for nothing when there is no url', async () => {
+    const fetchMock = vi.fn<() => Promise<Response>>();
+    vi.stubGlobal('fetch', fetchMock);
+    await ready();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

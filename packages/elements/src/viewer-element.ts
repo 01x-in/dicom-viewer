@@ -58,7 +58,12 @@ const INPUTS = [
   'cpuRendering',
   'config',
   'commands',
+  'configUrl',
+  'configOrigins',
 ] as const;
+
+/** The most a config file may be. Settings are small, and a file that is not is not settings. */
+export const MAX_CONFIG_CHARACTERS = 262_144;
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
@@ -89,6 +94,19 @@ export class DvViewerElement extends LitElement {
     palette: { reflect: true },
     config: {},
     commands: { attribute: false },
+    configUrl: { attribute: 'config-url' },
+    configOrigins: {
+      attribute: 'config-origins',
+      converter: {
+        fromAttribute: (value: string | null): readonly string[] | undefined =>
+          value === null
+            ? undefined
+            : value
+                .split(',')
+                .map((origin) => origin.trim())
+                .filter((origin) => origin !== ''),
+      },
+    },
     resolved: { state: true },
     toolbarItems: { attribute: false },
     toolbarLabels: { attribute: 'toolbar-labels' },
@@ -213,6 +231,15 @@ export class DvViewerElement extends LitElement {
    * starts without it.
    */
   declare config: ViewerConfigV1 | readonly ViewerConfigV1[] | string | undefined;
+  /**
+   * A config file to fetch, as JSON. Off unless `configOrigins` lists its origin: a URL that came
+   * from outside the page must not send the viewer to a server of someone else's choosing. The file
+   * is data, size-limited, checked, and never run. A failure is a `dv-error` (context `config`), and
+   * the viewer starts without it. A `config` of the page's own wins over the file.
+   */
+  declare configUrl: string | undefined;
+  /** The origins `configUrl` may point to, such as `https://cdn.example.org`. Add `location.origin` for the page's own. */
+  declare configOrigins: readonly string[] | undefined;
   /** Commands of your own, for a config to name: `{ 'acme.export': () => ... }`. */
   declare commands: Readonly<Record<string, CommandInput>> | undefined;
   /** What the viewer's config comes to now, so the shell draws it. */
@@ -242,6 +269,8 @@ export class DvViewerElement extends LitElement {
     this.palette = undefined;
     this.config = undefined;
     this.commands = undefined;
+    this.configUrl = undefined;
+    this.configOrigins = undefined;
     this.resolved = undefined;
     this.toolbarItems = undefined;
     this.toolbarLabels = undefined;
@@ -342,6 +371,49 @@ export class DvViewerElement extends LitElement {
     );
   }
 
+  /**
+   * The config file at `configUrl`, if the page asked for one and its origin is allowed. Every
+   * failure is reported and is `undefined`, so a file that cannot be had does not take the viewer away.
+   */
+  async #fetchConfig(): Promise<ViewerConfigV1 | undefined> {
+    const { configUrl } = this;
+    if (configUrl === undefined || configUrl === '') return undefined;
+    try {
+      const url = new URL(configUrl, document.baseURI);
+      if (!(this.configOrigins ?? []).includes(url.origin)) {
+        throw new RangeError(
+          `The config URL is on ${url.origin}, which is not in config-origins. Add it there to allow it.`,
+        );
+      }
+      // No cookies go to it, and a redirect (which could leave the list) is an error.
+      const response = await fetch(url, { credentials: 'omit', redirect: 'error' });
+      if (!response.ok) {
+        throw new Error(`The config at ${url.href} answered ${response.status.toString()}.`);
+      }
+      const length = Number(response.headers.get('content-length'));
+      const text = await response.text();
+      if (text.length > MAX_CONFIG_CHARACTERS || length > MAX_CONFIG_CHARACTERS) {
+        throw new RangeError(
+          `The config at ${url.href} is larger than ${MAX_CONFIG_CHARACTERS.toString()} characters.`,
+        );
+      }
+      let data: unknown;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new SyntaxError(`The config at ${url.href} is not valid JSON.`);
+      }
+      const parsed = parseViewerConfig(data);
+      if (!parsed.ok) {
+        throw new RangeError(`Invalid config at ${url.href}:\n${parsed.errors.join('\n')}`);
+      }
+      return parsed.config;
+    } catch (error) {
+      this.#fail(error, 'config');
+      return undefined;
+    }
+  }
+
   /** The layers of the `config` property that pass the check. A layer that does not is reported, and left out. */
   #configLayers(): ViewerConfigV1[] {
     let given: unknown = this.config;
@@ -373,7 +445,7 @@ export class DvViewerElement extends LitElement {
    * (a toolbar that names a command nobody registered) is reported, and the viewer is made without
    * it, so a mistake in settings does not take the viewer away.
    */
-  #makeViewer(options: ViewerOptions): Viewer {
+  #makeViewer(options: ViewerOptions, fetched: ViewerConfigV1 | undefined): Viewer {
     const fromOptions =
       options.config === undefined
         ? []
@@ -384,7 +456,8 @@ export class DvViewerElement extends LitElement {
       this.commands === undefined
         ? options
         : { ...options, commands: { ...options.commands, ...this.commands } };
-    const layers = this.#configLayers();
+    // The file first, so the page's own config wins over it.
+    const layers = [...(fetched === undefined ? [] : [fetched]), ...this.#configLayers()];
     if (layers.length === 0) return createViewer(withCommands);
     try {
       return createViewer({ ...withCommands, config: [...fromOptions, ...layers] });
@@ -543,7 +616,9 @@ export class DvViewerElement extends LitElement {
     }
     this.status = 'loading';
     try {
-      const viewer = this.#makeViewer(options);
+      const fetched = await this.#fetchConfig();
+      if (generation !== this.#generation) return;
+      const viewer = this.#makeViewer(options, fetched);
       this.#viewer = viewer;
       this.resolved = viewer.config.get();
       this.requestUpdate();
