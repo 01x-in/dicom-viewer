@@ -137,7 +137,7 @@ Vue mirrors these with emits and slots.
   - Layouts are CSS grid templates with stable `vp-0..3` IDs. Hanging protocols are scored per modality.
   - WebGL uses `ContextPool` mode. v1 supports one viewer per page.
 - **Theming and accessibility**
-  - `--dv-*` CSS tokens, dark by default, light theme via `[data-theme=light]`, plus `::part()`.
+  - `--dv-*` CSS tokens, dark by default, light theme via `[data-theme=light]`, plus `::part()`. A `palette` attribute picks the colours (`default`, `navy`, `graphite`), and a host can change any one token.
   - The toolbar is a roving-tabindex `role=toolbar`.
   - Viewports have `role=img` with a throttled live label.
   - axe checks run in Playwright.
@@ -273,3 +273,12 @@ Reference files:
 - **The shell has a Segments panel** (second tab on the right), and React and Vue have `hideSegmentationsPanel` and `useSegmentations`.
 - **SEG state is not in `ViewerStateV1`.** The controlled `state` prop stays deferred to M7.
 - Still open: Safari and Firefox, React 18, the package name, touch input, and whether the default keys should match OHIF exactly. M7 inherits three things: SEG in MPR, the count of users of a stack's shapes and SEGs when two viewports show one series, and the controlled `state` prop.
+
+## M6.5 outcome
+
+**Done**, with the limits in [m6.5-report.md](m6.5-report.md); the decisions are in [ADR 0010](adr/0010-shell-polish.md). Changes to this plan that came out of the milestone:
+- **The shell looks like a viewer.** An icon toolbar (our own icons) with tooltips that print the bound key, a Measure button that shows the chosen tool, a dock with icon tabs that folds to a strip, a Segments panel with an eye, a round swatch and icon buttons, and an overlay in the shell's font and tint. OHIF was a reference for ideas only: no code or icons were copied.
+- **The colours are the host's choice.** `palette` is `default`, `navy`, or `graphite`, each tested for contrast in both themes, and any single colour is a `--dv-color-*` property. `labels="inline"` (`toolbar-labels`, `toolbarLabels`) puts names beside the pictures.
+- **New core API:** `viewer.tools.shortcuts()`, so a toolbar prints the key that is bound. The port's `loadSegmentation` takes the stack.
+- **A bug the first look found:** a SEG whose CT was not on screen failed to load (`reading 'rows'`). The engine now learns the images' headers and holds them with the SEG.
+- Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, and a visual regression suite (M8). A host's own panels have no icon until a panel definition has one.
