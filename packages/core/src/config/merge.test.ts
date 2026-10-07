@@ -17,6 +17,14 @@ describe('mergeLayers', () => {
     expect(merged).toEqual({ toolbar: { labels: 'inline', hidden: true } });
   });
 
+  it('replaces the toolbar items, and keeps the labels of the earlier layer', () => {
+    const merged = mergeLayers([
+      { toolbar: { labels: 'inline', items: [{ type: 'separator' }] } },
+      { toolbar: { items: [{ type: 'tool', tool: 'pan' }] } },
+    ]);
+    expect(merged.toolbar).toEqual({ labels: 'inline', items: [{ type: 'tool', tool: 'pan' }] });
+  });
+
   it('merges keybindings key by key, writes chords the way the keymap does, and keeps a removal', () => {
     const merged = mergeLayers([
       { keybindings: { 'Shift+I': { type: 'invert' }, r: null } },
@@ -81,7 +89,7 @@ describe('resolveConfig', () => {
     const resolved = resolveConfig([]);
     expect(resolved.theme).toBeUndefined();
     expect(resolved.palette).toBeUndefined();
-    expect(resolved.toolbar).toEqual({ labels: undefined, hidden: false });
+    expect(resolved.toolbar).toEqual({ labels: undefined, hidden: false, items: undefined });
     expect(resolved.keybindings).toEqual({});
     expect(resolved.overlay).toEqual({ showPatientInfo: false });
     expect(resolved.panels).toEqual({ hide: [] });

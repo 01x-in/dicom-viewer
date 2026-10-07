@@ -3,6 +3,8 @@ import { assertDicomUid } from './data/uid';
 import type { RenderingPort, StackPort, ViewSnapshot, WindowLevel } from './rendering-port';
 import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
+import { type CommandsApi, createCommands, type CommandInput } from './commands';
+import { findCommandProblems } from './config/commands-check';
 import { resolveConfig } from './config/merge';
 import { parseViewerConfig } from './config/schema';
 import type { ConfigBody, ResolvedViewerConfig, ViewerConfigV1 } from './config/types';
@@ -206,6 +208,8 @@ export interface Viewer {
   readonly segmentations: SegmentationsApi;
   /** The settings in force, and layers to put over them. */
   readonly config: ConfigApi;
+  /** Named things the viewer can do: for a config, a toolbar button, or a host's own code. */
+  readonly commands: CommandsApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
   setViewportSeries(
     viewportId: string,
@@ -253,6 +257,11 @@ export interface ViewerCoreOptions {
    * below win over it, and layers given to `viewer.config.apply` win over both.
    */
   readonly config?: ViewerConfigV1 | readonly ViewerConfigV1[];
+  /**
+   * Commands of the host, such as `{ 'acme.export': () => ... }`, added before the config is read,
+   * so a config can name them.
+   */
+  readonly commands?: Readonly<Record<string, CommandInput>>;
   /** A state to restore, for example one decoded from the URL. It is validated. */
   readonly initialState?: ViewerStateV1;
   readonly tools?: {
@@ -362,6 +371,14 @@ function codeLayerOf(options: ViewerCoreOptions): ConfigBody {
   };
 }
 
+/** A toolbar that names a command that is not there, or gives it arguments it will not take, is refused. */
+function assertConfigCommands(config: ResolvedViewerConfig, commands: CommandsApi): void {
+  const problems = findCommandProblems(config.toolbar.items ?? [], (id, args) =>
+    commands.check(id, args),
+  );
+  if (problems.length > 0) throw new RangeError(`Invalid config:\n${problems.join('\n')}`);
+}
+
 function overlayOptionsOf(config: ResolvedViewerConfig): OverlayOptions | undefined {
   return config.overlay === false ? undefined : { showPatientInfo: config.overlay.showPatientInfo };
 }
@@ -385,6 +402,15 @@ export function createViewerCore(
   const { dataSource } = options;
   // The settings come in layers, the last one winning: the config the host gave at the start, then
   // the options written in code, then whatever `viewer.config.apply` puts on later.
+  // The commands are made first, so a config can name them, and need the viewer only when one runs.
+  const made: { viewer?: Viewer } = {};
+  const commands = createCommands(() => {
+    if (made.viewer === undefined) throw new Error('The viewer is not made yet.');
+    return made.viewer;
+  });
+  for (const [id, command] of Object.entries(options.commands ?? {})) {
+    commands.register(id, command);
+  }
   const configLayers = readConfigLayers(options.config);
   const codeLayer = codeLayerOf(options);
   const applied: { readonly body: ConfigBody }[] = [];
@@ -394,6 +420,7 @@ export function createViewerCore(
     ...extra.map((entry) => entry.body),
   ];
   let resolved = resolveConfig(layersOf(applied));
+  assertConfigCommands(resolved, commands);
   const initialTool = resolved.tools.active;
   if (!isPrimaryTool(initialTool)) {
     throw new RangeError(`There is no tool ${String(initialTool)}.`);
@@ -1263,6 +1290,7 @@ export function createViewerCore(
    */
   function commitConfig(next: readonly { readonly body: ConfigBody }[]): void {
     const config = resolveConfig(layersOf(next));
+    assertConfigCommands(config, commands);
     assertWindowPresets(config.windowLevelPresets);
     const nextKeymap = keymapOf(config);
     const keyboardChanged = (nextKeymap === undefined) !== (keymap === undefined);
@@ -1346,7 +1374,7 @@ export function createViewerCore(
       [...runtimes.values()].flatMap((runtime) => (runtime.api === undefined ? [] : [runtime.api])),
   };
 
-  return {
+  const viewer: Viewer = {
     ready,
     loadStudy,
     getStudy: () =>
@@ -1359,6 +1387,7 @@ export function createViewerCore(
     measurements: measurements.api,
     segmentations: segmentations.api,
     config: configApi,
+    commands,
     ui: {
       registerPanel(panel): Unsubscribe {
         assertAlive();
@@ -1395,4 +1424,6 @@ export function createViewerCore(
       }, noop);
     },
   };
+  made.viewer = viewer;
+  return viewer;
 }

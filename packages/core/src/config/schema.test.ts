@@ -112,4 +112,73 @@ describe('parseViewerConfig', () => {
     input.panels.hide.push('measurements');
     expect(result.ok && result.config.panels?.hide).toEqual(['series']);
   });
+
+  it('accepts a toolbar written as data: tools, command buttons, menus, and separators', () => {
+    const toolbar = {
+      labels: 'inline',
+      items: [
+        { type: 'tool', tool: 'pan', label: 'Move', icon: 'pan' },
+        { type: 'separator' },
+        {
+          type: 'command',
+          id: 'zoom-in',
+          label: 'Zoom in',
+          icon: 'zoom-in',
+          command: 'view.zoomIn',
+        },
+        {
+          type: 'menu',
+          id: 'windows',
+          label: 'Windows',
+          items: [
+            { id: 'bone', label: 'Bone', command: 'preset.apply', args: { id: 'bone' } },
+            { id: 'lung', label: 'Lung', command: 'preset.apply', args: { id: 'lung' } },
+          ],
+        },
+      ],
+    };
+    expect(parseViewerConfig({ version: 1, toolbar })).toEqual({
+      ok: true,
+      config: { version: 1, toolbar },
+    });
+  });
+
+  it('refuses toolbar items that cannot work, and names each path', () => {
+    const errors = errorsOf({
+      version: 1,
+      toolbar: {
+        items: [
+          { type: 'button', id: 'a', label: 'A', command: 'x.y' },
+          { type: 'command', id: 'Bad Id', label: 'B', command: 'x.y' },
+          { type: 'menu', id: 'm', label: 'M', items: [] },
+          { type: 'command', id: 'f', label: 'F', command: 'x.y', args: { run: () => 1 } },
+          { type: 'tool', tool: 'laser' },
+          { type: 'separator', id: 'extra' },
+        ],
+      },
+    }).join('\n');
+    expect(errors).toContain('toolbar.items.0');
+    expect(errors).toContain('toolbar.items.1.id');
+    expect(errors).toContain('toolbar.items.2.items');
+    expect(errors).toContain('toolbar.items.3.args');
+    expect(errors).toContain('toolbar.items.4.tool');
+    expect(errors).toContain('toolbar.items.5');
+  });
+
+  it('refuses two toolbar buttons with one id', () => {
+    const button = { type: 'command', id: 'dup', label: 'A', command: 'x.y' };
+    expect(errorsOf({ version: 1, toolbar: { items: [button, button] } }).join()).toContain(
+      'toolbar.items.1.id',
+    );
+  });
+
+  it('refuses two menu entries with one id', () => {
+    const entry = { id: 'a', label: 'A', command: 'x.y' };
+    expect(
+      errorsOf({
+        version: 1,
+        toolbar: { items: [{ type: 'menu', id: 'm', label: 'M', items: [entry, entry] }] },
+      }).join(),
+    ).toContain('toolbar.items.0.items.1.id');
+  });
 });

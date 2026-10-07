@@ -7,6 +7,7 @@ import {
   PANEL_IDS,
   THEME_NAMES,
   TOOLBAR_LABELS,
+  type ToolbarItemConfig,
   type ViewerConfigV1,
 } from './types';
 
@@ -64,6 +65,64 @@ function orFalse<T>(schema: z.ZodType<T>): z.ZodType<false | T> {
   });
 }
 
+/** What JSON can say: no functions, no `undefined`, no cycles, and not so deep that it is a trap. */
+function isJson(value: unknown, depth = 0): boolean {
+  if (depth > 12) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => isJson(item, depth + 1));
+  if (typeof value === 'object') {
+    const proto: unknown = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return false;
+    return Object.values(value).every((item) => isJson(item, depth + 1));
+  }
+  return false;
+}
+
+const ITEM_ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const itemId = z
+  .string()
+  .regex(
+    ITEM_ID,
+    'An id uses lower-case letters, digits and single hyphens, and starts with a letter.',
+  );
+const jsonArgs = z
+  .unknown()
+  .refine((value) => isJson(value), 'Arguments must be JSON: no functions.');
+
+const menuEntrySchema = z.strictObject({
+  id: itemId,
+  label: z.string().min(1),
+  icon: z.string().optional(),
+  command: z.string().min(1),
+  args: jsonArgs.optional(),
+});
+
+const toolbarItemSchema: z.ZodType<ToolbarItemConfig> = z.discriminatedUnion('type', [
+  z.strictObject({
+    type: z.literal('tool'),
+    tool: z.custom<PrimaryTool>((value) => isPrimaryTool(value), 'There is no such tool.'),
+    label: z.string().min(1).optional(),
+    icon: z.string().optional(),
+  }),
+  z.strictObject({
+    type: z.literal('command'),
+    id: itemId,
+    label: z.string().min(1),
+    icon: z.string().optional(),
+    command: z.string().min(1),
+    args: jsonArgs.optional(),
+  }),
+  z.strictObject({
+    type: z.literal('menu'),
+    id: itemId,
+    label: z.string().min(1),
+    icon: z.string().optional(),
+    items: z.array(menuEntrySchema).min(1),
+  }),
+  z.strictObject({ type: z.literal('separator') }),
+]);
+
 const configSchema: z.ZodType<ViewerConfigV1> = z
   .strictObject({
     version: z.literal(1),
@@ -73,6 +132,7 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
       .strictObject({
         labels: z.enum(TOOLBAR_LABELS).optional(),
         hidden: z.boolean().optional(),
+        items: z.array(toolbarItemSchema).optional(),
       })
       .nullable()
       .optional(),
@@ -119,6 +179,32 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
         seen.add(chord);
       }
     }
+    const buttonIds = new Set<string>();
+    (config.toolbar?.items ?? []).forEach((item, index) => {
+      if (item.type === 'command' || item.type === 'menu') {
+        if (buttonIds.has(item.id)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['toolbar', 'items', index, 'id'],
+            message: `The toolbar id "${item.id}" is used twice.`,
+          });
+        }
+        buttonIds.add(item.id);
+      }
+      if (item.type === 'menu') {
+        const entryIds = new Set<string>();
+        item.items.forEach((entry, at) => {
+          if (entryIds.has(entry.id)) {
+            context.addIssue({
+              code: 'custom',
+              path: ['toolbar', 'items', index, 'items', at, 'id'],
+              message: `The menu entry id "${entry.id}" is used twice.`,
+            });
+          }
+          entryIds.add(entry.id);
+        });
+      }
+    });
     const ids = new Set<string>();
     (config.windowLevelPresets ?? []).forEach((preset, index) => {
       if (ids.has(preset.id)) {

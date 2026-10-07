@@ -245,4 +245,54 @@ describe('viewer.config.apply', () => {
     }).not.toThrow();
     expect(() => h.viewer.config.apply(layer({ palette: 'navy' }))).toThrow();
   });
+
+  describe('a toolbar in the config', () => {
+    const button = (command: string, args?: unknown): ViewerConfigV1 =>
+      layer({
+        toolbar: {
+          items: [
+            {
+              type: 'command',
+              id: 'one',
+              label: 'One',
+              command,
+              ...(args === undefined ? {} : { args }),
+            },
+          ],
+        },
+      });
+
+    it('is kept when every command it names exists', () => {
+      const h = harness({
+        viewer: {
+          commands: { 'acme.export': () => undefined },
+          config: button('acme.export'),
+        },
+      });
+      expect(h.viewer.config.get().toolbar.items).toHaveLength(1);
+    });
+
+    it('is refused at the start when it names a command that is not there, with the path', () => {
+      expect(() => harness({ viewer: { config: button('acme.export') } })).toThrow(
+        /Invalid config:\ntoolbar\.items\.0\.command: There is no command "acme\.export"/,
+      );
+    });
+
+    it('is refused when a command is given arguments it will not take', () => {
+      expect(() => harness({ viewer: { config: button('tool.set', { tool: 'laser' }) } })).toThrow(
+        /toolbar\.items\.0\.command/,
+      );
+    });
+
+    it('is checked when a layer is applied, and a layer that names a command of the host works once it is registered', () => {
+      const h = harness();
+      expect(() => h.viewer.config.apply(button('acme.export'))).toThrow(RangeError);
+      expect(h.events['config:changed']).toHaveLength(0);
+      h.viewer.commands.register('acme.export', () => undefined);
+      const off = h.viewer.config.apply(button('acme.export'));
+      expect(h.viewer.config.get().toolbar.items).toHaveLength(1);
+      off();
+      expect(h.viewer.config.get().toolbar.items).toBeUndefined();
+    });
+  });
 });

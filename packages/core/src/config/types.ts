@@ -18,7 +18,57 @@ export type PanelId = (typeof PANEL_IDS)[number];
 /** Keys and actions, by chord such as `m` or `Shift+i`. `null` removes a key. */
 export type KeybindingsConfig = Readonly<Record<string, KeyAction | null>>;
 
+/** A button for one of the viewer's tools. */
+export interface ToolbarToolItemConfig {
+  readonly type: 'tool';
+  readonly tool: PrimaryTool;
+  /** Default: the tool's own name. */
+  readonly label?: string | undefined;
+  /** The name of one of the shell's pictures. */
+  readonly icon?: string | undefined;
+}
+
+/** A button that runs a command (`viewer.commands`), with its arguments as JSON. */
+export interface ToolbarCommandItemConfig {
+  readonly type: 'command';
+  /** Unique in the toolbar. Lower-case letters, digits and hyphens. */
+  readonly id: string;
+  readonly label: string;
+  readonly icon?: string | undefined;
+  readonly command: string;
+  readonly args?: unknown;
+}
+
+/** One entry of a menu: the same as a command button, with no picture needed. */
+export interface ToolbarMenuEntryConfig {
+  readonly id: string;
+  readonly label: string;
+  readonly icon?: string | undefined;
+  readonly command: string;
+  readonly args?: unknown;
+}
+
+export interface ToolbarMenuItemConfig {
+  readonly type: 'menu';
+  readonly id: string;
+  readonly label: string;
+  readonly icon?: string | undefined;
+  readonly items: readonly ToolbarMenuEntryConfig[];
+}
+
+export interface ToolbarSeparatorConfig {
+  readonly type: 'separator';
+}
+
+export type ToolbarItemConfig =
+  | ToolbarToolItemConfig
+  | ToolbarCommandItemConfig
+  | ToolbarMenuItemConfig
+  | ToolbarSeparatorConfig;
+
 export interface ToolbarConfig {
+  /** The buttons, in order. A toolbar in a later layer replaces this one. Default: the built-in toolbar. */
+  readonly items?: readonly ToolbarItemConfig[] | undefined;
   /** `tooltip`: buttons with a picture show only the picture. `inline`: the name is beside it. */
   readonly labels?: ToolbarLabels | undefined;
   /** No toolbar at all. */
@@ -71,6 +121,8 @@ export interface ResolvedViewerConfig {
   readonly toolbar: {
     readonly labels: ToolbarLabels | undefined;
     readonly hidden: boolean;
+    /** `undefined`: the built-in toolbar. */
+    readonly items: readonly ToolbarItemConfig[] | undefined;
   };
   readonly keybindings: false | KeybindingsConfig;
   readonly overlay: false | { readonly showPatientInfo: boolean };

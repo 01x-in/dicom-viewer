@@ -51,6 +51,7 @@ function mergeToolbar(base: ToolbarConfig | undefined, next: ToolbarConfig): Too
     ...base,
     ...(next.labels === undefined ? {} : { labels: next.labels }),
     ...(next.hidden === undefined ? {} : { hidden: next.hidden }),
+    ...(next.items === undefined ? {} : { items: next.items }),
   };
 }
 
@@ -110,6 +111,7 @@ export function resolveConfig(layers: readonly ConfigBody[]): ResolvedViewerConf
     toolbar: {
       labels: merged.toolbar?.labels ?? undefined,
       hidden: merged.toolbar?.hidden ?? false,
+      items: merged.toolbar?.items,
     },
     keybindings: merged.keybindings ?? {},
     overlay:

@@ -136,6 +136,15 @@ export type {
   ViewerConfigV1,
 } from './config/types';
 export { parseViewerConfig } from './config/schema';
+export type {
+  ToolbarCommandItemConfig,
+  ToolbarItemConfig,
+  ToolbarMenuEntryConfig,
+  ToolbarMenuItemConfig,
+  ToolbarSeparatorConfig,
+  ToolbarToolItemConfig,
+} from './config/types';
+export type { Command, CommandContext, CommandInput, CommandsApi } from './commands';
 export type { ParsedViewerConfig } from './config/schema';
 export type {
   ConfigApi,
