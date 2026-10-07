@@ -32,6 +32,7 @@ import {
   type VNodeChild,
   watch,
 } from 'vue';
+import { sameViewState, viewStatePatch } from '@scope/viewer-core';
 import { provideViewer } from './context';
 
 /** A side panel of the host's own. Its content is the slot `panel-<id>`. */
@@ -54,6 +55,14 @@ export interface DicomViewerProps {
   readonly navigate?: NavigateTarget;
   /** Read when the viewer starts. */
   readonly initialState?: ViewerStateV1;
+  /**
+   * The view the page wants: the layout, and in every viewport the series, plane, slice, window, and
+   * zoom. The viewer shows it when it starts, and again whenever it gets another; what a state
+   * leaves out of a viewport is cleared. Pair it with `@state-change` to keep it up to date, as for
+   * any controlled input: a state that is the one the viewer is in changes nothing. The study is not
+   * part of it (use `studyInstanceUid`), and neither are measurements and SEGs.
+   */
+  readonly state?: ViewerStateV1;
   /** Items for the toolbar, or `false` for none. */
   readonly toolbar?: readonly ToolbarItem[] | false;
   /** Extra side panels. Each one's content is the slot `panel-<id>`. The series browser, the measurements list, and the segments list are built in. */
@@ -116,6 +125,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     seriesInstanceUid: { type: String, default: undefined },
     navigate: { type: Object as PropType<NavigateTarget>, default: undefined },
     initialState: { type: Object as PropType<ViewerStateV1>, default: undefined },
+    state: { type: Object as PropType<ViewerStateV1>, default: undefined },
     toolbar: {
       type: [Array, Boolean] as PropType<readonly ToolbarItem[] | false>,
       default: undefined,
@@ -155,7 +165,9 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       const target = element.value;
       if (!defined.value || target === null) return;
       const options = toRaw(props.options);
-      const initialState = props.initialState === undefined ? undefined : toRaw(props.initialState);
+      // A controlled state starts the viewer too, unless the page has an initial one of its own.
+      const given = props.initialState ?? props.state;
+      const initialState = given === undefined ? undefined : toRaw(given);
       target.options = initialState === undefined ? options : { ...options, initialState };
       target.config = props.config === undefined ? undefined : toRaw(props.config);
       target.commands = props.commands === undefined ? undefined : toRaw(props.commands);
@@ -293,6 +305,18 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
           .join(),
       () => {
         if (viewer.value !== undefined) registerPanels(viewer.value);
+      },
+    );
+    // A state the page gives is shown. One that is the state the viewer is in changes nothing.
+    watch(
+      () => [viewer.value, props.state === undefined ? '' : JSON.stringify(props.state)] as const,
+      ([current]) => {
+        const wanted = props.state === undefined ? undefined : toRaw(props.state);
+        if (current === undefined || wanted === undefined) return;
+        if (sameViewState(current.getState(), wanted)) return;
+        current.setState(viewStatePatch(wanted)).catch((error: unknown) => {
+          emit('error', toError(error));
+        });
       },
     );
     watch(

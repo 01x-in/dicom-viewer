@@ -312,6 +312,71 @@ describe('<DicomViewer>', () => {
   });
 });
 
+describe('the state prop', () => {
+  const twoUp = (series?: string): ViewerStateV1 => ({
+    version: 1,
+    layout: '1x2',
+    studyInstanceUID: FAKE_IDS.study,
+    viewports: [
+      { id: 'vp-0', ...(series === undefined ? {} : { seriesInstanceUID: series }) },
+      { id: 'vp-1' },
+    ],
+  });
+
+  it('starts the viewer in the state it is given', async () => {
+    await mount({ state: twoUp(FAKE_IDS.ctTwoStacks) });
+    expect(made[0]?.viewer.getState().layout).toBe('1x2');
+    expect(shown()).toBe(FAKE_IDS.ctTwoStacks);
+  });
+
+  it('follows the state when the page gives another, and clears what the state leaves empty', async () => {
+    const props = await mount({ state: twoUp(FAKE_IDS.ctTwoStacks) });
+    props.state = { ...twoUp(), layout: '1x1', viewports: [{ id: 'vp-0' }] };
+    await settle();
+    expect(made[0]?.viewer.getState().layout).toBe('1x1');
+    expect(shown()).toBeUndefined();
+    props.state = twoUp(FAKE_IDS.ct);
+    await settle();
+    expect(made[0]?.viewer.getState().layout).toBe('1x2');
+    expect(shown()).toBe(FAKE_IDS.ct);
+    expect(made).toHaveLength(1);
+  });
+
+  it('is quiet when the page hands back the state it was told of', async () => {
+    const told: ViewerStateV1[] = [];
+    const props = await mount({
+      state: twoUp(FAKE_IDS.ct),
+      onStateChange: (state: ViewerStateV1) => {
+        told.push(state);
+      },
+    });
+    const viewer = made[0]?.viewer;
+    let changes = 0;
+    viewer?.on('state:changed', () => {
+      changes += 1;
+    });
+    await viewer?.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks);
+    await settle();
+    const last = told.at(-1);
+    expect(last?.viewports[0]?.seriesInstanceUID).toBe(FAKE_IDS.ctTwoStacks);
+    const after = changes;
+    props.state = last;
+    await settle();
+    expect(changes).toBe(after);
+  });
+
+  it('emits an error for a state that cannot be shown', async () => {
+    const onError = vi.fn();
+    const props = await mount({ state: twoUp(FAKE_IDS.ct), onError });
+    props.state = {
+      ...twoUp(FAKE_IDS.ct),
+      viewports: [{ id: 'vp-0', seriesInstanceUID: FAKE_IDS.seg }, { id: 'vp-1' }],
+    };
+    await settle();
+    expect(onError).toHaveBeenCalled();
+  });
+});
+
 describe('panels and composables', () => {
   let seenViewer: Readonly<Ref<Viewer | undefined>> | undefined;
   let seenSeries: Readonly<Ref<string | undefined>> | undefined;

@@ -38,6 +38,7 @@ import {
   compactViewport,
   createInitialState,
   parseViewerState,
+  sameViewState,
   type ViewerStateV1,
   type ViewportStateV1,
 } from './state/viewer-state';
@@ -1608,14 +1609,17 @@ export function createViewerCore(
         seriesCache.clear();
         thumbnails.clear();
       }
-      store.update(
-        {
-          studyInstanceUID: candidate.state.studyInstanceUID,
-          layout: candidate.state.layout,
-          viewports: candidate.state.viewports,
-        },
-        origin,
-      );
+      // A patch that changes nothing announces nothing: a page that echoes the state it was given must not set off a round of changes.
+      if (studyChanged || !sameViewState(current, candidate.state)) {
+        store.update(
+          {
+            studyInstanceUID: candidate.state.studyInstanceUID,
+            layout: candidate.state.layout,
+            viewports: candidate.state.viewports,
+          },
+          origin,
+        );
+      }
       dropRemovedViewports();
       for (const viewport of candidate.state.viewports) await syncViewport(viewport.id, origin);
     });

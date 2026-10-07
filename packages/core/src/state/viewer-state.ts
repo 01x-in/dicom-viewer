@@ -139,3 +139,52 @@ export function parseViewerState(input: unknown): ParseResult {
   if (parsed.success) return { ok: true, state: parsed.data };
   return { ok: false, error: z.prettifyError(parsed.error) };
 }
+
+/**
+ * What a state says about the view, as a patch for `viewer.setState`: the layout and every field of
+ * every viewport, named even when the state leaves it out, so applying it makes the viewer show
+ * exactly this. The study is not in it: a page says which study to show in its own way.
+ */
+export function viewStatePatch(state: ViewerStateV1): {
+  readonly layout: LayoutId;
+  readonly viewports: readonly ViewportStateV1[];
+} {
+  return {
+    layout: state.layout,
+    viewports: state.viewports.map((viewport) => ({
+      id: viewport.id,
+      seriesInstanceUID: viewport.seriesInstanceUID,
+      stackIndex: viewport.stackIndex,
+      orientation: viewport.orientation,
+      imageIndex: viewport.imageIndex,
+      window: viewport.window,
+      invert: viewport.invert,
+      zoom: viewport.zoom,
+    })),
+  };
+}
+
+function viewKey(state: ViewerStateV1): string {
+  return JSON.stringify([
+    state.layout,
+    state.viewports.map((viewport) => {
+      const { id, seriesInstanceUID, stackIndex, orientation, imageIndex, window, invert, zoom } =
+        compactViewport(viewport);
+      return [
+        id,
+        seriesInstanceUID,
+        stackIndex,
+        orientation,
+        imageIndex,
+        window === undefined ? undefined : [window.center, window.width],
+        invert,
+        zoom,
+      ];
+    }),
+  ]);
+}
+
+/** Whether two states show the same thing: the same layout and the same in every viewport. The study is not compared. */
+export function sameViewState(a: ViewerStateV1, b: ViewerStateV1): boolean {
+  return viewKey(a) === viewKey(b);
+}

@@ -298,6 +298,75 @@ describe('<DicomViewer>', () => {
     expect(origin).toBe('api');
   });
 
+  describe('the state prop', () => {
+    const twoUp = (series?: string): ViewerStateV1 => ({
+      version: 1,
+      layout: '1x2',
+      studyInstanceUID: FAKE_IDS.study,
+      viewports: [
+        { id: 'vp-0', ...(series === undefined ? {} : { seriesInstanceUID: series }) },
+        { id: 'vp-1' },
+      ],
+    });
+
+    it('starts the viewer in the state it is given', async () => {
+      await render({ state: twoUp(FAKE_IDS.ctTwoStacks) });
+      expect(made[0]?.viewer.getState().layout).toBe('1x2');
+      expect(shown()).toBe(FAKE_IDS.ctTwoStacks);
+    });
+
+    it('follows the state when the page gives another, and shows nothing the state leaves empty', async () => {
+      await render({ state: twoUp(FAKE_IDS.ctTwoStacks) });
+      await render({ state: { ...twoUp(), layout: '1x1', viewports: [{ id: 'vp-0' }] } });
+      expect(made[0]?.viewer.getState().layout).toBe('1x1');
+      expect(shown()).toBeUndefined();
+      await render({ state: twoUp(FAKE_IDS.ct) });
+      expect(made[0]?.viewer.getState().layout).toBe('1x2');
+      expect(shown()).toBe(FAKE_IDS.ct);
+    });
+
+    it('does not start a second viewer for a new state', async () => {
+      await render({ state: twoUp(FAKE_IDS.ct) });
+      await render({ state: twoUp(FAKE_IDS.ctTwoStacks) });
+      expect(made).toHaveLength(1);
+    });
+
+    it('is quiet when the page hands back the state it was told of', async () => {
+      const received: ViewerStateV1[] = [];
+      const onStateChange = (state: ViewerStateV1): void => {
+        received.push(state);
+      };
+      await render({ state: twoUp(FAKE_IDS.ct), onStateChange });
+      const viewer = made[0]?.viewer;
+      let changes = 0;
+      viewer?.on('state:changed', () => {
+        changes += 1;
+      });
+      await act(async () => {
+        await viewer?.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks);
+      });
+      const told = received.at(-1);
+      expect(told?.viewports[0]?.seriesInstanceUID).toBe(FAKE_IDS.ctTwoStacks);
+      const after = changes;
+      // The page does what a controlled page does: it keeps what it was told.
+      if (told !== undefined) await render({ state: told, onStateChange });
+      expect(changes).toBe(after);
+    });
+
+    it('reports a state that cannot be shown through onError', async () => {
+      const onError = vi.fn();
+      await render({ state: twoUp(FAKE_IDS.ct), onError });
+      await render({
+        state: {
+          ...twoUp(FAKE_IDS.ct),
+          viewports: [{ id: 'vp-0', seriesInstanceUID: FAKE_IDS.seg }, { id: 'vp-1' }],
+        },
+        onError,
+      });
+      expect(onError).toHaveBeenCalled();
+    });
+  });
+
   it('shows an instance when asked to navigate, and again when the target changes', async () => {
     await render({
       navigate: { seriesInstanceUID: FAKE_IDS.ct, sopInstanceUID: `${FAKE_IDS.ct}.0.7` },

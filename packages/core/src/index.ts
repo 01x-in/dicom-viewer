@@ -54,7 +54,9 @@ export { decodeViewerState, encodeViewerState } from './state/url';
 export {
   createInitialState,
   parseViewerState,
+  sameViewState,
   viewerStateV1Schema,
+  viewStatePatch,
 } from './state/viewer-state';
 export type { ParseResult, ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
 export { describeOverlay, overlayLines, renderOverlay } from './overlay';

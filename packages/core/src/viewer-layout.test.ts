@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { CT, STUDY } from './testing/fakes';
+import { viewStatePatch } from './state/viewer-state';
+import { CT, CT_TWO_STACKS, STUDY } from './testing/fakes';
 import { destroyViewersAfterEach, harness, type Harness } from './testing/harness';
 
 destroyViewersAfterEach();
@@ -122,5 +123,42 @@ describe('setLayout', () => {
     await ready(h);
     h.viewer.destroy();
     await expect(h.viewer.setLayout('1x2')).rejects.toThrow('destroyed');
+  });
+});
+
+describe('setState with viewStatePatch', () => {
+  it('makes the viewer show exactly the state: a series, a plane, a layout, and what it leaves out is cleared', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.setViewportSeries('vp-0', CT, { imageIndex: 4 });
+    await h.viewer.viewports.get('vp-0')?.setZoom(2);
+
+    await h.viewer.setState(
+      viewStatePatch({
+        version: 1,
+        layout: '1x2',
+        viewports: [
+          { id: 'vp-0' },
+          { id: 'vp-1', seriesInstanceUID: CT_TWO_STACKS, orientation: 'coronal' },
+        ],
+      }),
+    );
+
+    expect(h.viewer.getState().layout).toBe('1x2');
+    expect(h.viewer.getState().viewports).toEqual([
+      { id: 'vp-0' },
+      { id: 'vp-1', seriesInstanceUID: CT_TWO_STACKS, orientation: 'coronal' },
+    ]);
+    // Nothing is drawn where the state shows nothing.
+    expect(h.viewer.viewports.get('vp-0')?.series).toBeUndefined();
+  });
+
+  it('is a no-op for the state the viewer is already in', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.setViewportSeries('vp-0', CT, { imageIndex: 4 });
+    const before = h.events['state:changed'].length;
+    await h.viewer.setState(viewStatePatch(h.viewer.getState()));
+    expect(h.events['state:changed']).toHaveLength(before);
   });
 });
