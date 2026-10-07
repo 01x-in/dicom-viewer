@@ -23,6 +23,7 @@ import { type DvSeriesBrowserElement, isDisplayableModality } from './series-bro
 import { baseStyles, shellThemeStyles } from './theme';
 import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
 import type { PaletteName, ThemeName } from './tokens';
+import type { ToolbarLabels } from './toolbar';
 
 export type ViewerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -80,6 +81,7 @@ export class DvViewerElement extends LitElement {
     theme: { reflect: true },
     palette: { reflect: true },
     toolbarItems: { attribute: false },
+    toolbarLabels: { attribute: 'toolbar-labels' },
     hideToolbar: { type: Boolean, attribute: 'hide-toolbar' },
     hideSeriesPanel: { type: Boolean, attribute: 'hide-series-panel' },
     hideMeasurementsPanel: { type: Boolean, attribute: 'hide-measurements-panel' },
@@ -188,6 +190,8 @@ export class DvViewerElement extends LitElement {
   declare palette: PaletteName;
   /** What the toolbar shows. `undefined`: `DEFAULT_TOOLBAR`. */
   declare toolbarItems: readonly ToolbarItem[] | undefined;
+  /** `tooltip` (default): toolbar buttons show a picture and a tooltip. `inline`: the name is beside the picture. */
+  declare toolbarLabels: ToolbarLabels;
   declare hideToolbar: boolean;
   declare hideSeriesPanel: boolean;
   declare hideMeasurementsPanel: boolean;
@@ -213,6 +217,7 @@ export class DvViewerElement extends LitElement {
     this.theme = 'dark';
     this.palette = 'default';
     this.toolbarItems = undefined;
+    this.toolbarLabels = 'tooltip';
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
     this.hideMeasurementsPanel = false;
@@ -533,7 +538,7 @@ export class DvViewerElement extends LitElement {
       ${
         this.hideToolbar
           ? nothing
-          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.toolbarItems ?? DEFAULT_TOOLBAR}>
+          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.toolbarItems ?? DEFAULT_TOOLBAR} .labels=${this.toolbarLabels}>
             <slot name="toolbar-start" slot="start"></slot>
             <slot name="toolbar-end" slot="end"></slot>
           </dv-toolbar>`

@@ -10,6 +10,7 @@ import type {
   DvViewerElement,
   PaletteName,
   ThemeName,
+  ToolbarLabels,
   ToolbarItem,
   ViewerErrorDetail,
   ViewerReadyDetail,
@@ -52,6 +53,8 @@ export interface DicomViewerProps {
   readonly onStateChange?: ((state: ViewerStateV1, origin: string) => void) | undefined;
   /** Items for the toolbar, or `false` for none. Default: the built-in tools, actions and presets. */
   readonly toolbar?: readonly ToolbarItem[] | false | undefined;
+  /** `tooltip` (default): buttons show a picture, and the name in a tooltip. `inline`: the name beside the picture. */
+  readonly toolbarLabels?: ToolbarLabels | undefined;
   /** Extra side panels, by id. The series browser, the measurements list, and the segments list are built in. */
   readonly panels?: Readonly<Record<string, ReactPanel>> | undefined;
   readonly hideSeriesPanel?: boolean | undefined;
@@ -155,13 +158,15 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     element.seriesInstanceUid = seriesInstanceUID;
   }, [defined, options, studyInstanceUID, seriesInstanceUID]);
 
-  const { toolbar, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel } = props;
+  const { toolbar, toolbarLabels, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel } =
+    props;
   useEffect(() => {
     const element = elementRef.current;
     if (!defined || element === null) return;
     element.theme = theme ?? 'dark';
     element.palette = palette ?? 'default';
     element.hideToolbar = toolbar === false;
+    element.toolbarLabels = toolbarLabels ?? 'tooltip';
     element.toolbarItems = toolbar === undefined || toolbar === false ? undefined : toolbar;
     element.hideSeriesPanel = hideSeriesPanel === true;
     element.hideMeasurementsPanel = hideMeasurementsPanel === true;
@@ -171,6 +176,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     theme,
     palette,
     toolbar,
+    toolbarLabels,
     hideSeriesPanel,
     hideMeasurementsPanel,
     hideSegmentationsPanel,

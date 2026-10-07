@@ -10,6 +10,7 @@ import type {
   DvViewerElement,
   PaletteName,
   ThemeName,
+  ToolbarLabels,
   ToolbarItem,
   ViewerErrorDetail,
   ViewerReadyDetail,
@@ -61,6 +62,8 @@ export interface DicomViewerProps {
   readonly theme?: ThemeName;
   /** The colours of the chrome: `default`, `navy`, or `graphite`. */
   readonly palette?: PaletteName;
+  /** `tooltip` (default): buttons show a picture, and the name in a tooltip. `inline`: the name beside the picture. */
+  readonly toolbarLabels?: ToolbarLabels;
   readonly onReady?: (viewer: Viewer, viewport: ViewportApi | undefined) => void;
   readonly onError?: (error: Error) => void;
   readonly onStateChange?: (state: ViewerStateV1, origin: string) => void;
@@ -107,6 +110,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     hideSegmentationsPanel: { type: Boolean, default: false },
     theme: { type: String as PropType<ThemeName>, default: 'dark' },
     palette: { type: String as PropType<PaletteName>, default: 'default' },
+    toolbarLabels: { type: String as PropType<ToolbarLabels>, default: 'tooltip' },
   },
   // Payloads: ready(viewer, viewport), error(error), state-change(state, origin).
   emits: ['ready', 'error', 'state-change'],
@@ -137,6 +141,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       target.theme = props.theme ?? 'dark';
       target.palette = props.palette ?? 'default';
       target.hideToolbar = props.toolbar === false;
+      target.toolbarLabels = props.toolbarLabels ?? 'tooltip';
       target.toolbarItems =
         props.toolbar === undefined || props.toolbar === false ? undefined : toRaw(props.toolbar);
       target.hideSeriesPanel = props.hideSeriesPanel === true;
@@ -227,6 +232,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
         () => props.theme,
         () => props.palette,
         () => props.toolbar,
+        () => props.toolbarLabels,
         () => props.hideSeriesPanel,
         () => props.hideMeasurementsPanel,
         () => props.hideSegmentationsPanel,

@@ -1,5 +1,6 @@
-import type { PrimaryTool, Viewer } from '@scope/viewer-core';
+import type { KeyAction, PrimaryTool, Viewer } from '@scope/viewer-core';
 import type { TemplateResult } from 'lit';
+import type { IconName } from './icons';
 
 /** What a toolbar action is told about: the viewer, and the viewport the toolbar works on. */
 export interface ToolbarContext {
@@ -7,17 +8,37 @@ export interface ToolbarContext {
   readonly viewportId: string;
 }
 
+/** The picture of each tool of the viewer. */
+export const TOOL_ICONS: Readonly<Record<PrimaryTool, IconName>> = {
+  'window-level': 'window-level',
+  pan: 'pan',
+  zoom: 'zoom',
+  'stack-scroll': 'stack-scroll',
+  length: 'length',
+  bidirectional: 'bidirectional',
+  ellipse: 'ellipse',
+  rectangle: 'rectangle',
+  probe: 'probe',
+  angle: 'angle',
+};
+
 export interface ToolItem {
   readonly type: 'tool';
   readonly tool: PrimaryTool;
   /** Default: the tool's own label. */
   readonly label?: string;
+  /** Default: the tool's own picture. */
+  readonly icon?: IconName;
 }
 
 export interface ActionItem {
   readonly type: 'action';
   readonly id: string;
   readonly label: string;
+  /** Without one, the button shows its label as text. */
+  readonly icon?: IconName;
+  /** Which key action this button is the same as, so the tooltip can show the key that is bound to it. */
+  readonly shortcut?: (action: KeyAction) => boolean;
   run(context: ToolbarContext): void | Promise<void>;
   /** Makes the button a toggle that shows whether it is on. */
   pressed?(context: ToolbarContext): boolean;
@@ -32,6 +53,8 @@ export interface MenuItem {
   readonly type: 'menu';
   readonly id: string;
   readonly label: string;
+  /** Without one, the button shows its label as text. */
+  readonly icon?: IconName;
   /** A function is asked each time the menu opens, for entries that depend on the viewer. */
   readonly items: readonly MenuEntry[] | ((context: ToolbarContext) => readonly MenuEntry[]);
 }
@@ -66,6 +89,8 @@ const ZOOM_IN: ActionItem = {
   type: 'action',
   id: 'zoom-in',
   label: 'Zoom in',
+  icon: 'zoom-in',
+  shortcut: (action) => action.type === 'zoom' && action.factor > 1,
   run: (context) => viewportOf(context)?.zoomBy(ZOOM_IN_FACTOR),
 };
 
@@ -73,6 +98,8 @@ const ZOOM_OUT: ActionItem = {
   type: 'action',
   id: 'zoom-out',
   label: 'Zoom out',
+  icon: 'zoom-out',
+  shortcut: (action) => action.type === 'zoom' && action.factor < 1,
   run: (context) => viewportOf(context)?.zoomBy(ZOOM_OUT_FACTOR),
 };
 
@@ -80,6 +107,8 @@ const INVERT: ActionItem = {
   type: 'action',
   id: 'invert',
   label: 'Invert',
+  icon: 'invert',
+  shortcut: (action) => action.type === 'invert',
   run: (context) => viewportOf(context)?.toggleInvert(),
   pressed: (context) => stateOf(context).invert,
 };
@@ -88,6 +117,8 @@ const RESET: ActionItem = {
   type: 'action',
   id: 'reset',
   label: 'Reset',
+  icon: 'reset',
+  shortcut: (action) => action.type === 'reset',
   run: (context) => viewportOf(context)?.resetView(),
 };
 
@@ -95,6 +126,8 @@ const CINE: ActionItem = {
   type: 'action',
   id: 'cine',
   label: 'Cine',
+  icon: 'cine',
+  shortcut: (action) => action.type === 'cine',
   run: (context) => {
     const viewport = viewportOf(context);
     if (viewport === undefined) return undefined;
@@ -111,6 +144,7 @@ const PRESETS: MenuItem = {
   type: 'menu',
   id: 'presets',
   label: 'Presets',
+  icon: 'presets',
   items: ({ viewer, viewportId }) =>
     viewer.tools.windowPresets().map((preset) => ({
       id: `preset-${preset.id}`,
@@ -124,6 +158,7 @@ const MEASURE: MenuItem = {
   type: 'menu',
   id: 'measure',
   label: 'Measure',
+  icon: 'measure',
   items: ({ viewer }) =>
     viewer.tools
       .list()
@@ -131,6 +166,8 @@ const MEASURE: MenuItem = {
       .map((tool) => ({
         id: `tool-${tool.id}`,
         label: tool.label,
+        icon: TOOL_ICONS[tool.id],
+        shortcut: (action) => action.type === 'tool' && action.tool === tool.id,
         // Choosing a tool needs no series, so it works before one is shown.
         enabled: () => true,
         run: () => viewer.tools.setActive(tool.id),
@@ -174,6 +211,36 @@ export const DEFAULT_TOOLBAR: readonly ToolbarItem[] = [
   { type: 'separator' },
   PRESETS,
 ];
+
+const KEY_NAMES: Readonly<Record<string, string>> = {
+  Space: 'Space',
+  Plus: '+',
+  ArrowDown: '↓',
+  ArrowUp: '↑',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  PageDown: 'PgDn',
+  PageUp: 'PgUp',
+  Escape: 'Esc',
+  Delete: 'Del',
+};
+
+/** A chord as it is printed on a key hint: `w` is `W`, `Shift+i` is `Shift+I`, `Plus` is `+`. */
+export function formatChord(chord: string): string {
+  return chord
+    .split('+')
+    .map((part) => KEY_NAMES[part] ?? (part.length === 1 ? part.toUpperCase() : part))
+    .join('+');
+}
+
+/** The key bound to the first action `matches` accepts, as it should be printed, or `undefined`. */
+export function shortcutOf(
+  viewer: Viewer,
+  matches: (action: KeyAction) => boolean,
+): string | undefined {
+  const found = viewer.tools.shortcuts().find((entry) => matches(entry.action));
+  return found === undefined ? undefined : formatChord(found.chord);
+}
 
 /**
  * Where the keyboard focus goes when an arrow, Home, or End is pressed among `count` controls that

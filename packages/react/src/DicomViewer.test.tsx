@@ -168,6 +168,13 @@ describe('<DicomViewer>', () => {
     expect(element().querySelector('[slot="panel-right"]')?.textContent).toBe('Right');
   });
 
+  it('puts the toolbar names inline when asked', async () => {
+    await render({ toolbarLabels: 'inline' });
+    expect(element().toolbarLabels).toBe('inline');
+    await render({});
+    expect(element().toolbarLabels).toBe('tooltip');
+  });
+
   it('follows the palette', async () => {
     await render({ palette: 'graphite' });
     expect(element().getAttribute('data-palette')).toBe('graphite');

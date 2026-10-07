@@ -79,7 +79,7 @@ describe('<dv-toolbar>', () => {
 
   it('shows the four tools, the measure menu, the actions, and the presets menu by default', async () => {
     const { toolbar } = await mount();
-    expect(buttons(toolbar).map((item) => item.textContent.trim())).toEqual([
+    expect(buttons(toolbar).map((item) => item.getAttribute('aria-label'))).toEqual([
       'Window / level',
       'Pan',
       'Zoom',
@@ -92,6 +92,85 @@ describe('<dv-toolbar>', () => {
       'Cine',
       'Presets',
     ]);
+  });
+
+  it('shows a picture on each built-in button and its name in a tooltip, not as text', async () => {
+    const { toolbar } = await mount();
+    for (const item of buttons(toolbar)) {
+      expect(
+        item.querySelector('svg.icon[aria-hidden="true"]'),
+        item.getAttribute('aria-label') ?? '',
+      ).not.toBeNull();
+      expect(item.querySelector('.text')).toBeNull();
+    }
+    const tip = toolbar.shadowRoot
+      ?.querySelector('[data-tool="window-level"]')
+      ?.parentElement?.querySelector('.tip');
+    expect(tip?.getAttribute('aria-hidden')).toBe('true');
+    expect(tip?.textContent).toContain('Window / level');
+  });
+
+  it('prints the key that is bound in the tooltip, and follows a rebinding', async () => {
+    const { toolbar } = await mount();
+    const keyOf = (selector: string): string | undefined =>
+      toolbar.shadowRoot?.querySelector(selector)?.parentElement?.querySelector('kbd')?.textContent;
+    expect(keyOf('[data-tool="window-level"]')).toBe('W');
+    expect(keyOf('[data-action="cine"]')).toBe('Space');
+    expect(keyOf('[data-action="zoom-in"]')).toBe('+');
+    expect(keyOf('[data-action="invert"]')).toBe('I');
+  });
+
+  it('shows no key it does not have: the keyboard is off', async () => {
+    const fake = createFakeViewer({ keybindings: false });
+    open.push(fake);
+    const toolbar = document.createElement('dv-toolbar') as DvToolbarElement;
+    toolbar.viewer = fake.viewer;
+    document.body.append(toolbar);
+    await toolbar.updateComplete;
+    expect(toolbar.shadowRoot?.querySelector('kbd')).toBeNull();
+  });
+
+  it('puts the name beside the picture with labels="inline", and keeps text for a button with no picture', async () => {
+    const { toolbar } = await mount({
+      items: [
+        { type: 'tool', tool: 'pan' },
+        { type: 'action', id: 'plain', label: 'Plain', run: () => undefined },
+      ],
+    });
+    expect(toolbar.shadowRoot?.querySelector('[data-tool="pan"] .text')).toBeNull();
+    expect(toolbar.shadowRoot?.querySelector('[data-action="plain"] .text')?.textContent).toBe(
+      'Plain',
+    );
+    toolbar.labels = 'inline';
+    await toolbar.updateComplete;
+    expect(toolbar.shadowRoot?.querySelector('[data-tool="pan"] .text')?.textContent).toBe('Pan');
+    expect(toolbar.getAttribute('labels')).toBe('inline');
+  });
+
+  it('hides the tooltips on Escape until the focus moves on', async () => {
+    const { toolbar } = await mount();
+    const first = nth(buttons(toolbar), 0);
+    first.focus();
+    press(first, 'Escape');
+    await toolbar.updateComplete;
+    expect(toolbar.hasAttribute('data-tips-off')).toBe(true);
+    toolbar.shadowRoot?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }));
+    first.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }));
+    await toolbar.updateComplete;
+    expect(toolbar.hasAttribute('data-tips-off')).toBe(false);
+  });
+
+  it('shows the picture of the measurement tool that is chosen on the Measure button', async () => {
+    const { toolbar, fake } = await mount();
+    const picture = (): string | undefined =>
+      toolbar.shadowRoot?.querySelector('[data-menu-id="measure"] svg.icon:not(.caret)')?.innerHTML;
+    const before = picture();
+    await fake.viewer.tools.setActive('ellipse');
+    await toolbar.updateComplete;
+    expect(picture()).not.toBe(before);
+    expect(
+      toolbar.shadowRoot?.querySelector('[data-menu-id="measure"]')?.getAttribute('data-active'),
+    ).toBe('true');
   });
 
   it('has one tab stop, and the arrows move it', async () => {

@@ -208,6 +208,14 @@ describe('<DicomViewer>', () => {
     expect(element().shadowRoot?.querySelector('dv-toolbar')).not.toBeNull();
   });
 
+  it('puts the toolbar names inline when asked', async () => {
+    const props = await mount({ toolbarLabels: 'inline' });
+    expect(element().toolbarLabels).toBe('inline');
+    props.toolbarLabels = 'tooltip';
+    await settle();
+    expect(element().toolbarLabels).toBe('tooltip');
+  });
+
   it('follows the palette', async () => {
     const props = await mount({ palette: 'navy' });
     expect(element().getAttribute('data-palette')).toBe('navy');
