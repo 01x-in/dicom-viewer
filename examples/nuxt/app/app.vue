@@ -14,12 +14,16 @@ interface Config {
   options: ViewerOptions;
   study: string;
   series: string;
+  configUrl: string | undefined;
+  configOrigins: string[] | undefined;
 }
 const config = shallowRef<Config | undefined>(undefined);
 
 onMounted(() => {
   const params = new URLSearchParams(location.search);
   const assets = params.get('assets');
+  // A settings file, from the same server as the images in the tests. It needs its origin listed.
+  const configUrl = params.get('config') ?? undefined;
   config.value = {
     options: {
       dataSource: createDicomWebDataSource({ wadoRoot: params.get('wadoRoot') ?? '' }),
@@ -28,6 +32,8 @@ onMounted(() => {
     },
     study: params.get('study') ?? '',
     series: params.get('series') ?? '',
+    configUrl,
+    configOrigins: configUrl === undefined ? undefined : [new URL(configUrl, location.href).origin],
   };
 });
 
@@ -48,6 +54,8 @@ function onError(error: Error): void {
       <DicomViewer
         v-if="config"
         :options="config.options"
+        :config-url="config.configUrl"
+        :config-origins="config.configOrigins"
         :study-instance-uid="config.study"
         :series-instance-uid="config.series"
         @ready="onReady"

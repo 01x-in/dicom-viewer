@@ -34,7 +34,7 @@ export {
   viewerStateV1Schema,
 } from './state/viewer-state';
 export type { ParseResult, ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
-export { describeOverlay, overlayLines } from './overlay';
+export { describeOverlay, overlayLines, renderOverlay } from './overlay';
 export type { OverlayInfo, OverlayLines, OverlayOptions } from './overlay';
 export { DEFAULT_KEYBINDINGS } from './keyboard';
 export type { KeyAction, KeybindingOverrides } from './keyboard';
@@ -116,7 +116,38 @@ export type { ThumbnailOptions, ThumbnailsApi } from './thumbnails';
 export type { PanelDefinition, PanelPlacement, UiApi } from './ui';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
+export {
+  PALETTE_NAMES,
+  PANEL_IDS,
+  THEME_NAMES,
+  TOOLBAR_LABELS,
+} from './config/types';
 export type {
+  KeybindingsConfig,
+  OverlayConfig,
+  PaletteName,
+  PanelId,
+  PanelsConfig,
+  ResolvedViewerConfig,
+  ThemeName,
+  ToolbarConfig,
+  ToolbarLabels,
+  ToolsConfig,
+  ViewerConfigV1,
+} from './config/types';
+export { parseViewerConfig, viewerConfigJsonSchema } from './config/schema';
+export type {
+  ToolbarCommandItemConfig,
+  ToolbarItemConfig,
+  ToolbarMenuEntryConfig,
+  ToolbarMenuItemConfig,
+  ToolbarSeparatorConfig,
+  ToolbarToolItemConfig,
+} from './config/types';
+export type { Command, CommandContext, CommandInput, CommandsApi } from './commands';
+export type { ParsedViewerConfig } from './config/schema';
+export type {
+  ConfigApi,
   NavigateResult,
   NavigateTarget,
   SetViewportSeriesOptions,

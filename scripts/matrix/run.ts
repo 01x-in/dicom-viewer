@@ -11,6 +11,7 @@ import { parseArgs, promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { startMockServer } from '../../tools/dicomweb-mock/src/server.ts';
 import { smokeHeadless } from './headless.ts';
+import { smokeConfig } from './config.ts';
 import { smokeShell } from './shell.ts';
 import { fileBytes, kib, measureJavaScript, sizeOf, total, type FileSize } from './measure.ts';
 import { packTarballs, type Tarballs } from './pack.ts';
@@ -322,6 +323,19 @@ async function runVariant(
         cpuRendering: false,
       });
       rows.push({ variant: variant.name, mode: `${mode}: shell`, failures: shellFailures });
+      mock.requestLog.length = 0;
+      const configFailures = await smokeConfig(browser, {
+        pageUrl,
+        wadoRoot: mock.url,
+        studyUid: study,
+        seriesUid: series.seriesUid,
+        segSeriesUid: segSeries.seriesUid,
+        assetsMode: mode,
+        assetsPath: '/viewer-assets',
+        cpuRendering: false,
+        configUrl: `${mock.url}/viewer-config.json`,
+      });
+      rows.push({ variant: variant.name, mode: `${mode}: config`, failures: configFailures });
     }
   } finally {
     await browser.close();
@@ -345,6 +359,8 @@ const mock = await startMockServer({
   fixturesDir: join(root, 'fixtures/phantom'),
   mode: 'oncotrace-proxy',
   port: 8042,
+  // The settings file the config scenario fetches, from the same server as the images.
+  jsonFiles: { '/viewer-config.json': join(root, 'examples/viewer-config.json') },
 });
 // Answers 401 until a test has accepted the bearer token it is sent.
 const authMock = await startMockServer({

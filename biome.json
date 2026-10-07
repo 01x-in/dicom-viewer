@@ -2,7 +2,14 @@
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
   "files": {
-    "includes": ["**", "!**/dist", "!**/fixtures", "!**/.venv", "!pnpm-lock.yaml"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/fixtures",
+      "!**/schema/viewer-config.schema.json",
+      "!**/.venv",
+      "!pnpm-lock.yaml"
+    ]
   },
   "formatter": {
     "enabled": true,

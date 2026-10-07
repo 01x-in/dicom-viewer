@@ -32,7 +32,7 @@ export interface ViewerHandle {
   thumbnails: {
     get(seriesInstanceUID: string, options?: { size?: number }): Promise<string | undefined>;
   };
-  tools: { setActive(tool: string): Promise<void> };
+  tools: { setActive(tool: string): Promise<void>; getActive(): string };
   setViewportSeries(viewportId: string, seriesInstanceUID: string): Promise<void>;
   measurements: {
     add(measurement: object): Promise<MeasurementSummary>;

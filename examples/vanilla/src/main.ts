@@ -34,6 +34,12 @@ if (params.has('fill')) {
   viewer.style.height = '100vh';
 }
 viewer.cpuRendering = params.has('cpu');
+// A settings file, from the same server as the images in the tests. It needs its origin listed.
+const configUrl = params.get('config');
+if (configUrl !== null) {
+  viewer.configUrl = configUrl;
+  viewer.configOrigins = [new URL(configUrl, location.href).origin];
+}
 viewer.wadoRoot = params.get('wadoRoot') ?? undefined;
 viewer.studyInstanceUid = params.get('study') ?? undefined;
 viewer.seriesInstanceUid = params.get('series') ?? undefined;

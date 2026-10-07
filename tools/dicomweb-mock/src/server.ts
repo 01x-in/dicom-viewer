@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
@@ -25,6 +26,11 @@ export interface MockServerOptions {
    * through `server.auth`. Anything else is a 401, which is how a real token expires.
    */
   readonly auth?: boolean;
+  /**
+   * JSON files to serve as they are, by path, such as `{ '/viewer-config.json': '/path/to/file' }`,
+   * with the same CORS headers as the rest. For a test of a page that fetches its settings.
+   */
+  readonly jsonFiles?: Readonly<Record<string, string>>;
 }
 
 export interface RequestLogEntry {
@@ -339,6 +345,12 @@ export async function startMockServer(options: MockServerOptions): Promise<MockS
       reply = problemReply(
         new HttpProblem(405, 'Method not allowed', `${method} is not supported.`),
       );
+    } else if (options.jsonFiles?.[url.pathname] !== undefined) {
+      reply = {
+        status: 200,
+        headers: { ...CORS_HEADERS, 'content-type': 'application/json' },
+        body: readFileSync(options.jsonFiles[url.pathname] ?? ''),
+      };
     } else if (!authenticated(request)) {
       reply = problemReply(
         new HttpProblem(401, 'Unauthorized', 'A valid bearer token is required.'),

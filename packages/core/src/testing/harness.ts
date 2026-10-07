@@ -41,6 +41,7 @@ export function harness(
     'tool:active': [],
     'viewport:cine': [],
     'ui:panels': [],
+    'config:changed': [],
     'measurement:added': [],
     'measurement:updated': [],
     'measurement:removed': [],
@@ -60,6 +61,7 @@ export function harness(
   viewer.on('viewport:cine', (event) => events['viewport:cine'].push(event));
   viewer.on('tool:active', (event) => events['tool:active'].push(event));
   viewer.on('ui:panels', (event) => events['ui:panels'].push(event));
+  viewer.on('config:changed', (event) => events['config:changed'].push(event));
   viewer.on('measurement:added', (event) => events['measurement:added'].push(event));
   viewer.on('measurement:updated', (event) => events['measurement:updated'].push(event));
   viewer.on('measurement:removed', (event) => events['measurement:removed'].push(event));

@@ -283,3 +283,12 @@ Reference files:
 - **New core API:** `viewer.tools.shortcuts()`, so a toolbar prints the key that is bound. The port's `loadSegmentation` takes the stack.
 - **A bug the first look found:** a SEG whose CT was not on screen failed to load (`reading 'rows'`). The engine now learns the images' headers and holds them with the SEG.
 - Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, and a visual regression suite (M8). A host's panels can name one of the shell's icons but cannot add their own.
+
+## M6.6 outcome
+
+**Done**, with the limits in [m6.6-report.md](m6.6-report.md); the decisions are in [ADR 0011](adr/0011-config-layer.md). Changes to this plan that came out of the milestone:
+- **One config, as data.** `ViewerConfigV1` (Zod, with a JSON Schema that ships) sets the theme, palette, toolbar, keys, overlay lines, panels, window presets, and the first tool. It goes in as `config` (the element, React, Vue, and `createViewer`), or is fetched with `config-url` from an origin the page lists. A setting made in code wins over it, and `viewer.config.apply(layer)` puts a layer on top and returns the function that takes it off.
+- **Commands.** `viewer.commands` names what the viewer can do (`tool.set`, `view.zoomIn`, `preset.apply`, and the rest), so a toolbar button in a config runs a command, and a host adds its own with a namespace.
+- **The overlay is items.** Each corner is a list of lines (its own, or a DICOM tag with a label and a format), merged by id. A tag that can identify a patient never shows unless `showPatientInfo` is on.
+- **A bug the matrix found:** the engine did not report a change of invert alone, so the state, the overlay, and the toolbar's pressed state were stale. Fixed.
+- Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, a visual regression suite (M8), and a host's own icons for panels and toolbar buttons. M7 can use `viewer.config.apply` for layouts, and M9 for the OncoTrace profile.

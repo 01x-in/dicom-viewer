@@ -1,7 +1,9 @@
 import type {
+  CommandInput,
   NavigateTarget,
   PanelPlacement,
   Viewer,
+  ViewerConfigV1,
   ViewerOptions,
   ViewerStateV1,
   ViewportApi,
@@ -66,6 +68,18 @@ export interface DicomViewerProps {
   readonly palette?: PaletteName;
   /** `tooltip` (default): buttons show a picture, and the name in a tooltip. `inline`: the name beside the picture. */
   readonly toolbarLabels?: ToolbarLabels;
+  /**
+   * Settings as data: a `ViewerConfigV1`, or several (the last one wins). The props `theme`,
+   * `palette`, and `toolbar` win over it. A config with a problem is refused whole and reported
+   * as an `error` event.
+   */
+  readonly config?: ViewerConfigV1 | readonly ViewerConfigV1[];
+  /** A config file to fetch. Off unless `configOrigins` lists its origin; see `<dv-viewer config-url>`. */
+  readonly configUrl?: string;
+  /** The origins `configUrl` may be on. */
+  readonly configOrigins?: readonly string[];
+  /** Commands of your own, for a config to name. */
+  readonly commands?: Readonly<Record<string, CommandInput>>;
   readonly onReady?: (viewer: Viewer, viewport: ViewportApi | undefined) => void;
   readonly onError?: (error: Error) => void;
   readonly onStateChange?: (state: ViewerStateV1, origin: string) => void;
@@ -110,9 +124,19 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     hideSeriesPanel: { type: Boolean, default: false },
     hideMeasurementsPanel: { type: Boolean, default: false },
     hideSegmentationsPanel: { type: Boolean, default: false },
-    theme: { type: String as PropType<ThemeName>, default: 'dark' },
-    palette: { type: String as PropType<PaletteName>, default: 'default' },
-    toolbarLabels: { type: String as PropType<ToolbarLabels>, default: 'tooltip' },
+    theme: { type: String as PropType<ThemeName>, default: undefined },
+    palette: { type: String as PropType<PaletteName>, default: undefined },
+    toolbarLabels: { type: String as PropType<ToolbarLabels>, default: undefined },
+    config: {
+      type: [Object, Array] as PropType<ViewerConfigV1 | readonly ViewerConfigV1[]>,
+      default: undefined,
+    },
+    commands: {
+      type: Object as PropType<Readonly<Record<string, CommandInput>>>,
+      default: undefined,
+    },
+    configUrl: { type: String, default: undefined },
+    configOrigins: { type: Array as PropType<readonly string[]>, default: undefined },
   },
   // Payloads: ready(viewer, viewport), error(error), state-change(state, origin).
   emits: ['ready', 'error', 'state-change'],
@@ -133,6 +157,11 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       const options = toRaw(props.options);
       const initialState = props.initialState === undefined ? undefined : toRaw(props.initialState);
       target.options = initialState === undefined ? options : { ...options, initialState };
+      target.config = props.config === undefined ? undefined : toRaw(props.config);
+      target.commands = props.commands === undefined ? undefined : toRaw(props.commands);
+      target.configUrl = props.configUrl;
+      target.configOrigins =
+        props.configOrigins === undefined ? undefined : toRaw(props.configOrigins);
       target.studyInstanceUid = props.studyInstanceUid;
       target.seriesInstanceUid = props.seriesInstanceUid;
     }
@@ -140,10 +169,10 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     function applyAppearance(): void {
       const target = element.value;
       if (!defined.value || target === null) return;
-      target.theme = props.theme ?? 'dark';
-      target.palette = props.palette ?? 'default';
+      target.theme = props.theme;
+      target.palette = props.palette;
       target.hideToolbar = props.toolbar === false;
-      target.toolbarLabels = props.toolbarLabels ?? 'tooltip';
+      target.toolbarLabels = props.toolbarLabels;
       target.toolbarItems =
         props.toolbar === undefined || props.toolbar === false ? undefined : toRaw(props.toolbar);
       target.hideSeriesPanel = props.hideSeriesPanel === true;
@@ -225,7 +254,16 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     );
     // The listeners are on before the inputs are set, so the first `dv-ready` is not missed.
     watch(
-      [defined, () => props.options, () => props.studyInstanceUid, () => props.seriesInstanceUid],
+      [
+        defined,
+        () => props.options,
+        () => props.config,
+        () => props.commands,
+        () => props.configUrl,
+        () => props.configOrigins,
+        () => props.studyInstanceUid,
+        () => props.seriesInstanceUid,
+      ],
       apply,
       { flush: 'post' },
     );

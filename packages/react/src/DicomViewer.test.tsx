@@ -22,10 +22,12 @@ vi.mock('@scope/viewer-core', async (importOriginal) => {
   const { createFakeViewer: make } = await import('@scope/viewer-core/testing');
   return {
     ...actual,
-    createViewer: (options: { initialState?: ViewerStateV1 }): unknown => {
-      const fake = make(
-        options.initialState === undefined ? {} : { initialState: options.initialState },
-      );
+    createViewer: (options: ViewerOptions): unknown => {
+      const fake = make({
+        ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
+        ...(options.config === undefined ? {} : { config: options.config }),
+        ...(options.commands === undefined ? {} : { commands: options.commands }),
+      });
       made.push(fake);
       return fake.viewer;
     },
@@ -173,7 +175,43 @@ describe('<DicomViewer>', () => {
     await render({ toolbarLabels: 'inline' });
     expect(element().toolbarLabels).toBe('inline');
     await render({});
-    expect(element().toolbarLabels).toBe('tooltip');
+    expect(element().toolbarLabels).toBeUndefined();
+  });
+
+  it('takes a config, and the props win over it', async () => {
+    await render({
+      config: { version: 1, palette: 'navy', theme: 'light', panels: { hide: ['series'] } },
+      theme: 'dark',
+    });
+    expect(element().getAttribute('data-palette')).toBe('navy');
+    expect(element().hasAttribute('data-theme')).toBe(false);
+    expect(made[0]?.viewer.ui.panels().some((panel) => panel.id === 'series')).toBe(false);
+  });
+
+  it('fetches a config file from an allowed origin and applies it', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(new Response(JSON.stringify({ version: 1, palette: 'graphite' }))),
+    );
+    await render({
+      configUrl: 'https://cdn.example.org/viewer-config.json',
+      configOrigins: ['https://cdn.example.org'],
+    });
+    expect(element().getAttribute('data-palette')).toBe('graphite');
+    vi.unstubAllGlobals();
+  });
+
+  it('gives the viewer the commands a config can name', async () => {
+    await render({
+      commands: { 'acme.hello': () => undefined },
+      config: {
+        version: 1,
+        toolbar: {
+          items: [{ type: 'command', id: 'hello', label: 'Hello', command: 'acme.hello' }],
+        },
+      },
+    });
+    expect(made[0]?.viewer.commands.has('acme.hello')).toBe(true);
+    expect(made[0]?.viewer.config.get().toolbar.items).toHaveLength(1);
   });
 
   it('follows the palette', async () => {

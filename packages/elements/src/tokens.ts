@@ -3,18 +3,19 @@
  * `<dv-viewer>` (or on any ancestor, for the stylesheet) switches to the light set. Both sets must
  * define the same names, and the text pairs are tested against the WCAG contrast minimums.
  */
-export type ThemeName = 'dark' | 'light';
+import { PALETTE_NAMES, type PaletteName, THEME_NAMES, type ThemeName } from '@scope/viewer-core';
 
-export const THEMES: readonly ThemeName[] = ['dark', 'light'];
+// The names are the core's, because a config names them.
+export type { PaletteName, ThemeName };
+
+export const THEMES: readonly ThemeName[] = THEME_NAMES;
 
 /**
  * A palette is a set of colours, each for both themes. A host picks one with the `palette`
  * attribute and can still change any single colour with its own CSS, because every colour is a
  * `--dv-*` custom property.
  */
-export type PaletteName = 'default' | 'navy' | 'graphite';
-
-export const PALETTES: readonly PaletteName[] = ['default', 'navy', 'graphite'];
+export const PALETTES: readonly PaletteName[] = PALETTE_NAMES;
 
 export type SharedTokenName =
   | '--dv-font-family'
