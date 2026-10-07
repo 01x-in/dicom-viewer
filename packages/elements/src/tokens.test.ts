@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { SHARED_TOKENS, stylesheet, THEME_TOKENS, tokenCss } from './tokens';
+import {
+  PALETTE_TOKENS,
+  PALETTES,
+  paletteCss,
+  SHARED_TOKENS,
+  stylesheet,
+  THEME_TOKENS,
+  tokenCss,
+} from './tokens';
 
 /** WCAG 2.x relative luminance of a `#rrggbb` colour. */
 function luminance(hex: string): number {
@@ -15,8 +23,12 @@ function contrast(a: string, b: string): number {
   return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
 }
 
-describe.each(['dark', 'light'] as const)('the %s theme', (name) => {
-  const tokens = THEME_TOKENS[name];
+describe.each(
+  PALETTES.flatMap((palette) =>
+    (['dark', 'light'] as const).map((name) => [palette, name] as const),
+  ),
+)('the %s palette, %s theme', (palette, name) => {
+  const tokens = PALETTE_TOKENS[palette][name];
 
   it.each([
     ['--dv-color-text', '--dv-color-bg'],
@@ -36,11 +48,51 @@ describe.each(['dark', 'light'] as const)('the %s theme', (name) => {
       expect(contrast(tokens[token], tokens['--dv-color-surface'])).toBeGreaterThanOrEqual(3);
     },
   );
+
+  it('reads the overlay tint on the black picture at 4.5:1 or better', () => {
+    expect(
+      contrast(tokens['--dv-color-overlay-accent'], SHARED_TOKENS['--dv-viewport-bg']),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
 });
 
 describe('the token sets', () => {
-  it('define the same names in both themes', () => {
-    expect(Object.keys(THEME_TOKENS.light).sort()).toEqual(Object.keys(THEME_TOKENS.dark).sort());
+  it('define the same names in both themes of every palette', () => {
+    const names = Object.keys(THEME_TOKENS.dark).sort();
+    for (const palette of PALETTES) {
+      expect(Object.keys(PALETTE_TOKENS[palette].dark).sort()).toEqual(names);
+      expect(Object.keys(PALETTE_TOKENS[palette].light).sort()).toEqual(names);
+    }
+  });
+
+  it('make each palette differ from the default in its accent', () => {
+    for (const palette of PALETTES.filter((name) => name !== 'default')) {
+      expect(PALETTE_TOKENS[palette].dark['--dv-color-accent']).not.toBe(
+        THEME_TOKENS.dark['--dv-color-accent'],
+      );
+    }
+  });
+
+  it('write a palette after the default, and its light set more specifically than its dark set', () => {
+    const css = [
+      tokenCss(':host', ":host([data-theme='light'])"),
+      paletteCss({
+        dark: (palette) => `:host([data-palette='${palette}'])`,
+        light: (palette) => `:host([data-palette='${palette}'][data-theme='light'])`,
+      }),
+    ].join('\n');
+    const navyDark = css.indexOf(":host([data-palette='navy']) {");
+    const navyLight = css.indexOf(":host([data-palette='navy'][data-theme='light']) {");
+    expect(navyDark).toBeGreaterThan(css.indexOf(":host([data-theme='light']) {"));
+    expect(navyLight).toBeGreaterThan(navyDark);
+    expect(css).toContain(`--dv-color-accent: ${PALETTE_TOKENS.navy.dark['--dv-color-accent']};`);
+  });
+
+  it('give the stylesheet a rule for each palette', () => {
+    const css = stylesheet();
+    for (const palette of PALETTES.filter((name) => name !== 'default')) {
+      expect(css).toContain(`dv-viewer[data-palette='${palette}'] {`);
+    }
   });
 
   it('start every name with --dv-, so they cannot clash with a host', () => {

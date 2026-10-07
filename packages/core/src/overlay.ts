@@ -109,12 +109,27 @@ export interface OverlayView {
   destroy(): void;
 }
 
+/**
+ * Where each corner sits and how it looks. The colours and the font are the shell's tokens when the
+ * viewport is inside a `<dv-viewer>` (custom properties reach it from its parent), and the values
+ * after the comma when it is not, so a host that uses the core alone gets the same overlay.
+ */
 const CORNERS = [
-  ['topLeft', 'top-left', 'top:0;left:0;text-align:left'],
-  ['topRight', 'top-right', 'top:0;right:0;text-align:right'],
+  [
+    'topLeft',
+    'top-left',
+    'top:0;left:0;text-align:left;font-weight:600;color:var(--dv-color-overlay-accent,#8ec9ff)',
+  ],
+  ['topRight', 'top-right', 'top:0;right:0;text-align:right;font-weight:600'],
   ['bottomLeft', 'bottom-left', 'bottom:0;left:0;text-align:left'],
   ['bottomRight', 'bottom-right', 'bottom:0;right:0;text-align:right'],
 ] as const;
+
+export const OVERLAY_STYLE: string =
+  'position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;' +
+  'font:13px/1.45 var(--dv-font-family,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif);' +
+  'font-variant-numeric:tabular-nums;color:#e8e8e8;' +
+  'text-shadow:0 0 3px #000,0 0 3px #000,0 1px 2px #000;user-select:none';
 
 /**
  * Draws the four corners into `element`, over the picture, and out of the way of the mouse. The
@@ -124,16 +139,13 @@ export function createOverlayView(element: HTMLElement): OverlayView {
   const root = element.ownerDocument.createElement('div');
   root.className = 'dv-overlay';
   root.setAttribute('aria-hidden', 'true');
-  root.style.cssText =
-    'position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;' +
-    'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e6e6e6;' +
-    'text-shadow:0 0 3px #000,0 0 3px #000;user-select:none';
+  root.style.cssText = OVERLAY_STYLE;
   const corners = new Map<(typeof CORNERS)[number][0], HTMLElement>();
   const shown = new Map<string, string>();
   for (const [key, name, style] of CORNERS) {
     const corner = element.ownerDocument.createElement('div');
     corner.dataset['dvCorner'] = name;
-    corner.style.cssText = `position:absolute;padding:6px 8px;white-space:pre;${style}`;
+    corner.style.cssText = `position:absolute;padding:8px 10px;white-space:pre;${style}`;
     root.append(corner);
     corners.set(key, corner);
   }

@@ -407,7 +407,7 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
       );
     }
 
-    const handle = await port.loadSegmentation(stack.imageIds, bytes, header);
+    const handle = await port.loadSegmentation(stack, bytes, header);
     try {
       deps.assertAlive();
       // Another call may have loaded it while this one waited for the engine.

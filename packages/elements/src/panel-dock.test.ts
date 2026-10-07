@@ -60,6 +60,100 @@ describe('<dv-panel-dock>', () => {
     expect(tabs(dock).map((tab) => tab.textContent.trim())).toEqual(['SERIES', 'NOTES']);
   });
 
+  it('shows the picture a panel names, and only the title for a panel that names none', async () => {
+    const { dock, fake } = await mount();
+    fake.viewer.ui.registerPanel(panel('series', { icon: 'series' }));
+    fake.viewer.ui.registerPanel(panel('notes'));
+    await dock.updateComplete;
+    const [series, notes] = tabs(dock);
+    expect(series?.querySelector('svg.icon[aria-hidden="true"]')).not.toBeNull();
+    expect(notes?.querySelector('svg')).toBeNull();
+  });
+
+  it('marks the tabs that have a picture, so only they can lose their text in a narrow dock', async () => {
+    const { dock, fake } = await mount();
+    fake.viewer.ui.registerPanel(panel('first', { icon: 'series' }));
+    fake.viewer.ui.registerPanel(panel('notes'));
+    await dock.updateComplete;
+    const [first, notes] = tabs(dock);
+    expect(first?.classList.contains('has-icon')).toBe(true);
+    // A host's panel has no picture: its title is all that names the tab.
+    expect(notes?.classList.contains('has-icon')).toBe(false);
+  });
+
+  it('does not give a host panel a picture because of its id, even the id of a built-in one', async () => {
+    const { dock, fake } = await mount();
+    // The host hid the built-in series panel and registered its own under that id.
+    fake.viewer.ui.registerPanel(panel('series'));
+    await dock.updateComplete;
+    const [tab] = tabs(dock);
+    expect(tab?.querySelector('svg')).toBeNull();
+    expect(tab?.classList.contains('has-icon')).toBe(false);
+  });
+
+  it('ignores an icon name the shell does not know', async () => {
+    const { dock, fake } = await mount();
+    fake.viewer.ui.registerPanel(panel('notes', { icon: 'no-such-picture' }));
+    await dock.updateComplete;
+    expect(tabs(dock)[0]?.querySelector('svg')).toBeNull();
+  });
+
+  it('names every tab by its title, and gives the tabs that are not open a tooltip too', async () => {
+    const { dock, fake } = await mount();
+    fake.viewer.ui.registerPanel(panel('series'));
+    fake.viewer.ui.registerPanel(panel('notes'));
+    await dock.updateComplete;
+    const [open, other] = tabs(dock);
+    expect(open?.getAttribute('aria-label')).toBe('SERIES');
+    expect(other?.getAttribute('aria-label')).toBe('NOTES');
+    expect(open?.hasAttribute('title')).toBe(false);
+    expect(other?.getAttribute('title')).toBe('NOTES');
+  });
+
+  it('folds to a strip of pictures, keeps what the panels hold, and opens on a click on a tab', async () => {
+    const { dock, fake } = await mount('right');
+    fake.viewer.ui.registerPanel(panel('series', { placement: 'right' }));
+    fake.viewer.ui.registerPanel(panel('notes', { placement: 'right' }));
+    await dock.updateComplete;
+    const collapse = (): HTMLElement => {
+      const found = dock.shadowRoot?.querySelector<HTMLElement>('[data-action="collapse"]');
+      if (found === null || found === undefined) throw new Error('No collapse button');
+      return found;
+    };
+    expect(collapse().getAttribute('aria-expanded')).toBe('true');
+    expect(collapse().getAttribute('aria-label')).toBe('Collapse the right panels');
+    const content = nth(panels(dock), 0).textContent;
+    collapse().click();
+    await dock.updateComplete;
+    expect(dock.collapsed).toBe(true);
+    expect(dock.hasAttribute('collapsed')).toBe(true);
+    expect(collapse().getAttribute('aria-expanded')).toBe('false');
+    expect(collapse().getAttribute('aria-label')).toBe('Expand the right panels');
+    expect(panels(dock).every((item) => item.hidden)).toBe(true);
+    // A folded tab has no text to read, so it is named by its label.
+    expect(nth(tabs(dock), 1).getAttribute('aria-label')).toBe('NOTES');
+    expect(
+      dock.shadowRoot?.querySelector('[role="tablist"]')?.getAttribute('aria-orientation'),
+    ).toBe('vertical');
+    nth(tabs(dock), 1).click();
+    await dock.updateComplete;
+    expect(dock.collapsed).toBe(false);
+    expect(nth(tabs(dock), 1).getAttribute('aria-selected')).toBe('true');
+    expect(nth(panels(dock), 1).hidden).toBe(false);
+    expect(nth(panels(dock), 0).textContent).toBe(content);
+  });
+
+  it('keeps the collapse button out of the tab list, which holds tabs only', async () => {
+    const { dock, fake } = await mount();
+    fake.viewer.ui.registerPanel(panel('series'));
+    await dock.updateComplete;
+    const list = dock.shadowRoot?.querySelector('[role="tablist"]');
+    expect(list?.querySelector('[data-action="collapse"]')).toBeNull();
+    expect([...(list?.children ?? [])].every((child) => child.getAttribute('role') === 'tab')).toBe(
+      true,
+    );
+  });
+
   it('shows only the panels of its own side', async () => {
     const { dock, fake } = await mount('right');
     fake.viewer.ui.registerPanel(panel('left-one'));

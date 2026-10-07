@@ -137,7 +137,7 @@ Vue mirrors these with emits and slots.
   - Layouts are CSS grid templates with stable `vp-0..3` IDs. Hanging protocols are scored per modality.
   - WebGL uses `ContextPool` mode. v1 supports one viewer per page.
 - **Theming and accessibility**
-  - `--dv-*` CSS tokens, dark by default, light theme via `[data-theme=light]`, plus `::part()`.
+  - `--dv-*` CSS tokens, dark by default, light theme via `[data-theme=light]`, plus `::part()`. A `palette` attribute picks the colours (`default`, `navy`, `graphite`), and a host can change any one token.
   - The toolbar is a roving-tabindex `role=toolbar`.
   - Viewports have `role=img` with a throttled live label.
   - axe checks run in Playwright.
@@ -154,11 +154,13 @@ Vue mirrors these with emits and slots.
 | M4 | Styled shell + adapters | Lit toolbar, viewport grid, series browser with thumbnails, slots, and panel registry. React and Vue adapters. Light and dark themes. axe clean, and fully usable by keyboard. | 7 |
 | M5 | Measurements | All 6 tools, with a list panel to rename, delete, and jump. Mappers tested in both directions. HU stats within ±0.5 HU on the phantom. JSON round-trip. | 6 |
 | M6 | Segmentation | Two phantom SEGs, with per-segment visibility, color, opacity, jump, and highlight. Visibility stays in sync across viewports. Segment index runs in the worker. Geometry warnings fire. Performance budget met. | 7 |
+| M6.5 | Shell polish | The toolbar has icons, tooltips with the key, and grouped tools. The Segments panel and the viewport overlays are redesigned from OHIF-style ideas (no OHIF code or icons). A host can change the look with tokens (palette, accent) with no code. A SEG whose series is not on screen loads, or says why it cannot. axe is still clean, keyboard use is unchanged, and the matrix passes. | 4 |
+| M6.6 | Config layer | One serializable `ViewerConfigV1` (Zod, JSON Schema) sets the theme, palette, toolbar (by command name), keys, overlay items, and panels. Commands are a registry. Layers apply and revert. A config loads from an allowlisted URL, as data. Patient tags stay hidden unless asked for. Code options win over config. The same JSON file gives the same viewer in every framework, and with no config the viewer is as it was. See [ADR 0011](adr/0011-config-layer.md). | 4 |
 | M7 | Layouts + MPR | All four layouts, series drag-and-drop into viewports, hanging protocols, streaming volume, memory policy, crosshairs, VOI sync, and SEG in MPR. Tilted and non-uniform phantoms fall back correctly. | 8 |
 | M8 | Hardening + 1.0 | Visual regression suite, size-limit budgets, publint + attw, TypeDoc + guides, and `1.0.0` published with provenance. | 5 |
 | M9 | OncoTrace readiness | `examples/oncotrace-like` covers the restricted mock proxy, a 10-minute token refresh, the banner slot, organ/tumor toggles, and navigate-by-SOP with segment highlight. A doc maps each bridge message to the API. No OncoTrace changes. | 2 |
 
-**Total:** about 55 days, plus a 20% buffer, so roughly 66 days (about 6 months at 2.5 days a week).
+**Total:** about 63 days, plus a 20% buffer, so roughly 76 days (about 7 months at 2.5 days a week). M6.5 and M6.6 were added after M6: the first look at the shell showed it was plain, and OHIF's configurable layer showed what ours lacks.
 **Stretch:** SR TID1500 (4 days) and per-lesion connected components (3 days).
 
 OncoTrace bridge mapping, for M9:
@@ -272,3 +274,12 @@ Reference files:
 - **The shell has a Segments panel** (second tab on the right), and React and Vue have `hideSegmentationsPanel` and `useSegmentations`.
 - **SEG state is not in `ViewerStateV1`.** The controlled `state` prop stays deferred to M7.
 - Still open: Safari and Firefox, React 18, the package name, touch input, and whether the default keys should match OHIF exactly. M7 inherits three things: SEG in MPR, the count of users of a stack's shapes and SEGs when two viewports show one series, and the controlled `state` prop.
+
+## M6.5 outcome
+
+**Done**, with the limits in [m6.5-report.md](m6.5-report.md); the decisions are in [ADR 0010](adr/0010-shell-polish.md). Changes to this plan that came out of the milestone:
+- **The shell looks like a viewer.** An icon toolbar (our own icons) with tooltips that print the bound key, a Measure button that shows the chosen tool, a dock with icon tabs that folds to a strip, a Segments panel with an eye, a round swatch and icon buttons, and an overlay in the shell's font and tint. OHIF was a reference for ideas only: no code or icons were copied.
+- **The colours are the host's choice.** `palette` is `default`, `navy`, or `graphite`, each tested for contrast in both themes, and any single colour is a `--dv-color-*` property. `labels="inline"` (`toolbar-labels`, `toolbarLabels`) puts names beside the pictures.
+- **New core API:** `viewer.tools.shortcuts()`, so a toolbar prints the key that is bound. The port's `loadSegmentation` takes the stack.
+- **A bug the first look found:** a SEG whose CT was not on screen failed to load (`reading 'rows'`). The engine now learns the images' headers and holds them with the SEG.
+- Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, and a visual regression suite (M8). A host's panels can name one of the shell's icons but cannot add their own.

@@ -22,7 +22,8 @@ import type { DvSegmentationListElement } from './segmentation-list';
 import { type DvSeriesBrowserElement, isDisplayableModality } from './series-browser';
 import { baseStyles, shellThemeStyles } from './theme';
 import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
-import type { ThemeName } from './tokens';
+import type { PaletteName, ThemeName } from './tokens';
+import type { ToolbarLabels } from './toolbar';
 
 export type ViewerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -78,7 +79,9 @@ export class DvViewerElement extends LitElement {
     assetsBaseUrl: { attribute: 'assets-base-url' },
     cpuRendering: { type: Boolean, attribute: 'cpu-rendering' },
     theme: { reflect: true },
+    palette: { reflect: true },
     toolbarItems: { attribute: false },
+    toolbarLabels: { attribute: 'toolbar-labels' },
     hideToolbar: { type: Boolean, attribute: 'hide-toolbar' },
     hideSeriesPanel: { type: Boolean, attribute: 'hide-series-panel' },
     hideMeasurementsPanel: { type: Boolean, attribute: 'hide-measurements-panel' },
@@ -114,6 +117,9 @@ export class DvViewerElement extends LitElement {
         flex: none;
         width: var(--dv-panel-width);
         border-inline: 1px solid var(--dv-color-border);
+      }
+      dv-panel-dock[collapsed] {
+        width: calc(var(--dv-control-size) + var(--dv-space) * 3);
       }
       ::slotted([slot='panel-left']),
       ::slotted([slot='panel-right']) {
@@ -183,8 +189,12 @@ export class DvViewerElement extends LitElement {
   declare assetsBaseUrl: string | undefined;
   declare cpuRendering: boolean;
   declare theme: ThemeName;
+  /** The colours of the chrome: `default`, `navy`, or `graphite`. A host can still change any one with a `--dv-color-*` property. */
+  declare palette: PaletteName;
   /** What the toolbar shows. `undefined`: `DEFAULT_TOOLBAR`. */
   declare toolbarItems: readonly ToolbarItem[] | undefined;
+  /** `tooltip` (default): toolbar buttons show a picture and a tooltip. `inline`: the name is beside the picture. */
+  declare toolbarLabels: ToolbarLabels;
   declare hideToolbar: boolean;
   declare hideSeriesPanel: boolean;
   declare hideMeasurementsPanel: boolean;
@@ -208,7 +218,9 @@ export class DvViewerElement extends LitElement {
     super();
     this.cpuRendering = false;
     this.theme = 'dark';
+    this.palette = 'default';
     this.toolbarItems = undefined;
+    this.toolbarLabels = 'tooltip';
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
     this.hideMeasurementsPanel = false;
@@ -240,6 +252,10 @@ export class DvViewerElement extends LitElement {
     if (changed.has('theme')) {
       if (this.theme === 'light') this.setAttribute('data-theme', 'light');
       else this.removeAttribute('data-theme');
+    }
+    if (changed.has('palette')) {
+      if (this.palette === 'default') this.removeAttribute('data-palette');
+      else this.setAttribute('data-palette', this.palette);
     }
   }
 
@@ -368,6 +384,7 @@ export class DvViewerElement extends LitElement {
     this.#removeSeriesPanel = viewer.ui.registerPanel({
       id: 'series',
       title: 'Series',
+      icon: 'series',
       placement: 'left',
       mount: (container) => {
         const browser = document.createElement('dv-series-browser') as DvSeriesBrowserElement;
@@ -390,6 +407,7 @@ export class DvViewerElement extends LitElement {
     this.#removeMeasurementsPanel = viewer.ui.registerPanel({
       id: 'measurements',
       title: 'Measurements',
+      icon: 'measure',
       placement: 'right',
       mount: (container) => {
         const list = document.createElement('dv-measurement-list') as DvMeasurementListElement;
@@ -412,6 +430,7 @@ export class DvViewerElement extends LitElement {
     this.#removeSegmentationsPanel = viewer.ui.registerPanel({
       id: 'segmentations',
       title: 'Segments',
+      icon: 'segments',
       placement: 'right',
       mount: (container) => {
         const list = document.createElement('dv-segmentation-list') as DvSegmentationListElement;
@@ -525,7 +544,7 @@ export class DvViewerElement extends LitElement {
       ${
         this.hideToolbar
           ? nothing
-          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.toolbarItems ?? DEFAULT_TOOLBAR}>
+          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.toolbarItems ?? DEFAULT_TOOLBAR} .labels=${this.toolbarLabels}>
             <slot name="toolbar-start" slot="start"></slot>
             <slot name="toolbar-end" slot="end"></slot>
           </dv-toolbar>`

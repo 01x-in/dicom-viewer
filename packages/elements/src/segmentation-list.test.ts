@@ -372,4 +372,30 @@ describe('<dv-segmentation-list>', () => {
       true,
     );
   });
+
+  it('names the icon buttons of a segment, for the screen reader and for a hover', async () => {
+    const { list } = await mount({ load: [FAKE_IDS.seg] });
+    const row = segmentRow(list, FAKE_IDS.seg, 1);
+    for (const action of ['highlight', 'jump']) {
+      const button = buttonIn(row, `[data-action="${action}"]`);
+      expect(button.getAttribute('aria-label')).toMatch(/\S/);
+      expect(button.getAttribute('title')).toMatch(/\S/);
+      expect(button.querySelector('svg.icon[aria-hidden="true"]')).not.toBeNull();
+      expect(button.textContent.trim()).toBe('');
+    }
+  });
+
+  it('keeps the name of a segment as plain text, apart from the buttons, so it can wrap', async () => {
+    const { list } = await mount({ load: [FAKE_IDS.seg] });
+    const name = within(segmentRow(list, FAKE_IDS.seg, 1), '.segment-name');
+    expect(name.textContent.trim()).toBe('Body');
+    expect(name.querySelector('button, input')).toBeNull();
+  });
+
+  it('says warning to a screen reader and shows a picture for it', async () => {
+    const { list } = await mount({ load: [FAKE_IDS.segOff] });
+    const first = group(list, FAKE_IDS.segOff).querySelector('.warnings li');
+    expect(first?.querySelector('svg.icon[aria-hidden="true"]')).not.toBeNull();
+    expect(first?.querySelector('.dv-visually-hidden')?.textContent).toBe('Warning: ');
+  });
 });

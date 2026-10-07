@@ -184,6 +184,8 @@ export interface ToolsApi {
   setActive(tool: PrimaryTool): Promise<void>;
   /** The window presets of this viewer. */
   windowPresets(): readonly WindowPreset[];
+  /** The keys that are bound, as chords such as `w` or `Shift+i`, so a toolbar can show the key of a button. Empty when the keyboard is off. */
+  shortcuts(): readonly { readonly chord: string; readonly action: KeyAction }[];
 }
 
 export interface Viewer {
@@ -1081,6 +1083,8 @@ export function createViewerCore(
     list: () => PRIMARY_TOOLS,
     getActive: () => activeTool,
     windowPresets: () => windowPresets,
+    shortcuts: () =>
+      keymap === undefined ? [] : [...keymap].map(([chord, action]) => ({ chord, action })),
     setActive(tool): Promise<void> {
       if (!isPrimaryTool(tool)) {
         return Promise.reject(new RangeError(`There is no tool ${String(tool)}.`));

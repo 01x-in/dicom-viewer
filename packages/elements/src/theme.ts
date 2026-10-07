@@ -1,12 +1,18 @@
 import { css, type CSSResult, unsafeCSS } from 'lit';
-import { lightTokenCss, tokenCss } from './tokens';
+import { lightTokenCss, paletteCss, tokenCss } from './tokens';
 
 /**
  * The tokens, for the shell: dark by default, light with `data-theme="light"`. Everything inside
  * inherits them.
  */
 export const shellThemeStyles: CSSResult = unsafeCSS(
-  tokenCss(':host', ":host([data-theme='light'])"),
+  [
+    tokenCss(':host', ":host([data-theme='light'])"),
+    paletteCss({
+      dark: (palette) => `:host([data-palette='${palette}'])`,
+      light: (palette) => `:host([data-palette='${palette}'][data-theme='light'])`,
+    }),
+  ].join('\n\n'),
 );
 
 /**

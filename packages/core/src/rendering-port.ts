@@ -133,11 +133,12 @@ export interface RenderingPort {
   /** Reads what a SEG says about itself from its bytes, without its pixels. Throws for a file that is not a readable SEG. */
   readSegmentationHeader(bytes: ArrayBuffer): SegmentationHeader;
   /**
-   * Parses a SEG against the images it segments (a stack's image ids), finds where its segments
-   * are, and registers it with the engine. The header is the one `readSegmentationHeader` made.
+   * Parses a SEG against the stack it segments, finds where its segments are, and registers it
+   * with the engine. The header is the one `readSegmentationHeader` made. The stack need not be on
+   * screen: the engine learns what it needs about its images, and lets go of them with the handle.
    */
   loadSegmentation(
-    imageIds: readonly string[],
+    stack: SeriesStack,
     bytes: ArrayBuffer,
     header: SegmentationHeader,
   ): Promise<SegmentationHandle>;

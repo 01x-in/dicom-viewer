@@ -84,13 +84,17 @@ export class DvMeasurementListElement extends LitElement {
       [role='option'] {
         padding: calc(var(--dv-space, 0.25rem) * 2) calc(var(--dv-space, 0.25rem) * 3);
         border: 1px solid var(--dv-color-border, #667284);
-        border-radius: var(--dv-radius, 6px);
+        border-radius: var(--dv-radius-lg, 8px);
         background: var(--dv-color-surface-raised, #212731);
         cursor: pointer;
+        transition: background-color 0.12s;
+      }
+      [role='option']:hover {
+        background: color-mix(in srgb, var(--dv-color-accent, #5aa9ff) 10%, var(--dv-color-surface-raised, #212731));
       }
       [role='option'][aria-selected='true'] {
         border-color: var(--dv-color-accent, #5aa9ff);
-        box-shadow: inset 0 0 0 1px var(--dv-color-accent, #5aa9ff);
+        box-shadow: inset 3px 0 0 var(--dv-color-accent, #5aa9ff);
       }
       .title {
         font-weight: 600;
@@ -101,7 +105,8 @@ export class DvMeasurementListElement extends LitElement {
         padding: 0;
         list-style: none;
         color: var(--dv-color-text-muted, #a7b0be);
-        font-size: 0.8em;
+        font-size: 0.8125rem;
+        font-variant-numeric: tabular-nums;
       }
       .actions {
         display: flex;
@@ -130,20 +135,25 @@ export class DvMeasurementListElement extends LitElement {
       button {
         font: inherit;
         color: var(--dv-color-text, #e8ebf0);
-        background: var(--dv-color-surface-raised, #212731);
+        background: transparent;
         border: 1px solid var(--dv-color-border, #667284);
         border-radius: var(--dv-radius, 6px);
         padding: calc(var(--dv-space, 0.25rem) * 1.5) calc(var(--dv-space, 0.25rem) * 3);
         min-height: 2rem;
         cursor: pointer;
+        transition: background-color 0.12s;
+      }
+      button:hover {
+        background: var(--dv-color-surface-raised, #212731);
       }
       button[aria-disabled='true'] {
-        opacity: 0.6;
+        opacity: 0.45;
         cursor: not-allowed;
       }
       .empty {
-        padding: calc(var(--dv-space, 0.25rem) * 3);
+        padding: calc(var(--dv-space, 0.25rem) * 4) calc(var(--dv-space, 0.25rem) * 4);
         color: var(--dv-color-text-muted, #a7b0be);
+        line-height: 1.5;
       }
     `,
   ];

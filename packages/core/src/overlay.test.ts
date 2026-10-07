@@ -1,6 +1,13 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import type { DicomJsonInstance } from './data/types';
-import { describeOverlay, overlayLines, type OverlayInfo } from './overlay';
+import {
+  createOverlayView,
+  describeOverlay,
+  OVERLAY_STYLE,
+  overlayLines,
+  type OverlayInfo,
+} from './overlay';
 
 const info: OverlayInfo = {
   modality: 'CT',
@@ -107,5 +114,34 @@ describe('describeOverlay', () => {
         view,
       }),
     ).toMatchObject({ rows: undefined, patientName: undefined, patientId: undefined });
+  });
+});
+
+describe('the look of the overlay', () => {
+  it('takes its font from the shell tokens, and falls back to the system font without them', () => {
+    expect(OVERLAY_STYLE).toContain('var(--dv-font-family,system-ui');
+  });
+
+  it('keeps digits the same width, so the numbers do not jitter while the slices scroll', () => {
+    expect(OVERLAY_STYLE).toContain('font-variant-numeric:tabular-nums');
+  });
+});
+
+describe('the corners of the overlay', () => {
+  it('tint the series line and keep the text exactly as overlayLines wrote it', () => {
+    const element = document.createElement('div');
+    const view = createOverlayView(element);
+    view.update({
+      topLeft: ['Chest 2.5 mm'],
+      topRight: ['CT', '512 × 512'],
+      bottomLeft: ['W 400  L 40'],
+      bottomRight: ['Image 12 / 64'],
+    });
+    const corner = (name: string): HTMLElement | null =>
+      element.querySelector<HTMLElement>(`[data-dv-corner="${name}"]`);
+    expect(corner('top-left')?.style.color).toContain('--dv-color-overlay-accent');
+    expect(corner('top-right')?.textContent).toBe('CT\n512 × 512');
+    expect(corner('bottom-right')?.textContent).toBe('Image 12 / 64');
+    view.destroy();
   });
 });

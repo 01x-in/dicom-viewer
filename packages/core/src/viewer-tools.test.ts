@@ -106,3 +106,29 @@ describe('setActive', () => {
     await expect(viewer.tools.setActive('pan')).rejects.toThrow(/destroyed/);
   });
 });
+
+describe('the shortcuts of a viewer', () => {
+  it('lists the keys that are bound, so a toolbar can show them', () => {
+    const { viewer } = harness();
+    const shortcuts = viewer.tools.shortcuts();
+    expect(shortcuts).toContainEqual({
+      chord: 'w',
+      action: { type: 'tool', tool: 'window-level' },
+    });
+    expect(shortcuts).toContainEqual({ chord: 'Space', action: { type: 'cine' } });
+  });
+
+  it('follows what the host rebound or removed', () => {
+    const { viewer } = harness({
+      viewer: { keybindings: { m: { type: 'tool', tool: 'pan' }, p: null } },
+    });
+    const shortcuts = viewer.tools.shortcuts();
+    expect(shortcuts).toContainEqual({ chord: 'm', action: { type: 'tool', tool: 'pan' } });
+    expect(shortcuts.some((entry) => entry.chord === 'p')).toBe(false);
+  });
+
+  it('is empty when the keyboard is off', () => {
+    const { viewer } = harness({ viewer: { keybindings: false } });
+    expect(viewer.tools.shortcuts()).toEqual([]);
+  });
+});

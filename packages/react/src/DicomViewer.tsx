@@ -8,7 +8,9 @@ import type {
 } from '@scope/viewer-core';
 import type {
   DvViewerElement,
+  PaletteName,
   ThemeName,
+  ToolbarLabels,
   ToolbarItem,
   ViewerErrorDetail,
   ViewerReadyDetail,
@@ -29,6 +31,8 @@ import { ViewerContext } from './context';
 /** A side panel written in React. It is drawn into a portal, so it keeps the host's context. */
 export interface ReactPanel {
   readonly title: string;
+  /** The name of one of the shell's pictures for the tab. Without one the tab shows its title only. */
+  readonly icon?: string;
   /** Default `right`. */
   readonly placement?: PanelPlacement;
   readonly render: () => ReactNode;
@@ -51,6 +55,8 @@ export interface DicomViewerProps {
   readonly onStateChange?: ((state: ViewerStateV1, origin: string) => void) | undefined;
   /** Items for the toolbar, or `false` for none. Default: the built-in tools, actions and presets. */
   readonly toolbar?: readonly ToolbarItem[] | false | undefined;
+  /** `tooltip` (default): buttons show a picture, and the name in a tooltip. `inline`: the name beside the picture. */
+  readonly toolbarLabels?: ToolbarLabels | undefined;
   /** Extra side panels, by id. The series browser, the measurements list, and the segments list are built in. */
   readonly panels?: Readonly<Record<string, ReactPanel>> | undefined;
   readonly hideSeriesPanel?: boolean | undefined;
@@ -59,6 +65,8 @@ export interface DicomViewerProps {
   /** Hides the built-in list of SEGs and their segments, a tab in the right-hand dock. */
   readonly hideSegmentationsPanel?: boolean | undefined;
   readonly theme?: ThemeName | undefined;
+  /** The colours of the chrome: `default`, `navy`, or `graphite`. */
+  readonly palette?: PaletteName | undefined;
   /** Slots of the shell. `panelLeft` and `panelRight` are plain content beside the tabbed panels. */
   readonly banner?: ReactNode;
   readonly panelLeft?: ReactNode;
@@ -97,7 +105,7 @@ function targetKey(target: NavigateTarget | undefined): string {
  * the engine are loaded in an effect.
  */
 export function DicomViewer(props: DicomViewerProps): JSX.Element {
-  const { options, studyInstanceUID, seriesInstanceUID, className, style, theme } = props;
+  const { options, studyInstanceUID, seriesInstanceUID, className, style, theme, palette } = props;
   const elementRef = useRef<DvViewerElement | null>(null);
   // Callbacks and render functions change identity every render; nothing may restart for them.
   const latest = useRef(props);
@@ -152,17 +160,29 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     element.seriesInstanceUid = seriesInstanceUID;
   }, [defined, options, studyInstanceUID, seriesInstanceUID]);
 
-  const { toolbar, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel } = props;
+  const { toolbar, toolbarLabels, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel } =
+    props;
   useEffect(() => {
     const element = elementRef.current;
     if (!defined || element === null) return;
     element.theme = theme ?? 'dark';
+    element.palette = palette ?? 'default';
     element.hideToolbar = toolbar === false;
+    element.toolbarLabels = toolbarLabels ?? 'tooltip';
     element.toolbarItems = toolbar === undefined || toolbar === false ? undefined : toolbar;
     element.hideSeriesPanel = hideSeriesPanel === true;
     element.hideMeasurementsPanel = hideMeasurementsPanel === true;
     element.hideSegmentationsPanel = hideSegmentationsPanel === true;
-  }, [defined, theme, toolbar, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel]);
+  }, [
+    defined,
+    theme,
+    palette,
+    toolbar,
+    toolbarLabels,
+    hideSeriesPanel,
+    hideMeasurementsPanel,
+    hideSegmentationsPanel,
+  ]);
 
   useEffect(() => {
     const element = elementRef.current;
@@ -225,6 +245,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
       id,
       panel.title,
       panel.placement ?? 'right',
+      panel.icon ?? null,
     ]),
   );
   useEffect(() => {
@@ -233,6 +254,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
       viewer.ui.registerPanel({
         id,
         title: panel.title,
+        ...(panel.icon === undefined ? {} : { icon: panel.icon }),
         placement: panel.placement ?? 'right',
         mount: (container) => {
           setContainers((current) => new Map(current).set(id, container));

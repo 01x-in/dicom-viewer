@@ -8,6 +8,7 @@ import type {
   ViewportApi,
 } from '@scope/viewer-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DvViewerElement } from '@scope/viewer-elements';
 import {
   type App,
   createApp,
@@ -65,8 +66,8 @@ afterEach(() => {
   received.length = 0;
 });
 
-const element = (): HTMLElement => {
-  const found = host.querySelector<HTMLElement>('dv-viewer');
+const element = (): DvViewerElement => {
+  const found = host.querySelector<DvViewerElement>('dv-viewer');
   if (found === null) throw new Error('No <dv-viewer>');
   return found;
 };
@@ -208,6 +209,22 @@ describe('<DicomViewer>', () => {
     expect(element().shadowRoot?.querySelector('dv-toolbar')).not.toBeNull();
   });
 
+  it('puts the toolbar names inline when asked', async () => {
+    const props = await mount({ toolbarLabels: 'inline' });
+    expect(element().toolbarLabels).toBe('inline');
+    props.toolbarLabels = 'tooltip';
+    await settle();
+    expect(element().toolbarLabels).toBe('tooltip');
+  });
+
+  it('follows the palette', async () => {
+    const props = await mount({ palette: 'navy' });
+    expect(element().getAttribute('data-palette')).toBe('navy');
+    props.palette = 'default';
+    await settle();
+    expect(element().hasAttribute('data-palette')).toBe(false);
+  });
+
   it('emits every change of the state, with its origin', async () => {
     const onStateChange = vi.fn();
     await mount({ onStateChange });
@@ -269,6 +286,26 @@ describe('panels and composables', () => {
           seenViewer?.value === undefined ? 'no viewer' : `series ${seenSeries?.value ?? 'none'}`,
         );
     },
+  });
+
+  it('gives a panel the icon it names, and a panel that names none has no icon', async () => {
+    await mount(
+      {
+        hideSeriesPanel: true,
+        hideMeasurementsPanel: true,
+        hideSegmentationsPanel: true,
+        panels: [
+          { id: 'notes', title: 'Notes', icon: 'series' },
+          { id: 'plain', title: 'Plain' },
+        ],
+      },
+      { 'panel-notes': () => h(Probe), 'panel-plain': () => h(Probe) },
+    );
+    const byId = new Map(made[0]?.viewer.ui.panels().map((panel) => [panel.id, panel.icon]));
+    // Both are registered: `Map.get` is `undefined` for a missing key too, so check the keys first.
+    expect([...byId.keys()]).toEqual(['notes', 'plain']);
+    expect(byId.get('notes')).toBe('series');
+    expect(byId.get('plain')).toBeUndefined();
   });
 
   it('draws the content of a panel slot into the dock', async () => {

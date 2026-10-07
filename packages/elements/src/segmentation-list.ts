@@ -9,6 +9,7 @@ import {
 import {
   css,
   type CSSResultGroup,
+  unsafeCSS,
   html,
   LitElement,
   nothing,
@@ -16,6 +17,7 @@ import {
   type PropertyValues,
   type TemplateResult,
 } from 'lit';
+import { icon, iconMask, iconStyles } from './icons';
 import { baseStyles, themeStyles } from './theme';
 
 const EVENTS = [
@@ -80,12 +82,15 @@ export class DvSegmentationListElement extends LitElement {
   static override styles: CSSResultGroup = [
     themeStyles,
     baseStyles,
+    iconStyles,
     css`
       :host {
         display: block;
         min-height: 0;
         overflow-y: auto;
         background: var(--dv-color-surface, #171b21);
+        --dv-eye: ${unsafeCSS(iconMask('eye'))};
+        --dv-eye-off: ${unsafeCSS(iconMask('eye-off'))};
       }
       ul {
         list-style: none;
@@ -100,44 +105,63 @@ export class DvSegmentationListElement extends LitElement {
       }
       .seg {
         border: 1px solid var(--dv-color-border, #667284);
-        border-radius: var(--dv-radius, 6px);
+        border-radius: var(--dv-radius-lg, 8px);
         background: var(--dv-color-surface-raised, #212731);
+        overflow: hidden;
       }
       .seg-head {
         display: flex;
-        flex-wrap: wrap;
         align-items: center;
-        gap: calc(var(--dv-space, 0.25rem) * 2);
-        padding: calc(var(--dv-space, 0.25rem) * 2) calc(var(--dv-space, 0.25rem) * 3);
+        gap: calc(var(--dv-space, 0.25rem) * 1.5);
+        padding: calc(var(--dv-space, 0.25rem) * 1.5) calc(var(--dv-space, 0.25rem) * 2);
       }
       .seg-title {
         flex: 1;
+        min-width: 0;
         font-weight: 600;
         overflow-wrap: anywhere;
       }
-      .seg-opacity {
+      .seg-opacity,
+      .segment-opacity {
         display: flex;
         align-items: center;
         gap: calc(var(--dv-space, 0.25rem) * 2);
-        padding: 0 calc(var(--dv-space, 0.25rem) * 3) calc(var(--dv-space, 0.25rem) * 2);
         color: var(--dv-color-text-muted, #a7b0be);
+        font-size: 0.8125rem;
       }
-      .seg-opacity input {
+      .seg-opacity {
+        padding: 0 calc(var(--dv-space, 0.25rem) * 3) calc(var(--dv-space, 0.25rem) * 2);
+      }
+      .seg-opacity input,
+      .segment-opacity input {
         flex: 1;
         min-width: 0;
       }
+      .percent {
+        min-width: 2.5em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
       .warnings {
-        margin: 0 calc(var(--dv-space, 0.25rem) * 3) calc(var(--dv-space, 0.25rem) * 2);
+        display: flex;
+        flex-direction: column;
+        gap: var(--dv-space, 0.25rem);
+        margin: 0 calc(var(--dv-space, 0.25rem) * 2) calc(var(--dv-space, 0.25rem) * 2);
         padding: calc(var(--dv-space, 0.25rem) * 2);
         border: 1px solid var(--dv-color-danger, #ff8f8f);
         border-radius: var(--dv-radius, 6px);
         color: var(--dv-color-text, #e8ebf0);
-        font-size: 0.85em;
+        font-size: 0.8125rem;
       }
-      .warnings li + li {
-        margin-top: var(--dv-space, 0.25rem);
+      .warnings li {
+        display: flex;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        align-items: flex-start;
       }
-      .warnings strong {
+      .warnings .icon {
+        width: 1rem;
+        height: 1rem;
+        margin-top: 0.1rem;
         color: var(--dv-color-danger, #ff8f8f);
       }
       .segments {
@@ -145,15 +169,17 @@ export class DvSegmentationListElement extends LitElement {
       }
       .segment {
         display: grid;
-        grid-template-columns: auto auto 1fr auto auto;
+        grid-template-columns: auto auto minmax(0, 1fr) auto auto;
         align-items: center;
-        gap: calc(var(--dv-space, 0.25rem) * 2);
-        padding: calc(var(--dv-space, 0.25rem) * 1.5) calc(var(--dv-space, 0.25rem) * 3);
+        column-gap: calc(var(--dv-space, 0.25rem) * 1.5);
+        row-gap: 0;
+        padding: var(--dv-space, 0.25rem) calc(var(--dv-space, 0.25rem) * 2);
       }
       .segment + .segment {
-        border-top: 1px solid var(--dv-color-border, #667284);
+        border-top: 1px solid color-mix(in srgb, var(--dv-color-border, #667284) 45%, transparent);
       }
       .segment-name {
+        min-width: 0;
         overflow-wrap: anywhere;
       }
       .segment-name small {
@@ -161,40 +187,102 @@ export class DvSegmentationListElement extends LitElement {
         color: var(--dv-color-text-muted, #a7b0be);
       }
       .segment-opacity {
-        grid-column: 2 / -1;
-        display: flex;
-        align-items: center;
-        gap: calc(var(--dv-space, 0.25rem) * 2);
+        grid-column: 3 / -1;
+        padding-bottom: calc(var(--dv-space, 0.25rem) * 1);
+        font-size: 0.75rem;
+      }
+      /* The eye: a real checkbox, so the keyboard and the screen reader get what they expect. */
+      input[type='checkbox'] {
+        appearance: none;
+        display: grid;
+        place-items: center;
+        flex: none;
+        width: 1.75rem;
+        height: 1.75rem;
+        margin: 0;
         color: var(--dv-color-text-muted, #a7b0be);
-        font-size: 0.85em;
-      }
-      .segment-opacity input {
-        flex: 1;
-        min-width: 0;
-      }
-      input[type='color'] {
-        width: 2rem;
-        height: 2rem;
-        padding: 0;
-        border: 1px solid var(--dv-color-border, #667284);
         border-radius: var(--dv-radius, 6px);
+        cursor: pointer;
+      }
+      input[type='checkbox']::before {
+        content: '';
+        width: var(--dv-icon-size, 1.25rem);
+        height: var(--dv-icon-size, 1.25rem);
+        background: currentcolor;
+        mask: var(--dv-eye-off) center / contain no-repeat;
+        -webkit-mask: var(--dv-eye-off) center / contain no-repeat;
+      }
+      input[type='checkbox']:checked {
+        color: var(--dv-color-text, #e8ebf0);
+      }
+      input[type='checkbox']:checked::before {
+        mask-image: var(--dv-eye);
+        -webkit-mask-image: var(--dv-eye);
+      }
+      input[type='checkbox']:hover {
+        background: var(--dv-color-surface, #171b21);
+      }
+      /* The colour: a round swatch. */
+      input[type='color'] {
+        appearance: none;
+        flex: none;
+        width: 1.5rem;
+        height: 1.5rem;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
         background: transparent;
         cursor: pointer;
       }
-      input[type='checkbox'] {
-        width: 1.1rem;
-        height: 1.1rem;
+      input[type='color']::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+      input[type='color']::-webkit-color-swatch {
+        border: 2px solid var(--dv-color-text, #e8ebf0);
+        border-radius: 50%;
+      }
+      input[type='color']::-moz-color-swatch {
+        border: 2px solid var(--dv-color-text, #e8ebf0);
+        border-radius: 50%;
+      }
+      input[type='range'] {
         accent-color: var(--dv-color-accent, #5aa9ff);
+        height: 1.25rem;
+        margin: 0;
       }
       button {
         font: inherit;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: calc(var(--dv-space, 0.25rem) * 1.5);
+        min-width: 1.75rem;
+        height: 1.75rem;
+        padding: 0 calc(var(--dv-space, 0.25rem) * 2);
         color: var(--dv-color-text, #e8ebf0);
-        background: var(--dv-color-surface, #171b21);
-        border: 1px solid var(--dv-color-border, #667284);
+        background: transparent;
+        border: 1px solid transparent;
         border-radius: var(--dv-radius, 6px);
-        padding: calc(var(--dv-space, 0.25rem) * 1.5) calc(var(--dv-space, 0.25rem) * 3);
-        min-height: 2rem;
         cursor: pointer;
+        transition: background-color 0.12s;
+      }
+      button:hover {
+        background: var(--dv-color-surface, #171b21);
+      }
+      button.icon-button {
+        padding: 0;
+      }
+      button.text-button {
+        border-color: var(--dv-color-border, #667284);
+      }
+      button.primary {
+        color: var(--dv-color-accent-text, #06121f);
+        background: var(--dv-color-accent, #5aa9ff);
+        border-color: var(--dv-color-accent, #5aa9ff);
+      }
+      button.primary:hover {
+        background: var(--dv-color-accent, #5aa9ff);
+        filter: brightness(1.1);
       }
       button[aria-pressed='true'] {
         background: var(--dv-color-accent, #5aa9ff);
@@ -202,12 +290,23 @@ export class DvSegmentationListElement extends LitElement {
         border-color: var(--dv-color-accent, #5aa9ff);
       }
       button[aria-disabled='true'] {
-        opacity: 0.6;
+        opacity: 0.45;
         cursor: not-allowed;
       }
       .empty {
-        padding: calc(var(--dv-space, 0.25rem) * 3);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        margin: 0;
+        padding: calc(var(--dv-space, 0.25rem) * 8) calc(var(--dv-space, 0.25rem) * 4);
+        text-align: center;
         color: var(--dv-color-text-muted, #a7b0be);
+      }
+      .empty .icon {
+        width: 2rem;
+        height: 2rem;
+        opacity: 0.7;
       }
     `,
   ];
@@ -425,8 +524,10 @@ export class DvSegmentationListElement extends LitElement {
       <button
         type="button"
         part="button"
+        class="icon-button"
         data-action="highlight"
         aria-label=${`Highlight ${segment.label}`}
+        title="Highlight"
         aria-pressed=${highlighted ? 'true' : 'false'}
         @click=${(): void => {
           this.#call(() =>
@@ -434,13 +535,15 @@ export class DvSegmentationListElement extends LitElement {
           );
         }}
       >
-        Highlight
+        ${icon('highlight')}
       </button>
       <button
         type="button"
         part="button"
+        class="icon-button"
         data-action="jump"
         aria-label=${`Go to ${segment.label}`}
+        title="Go to"
         aria-disabled=${empty ? 'true' : nothing}
         @click=${(): void => {
           if (empty) return;
@@ -451,10 +554,10 @@ export class DvSegmentationListElement extends LitElement {
           );
         }}
       >
-        Go to
+        ${icon('target')}
       </button>
       <label class="segment-opacity">
-        Opacity
+        <span>Opacity</span>
         <input
           type="range"
           part="segment-opacity"
@@ -480,7 +583,7 @@ export class DvSegmentationListElement extends LitElement {
             this.#endSlide(`${key}/opacity`);
           }}
         />
-        <span aria-hidden="true">${percent.toString()}%</span>
+        <span class="percent" aria-hidden="true">${percent.toString()}%</span>
       </label>
     </li>`;
   }
@@ -506,6 +609,7 @@ export class DvSegmentationListElement extends LitElement {
         <button
           type="button"
           part="button"
+          class="text-button"
           data-action="unload"
           aria-label=${`Unload ${segmentationName(series)}`}
           @click=${(): void => {
@@ -516,7 +620,7 @@ export class DvSegmentationListElement extends LitElement {
         </button>
       </div>
       <label class="seg-opacity">
-        Opacity
+        <span>Opacity</span>
         <input
           type="range"
           part="segmentation-opacity"
@@ -538,14 +642,15 @@ export class DvSegmentationListElement extends LitElement {
             this.#endSlide(key);
           }}
         />
-        <span aria-hidden="true">${percent.toString()}%</span>
+        <span class="percent" aria-hidden="true">${percent.toString()}%</span>
       </label>
       ${
         info.warnings.length === 0
           ? nothing
           : html`<ul class="warnings" part="warnings" aria-label="Warnings">
             ${info.warnings.map(
-              (warning) => html`<li><strong>Warning:</strong> ${warning.message}</li>`,
+              (warning) =>
+                html`<li>${icon('warning')}<span><span class="dv-visually-hidden">Warning: </span>${warning.message}</span></li>`,
             )}
           </ul>`
       }
@@ -564,6 +669,7 @@ export class DvSegmentationListElement extends LitElement {
         <button
           type="button"
           part="button"
+          class="text-button primary"
           data-action="load"
           aria-label=${`Load ${segmentationName(series)}`}
           aria-disabled=${busy ? 'true' : nothing}
@@ -579,7 +685,9 @@ export class DvSegmentationListElement extends LitElement {
 
   override render(): TemplateResult {
     if (this.series.length === 0) {
-      return html`<p class="empty" role="status">This study has no segmentations.</p>`;
+      return html`<p class="empty" role="status">
+        ${icon('segments')}<span>This study has no segmentations.</span>
+      </p>`;
     }
     return html`<ul class="seg-list" aria-label=${this.label}>
       ${this.series.map((series) => {

@@ -4,6 +4,7 @@ import type { Viewer, ViewerOptions, ViewerStateV1 } from '@scope/viewer-core';
 import { type JSX, type RefObject, StrictMode, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
+import type { DvViewerElement } from '@scope/viewer-elements';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DicomViewer,
@@ -53,8 +54,8 @@ afterEach(() => {
   made.length = 0;
 });
 
-const element = (): HTMLElement => {
-  const found = host.querySelector<HTMLElement>('dv-viewer');
+const element = (): DvViewerElement => {
+  const found = host.querySelector<DvViewerElement>('dv-viewer');
   if (found === null) throw new Error('No <dv-viewer>');
   return found;
 };
@@ -166,6 +167,20 @@ describe('<DicomViewer>', () => {
     await render({ panelLeft: <b>Left</b>, panelRight: <b>Right</b> });
     expect(element().querySelector('[slot="panel-left"]')?.textContent).toBe('Left');
     expect(element().querySelector('[slot="panel-right"]')?.textContent).toBe('Right');
+  });
+
+  it('puts the toolbar names inline when asked', async () => {
+    await render({ toolbarLabels: 'inline' });
+    expect(element().toolbarLabels).toBe('inline');
+    await render({});
+    expect(element().toolbarLabels).toBe('tooltip');
+  });
+
+  it('follows the palette', async () => {
+    await render({ palette: 'graphite' });
+    expect(element().getAttribute('data-palette')).toBe('graphite');
+    await render({});
+    expect(element().hasAttribute('data-palette')).toBe(false);
   });
 
   it('follows the theme, and can hide the toolbar', async () => {
@@ -285,6 +300,23 @@ describe('panels and hooks', () => {
     const series = useViewerState((state) => state.viewports[0]?.seriesInstanceUID);
     return <p data-probe>{viewer === undefined ? 'no viewer' : `series ${series ?? 'none'}`}</p>;
   }
+
+  it('gives a panel the icon it names, and a panel that names none has no icon', async () => {
+    await render({
+      hideSeriesPanel: true,
+      hideMeasurementsPanel: true,
+      hideSegmentationsPanel: true,
+      panels: {
+        notes: { title: 'Notes', icon: 'series', render: () => <Probe /> },
+        plain: { title: 'Plain', render: () => <Probe /> },
+      },
+    });
+    const byId = new Map(made[0]?.viewer.ui.panels().map((panel) => [panel.id, panel.icon]));
+    // Both are registered: `Map.get` is `undefined` for a missing key too, so check the keys first.
+    expect([...byId.keys()]).toEqual(['notes', 'plain']);
+    expect(byId.get('notes')).toBe('series');
+    expect(byId.get('plain')).toBeUndefined();
+  });
 
   it('draws a React panel into the dock, with the host context', async () => {
     await render({

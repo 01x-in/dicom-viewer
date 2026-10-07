@@ -8,7 +8,9 @@ import type {
 } from '@scope/viewer-core';
 import type {
   DvViewerElement,
+  PaletteName,
   ThemeName,
+  ToolbarLabels,
   ToolbarItem,
   ViewerErrorDetail,
   ViewerReadyDetail,
@@ -34,6 +36,8 @@ import { provideViewer } from './context';
 export interface VuePanel {
   readonly id: string;
   readonly title: string;
+  /** The name of one of the shell's pictures for the tab. Without one the tab shows its title only. */
+  readonly icon?: string;
   /** Default `right`. */
   readonly placement?: PanelPlacement;
 }
@@ -58,6 +62,10 @@ export interface DicomViewerProps {
   /** Hides the built-in list of SEGs and their segments, a tab in the right-hand dock. */
   readonly hideSegmentationsPanel?: boolean;
   readonly theme?: ThemeName;
+  /** The colours of the chrome: `default`, `navy`, or `graphite`. */
+  readonly palette?: PaletteName;
+  /** `tooltip` (default): buttons show a picture, and the name in a tooltip. `inline`: the name beside the picture. */
+  readonly toolbarLabels?: ToolbarLabels;
   readonly onReady?: (viewer: Viewer, viewport: ViewportApi | undefined) => void;
   readonly onError?: (error: Error) => void;
   readonly onStateChange?: (state: ViewerStateV1, origin: string) => void;
@@ -103,6 +111,8 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     hideMeasurementsPanel: { type: Boolean, default: false },
     hideSegmentationsPanel: { type: Boolean, default: false },
     theme: { type: String as PropType<ThemeName>, default: 'dark' },
+    palette: { type: String as PropType<PaletteName>, default: 'default' },
+    toolbarLabels: { type: String as PropType<ToolbarLabels>, default: 'tooltip' },
   },
   // Payloads: ready(viewer, viewport), error(error), state-change(state, origin).
   emits: ['ready', 'error', 'state-change'],
@@ -131,7 +141,9 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       const target = element.value;
       if (!defined.value || target === null) return;
       target.theme = props.theme ?? 'dark';
+      target.palette = props.palette ?? 'default';
       target.hideToolbar = props.toolbar === false;
+      target.toolbarLabels = props.toolbarLabels ?? 'tooltip';
       target.toolbarItems =
         props.toolbar === undefined || props.toolbar === false ? undefined : toRaw(props.toolbar);
       target.hideSeriesPanel = props.hideSeriesPanel === true;
@@ -151,6 +163,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
         current.ui.registerPanel({
           id: panel.id,
           title: panel.title,
+          ...(panel.icon === undefined ? {} : { icon: panel.icon }),
           placement: panel.placement ?? 'right',
           mount: (container) => {
             containers.value = new Map(containers.value).set(panel.id, container);
@@ -220,7 +233,9 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       [
         defined,
         () => props.theme,
+        () => props.palette,
         () => props.toolbar,
+        () => props.toolbarLabels,
         () => props.hideSeriesPanel,
         () => props.hideMeasurementsPanel,
         () => props.hideSegmentationsPanel,
@@ -233,7 +248,10 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     watch(
       () =>
         (props.panels ?? [])
-          .map((panel) => `${panel.id}|${panel.title}|${panel.placement ?? 'right'}`)
+          .map(
+            (panel) =>
+              `${panel.id}|${panel.title}|${panel.placement ?? 'right'}|${panel.icon ?? ''}`,
+          )
           .join(),
       () => {
         if (viewer.value !== undefined) registerPanels(viewer.value);
