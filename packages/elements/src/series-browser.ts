@@ -128,7 +128,8 @@ export class DvSeriesBrowserElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
-  declare viewportId: string;
+  /** The viewport the browser shows and fills. Default: the active one, which follows the person. */
+  declare viewportId: string | undefined;
   declare label: string;
   declare series: readonly SeriesSummary[];
   declare shownUid: string | undefined;
@@ -143,7 +144,7 @@ export class DvSeriesBrowserElement extends LitElement {
 
   constructor() {
     super();
-    this.viewportId = 'vp-0';
+    this.viewportId = undefined;
     this.label = 'Series';
     this.series = [];
     this.shownUid = undefined;
@@ -206,6 +207,9 @@ export class DvSeriesBrowserElement extends LitElement {
       viewer.on('state:changed', () => {
         this.#sync();
       }),
+      viewer.on('viewport:active', () => {
+        this.#sync();
+      }),
     ];
   }
 
@@ -226,9 +230,10 @@ export class DvSeriesBrowserElement extends LitElement {
       this.#rovingIndex = 0;
     }
     this.series = study?.series ?? [];
+    const target = this.viewportId ?? viewer?.viewports.active;
     this.shownUid = viewer
       ?.getState()
-      .viewports.find((viewport) => viewport.id === this.viewportId)?.seriesInstanceUID;
+      .viewports.find((viewport) => viewport.id === target)?.seriesInstanceUID;
   }
 
   #setThumbnail(uid: string, thumbnail: Thumbnail): void {
@@ -262,18 +267,20 @@ export class DvSeriesBrowserElement extends LitElement {
   #choose(summary: SeriesSummary): void {
     const { viewer } = this;
     if (viewer === undefined || !isDisplayableModality(summary.modality)) return;
-    viewer.setViewportSeries(this.viewportId, summary.seriesInstanceUID).catch((error: unknown) => {
-      this.dispatchEvent(
-        new CustomEvent<{ error: Error; context: 'series' }>('dv-error', {
-          detail: {
-            error: error instanceof Error ? error : new Error(String(error)),
-            context: 'series',
-          },
-          bubbles: true,
-          composed: true,
-        }),
-      );
-    });
+    viewer
+      .setViewportSeries(this.viewportId ?? viewer.viewports.active, summary.seriesInstanceUID)
+      .catch((error: unknown) => {
+        this.dispatchEvent(
+          new CustomEvent<{ error: Error; context: 'series' }>('dv-error', {
+            detail: {
+              error: error instanceof Error ? error : new Error(String(error)),
+              context: 'series',
+            },
+            bubbles: true,
+            composed: true,
+          }),
+        );
+      });
   }
 
   #onKeydown(event: KeyboardEvent, summary: SeriesSummary): void {

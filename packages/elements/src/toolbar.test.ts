@@ -90,6 +90,7 @@ describe('<dv-toolbar>', () => {
       'Invert',
       'Reset',
       'Cine',
+      'Layout',
       'Presets',
     ]);
   });
@@ -238,7 +239,7 @@ describe('<dv-toolbar>', () => {
     expect(toolbar.shadowRoot?.activeElement).toBe(all[1]);
     await toolbar.updateComplete;
     expect(buttons(toolbar).map((item) => item.tabIndex)).toEqual([
-      -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+      -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
     ]);
     press(nth(buttons(toolbar), 1), 'End');
     expect(toolbar.shadowRoot?.activeElement).toBe(buttons(toolbar).at(-1));
@@ -480,6 +481,84 @@ describe('the presets menu', () => {
         item.textContent.trim(),
       ),
     ).toEqual(['Only']);
+  });
+});
+
+describe('the layout menu', () => {
+  const opener = (toolbar: DvToolbarElement): HTMLButtonElement =>
+    button(toolbar, '[data-menu-id="layout"]');
+
+  it('lists the four layouts, and marks the one in use', async () => {
+    const { toolbar } = await mount();
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    const items = [
+      ...(toolbar.shadowRoot?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? []),
+    ];
+    expect(items.map((item) => item.textContent.trim())).toEqual([
+      'One viewport',
+      'Two side by side',
+      'Two by two',
+      'One large, three small',
+    ]);
+    expect(items.map((item) => item.getAttribute('aria-checked'))).toEqual([
+      'true',
+      'false',
+      'false',
+      'false',
+    ]);
+  });
+
+  it('changes the layout, closes, and works with no series on screen', async () => {
+    const { toolbar, fake } = await mount({ withSeries: false });
+    opener(toolbar).click();
+    await toolbar.updateComplete;
+    button(toolbar, '[data-action="layout-2x2"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await toolbar.updateComplete;
+    expect(fake.viewer.getState().layout).toBe('2x2');
+    expect(toolbar.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+  });
+});
+
+describe('the viewport the toolbar acts on', () => {
+  it('is the active one, so a button works where the person last pressed', async () => {
+    const { toolbar, fake } = await mount();
+    await fake.viewer.setLayout('1x2');
+    fake.viewer.viewports.attach('vp-1', document.createElement('div'));
+    await fake.viewer.setViewportSeries('vp-1', FAKE_IDS.ct);
+    fake.viewer.viewports.setActive('vp-1');
+    await toolbar.updateComplete;
+    button(toolbar, '[data-action="invert"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fake.viewer.getState().viewports.map((viewport) => viewport.invert)).toEqual([
+      undefined,
+      true,
+    ]);
+  });
+
+  it('shows the state of the active viewport', async () => {
+    const { toolbar, fake } = await mount();
+    await fake.viewer.setLayout('1x2');
+    fake.viewer.viewports.attach('vp-1', document.createElement('div'));
+    await fake.viewer.setViewportSeries('vp-1', FAKE_IDS.ct);
+    await fake.viewer.viewports.get('vp-1')?.setInvert(true);
+    await toolbar.updateComplete;
+    expect(button(toolbar, '[data-action="invert"]').getAttribute('aria-pressed')).toBe('false');
+    fake.viewer.viewports.setActive('vp-1');
+    await toolbar.updateComplete;
+    expect(button(toolbar, '[data-action="invert"]').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('stays on a viewport the page names with viewport-id', async () => {
+    const { toolbar, fake } = await mount();
+    toolbar.viewportId = 'vp-0';
+    await fake.viewer.setLayout('1x2');
+    fake.viewer.viewports.setActive('vp-1');
+    await toolbar.updateComplete;
+    button(toolbar, '[data-action="invert"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fake.viewer.getState().viewports[0]?.invert).toBe(true);
   });
 });
 

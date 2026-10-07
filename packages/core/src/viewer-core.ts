@@ -72,6 +72,8 @@ export interface ViewerEvents extends MeasurementEvents, SegmentationEvents {
     readonly zoom: number;
     readonly origin: StateOrigin;
   };
+  /** Another viewport became the one the toolbar and the commands act on. */
+  'viewport:active': { readonly viewportId: string; readonly previous: string };
   /** The tool the left mouse button drives changed. */
   'tool:active': { readonly tool: PrimaryTool; readonly previous: PrimaryTool };
   /** Cine started or stopped, or changed its rate. */
@@ -172,6 +174,14 @@ export interface ViewportApi {
 }
 
 export interface ViewportsApi {
+  /**
+   * The viewport the toolbar, the commands, and the panels act on when they are not told another:
+   * `vp-0` at the start, then the last one the person pressed or focused. It is not part of the
+   * state: a link does not carry it.
+   */
+  readonly active: string;
+  /** Makes a viewport the active one. Throws for an id the layout does not have. */
+  setActive(viewportId: string): void;
   /** Draws the viewport into `element`, now or as soon as it has a series to show. */
   attach(viewportId: string, element: HTMLElement): void;
   /** Stops drawing. What the viewport should show stays in the state, so attaching again restores it. */
@@ -322,6 +332,7 @@ interface Runtime {
   api: ViewportApi | undefined;
   cine: CineController | undefined;
   stopKeys: (() => void) | undefined;
+  stopActive: (() => void) | undefined;
 }
 
 const noop = (): void => undefined;
@@ -484,6 +495,7 @@ export function createViewerCore(
     },
   });
   const runtimes = new Map<string, Runtime>();
+  let activeViewport = 'vp-0';
   const seriesCache = new Map<string, Promise<LoadedSeriesData>>();
   let destroyed = false;
   let queue: Promise<void> = Promise.resolve();
@@ -1004,6 +1016,7 @@ export function createViewerCore(
     for (const runtime of runtimes.values()) {
       if (viewportState(runtime.id) === undefined) teardown(runtime);
     }
+    if (viewportState(activeViewport) === undefined) makeActive('vp-0');
   }
 
   function setLayout(layout: LayoutId): Promise<void> {
@@ -1319,6 +1332,28 @@ export function createViewerCore(
     };
   }
 
+  /** Makes a viewport the active one, and says so when it was not. */
+  function makeActive(viewportId: string): void {
+    if (destroyed || viewportId === activeViewport) return;
+    const previous = activeViewport;
+    activeViewport = viewportId;
+    events.emit('viewport:active', { viewportId, previous });
+  }
+
+  /** Follows the person: a press or the focus on a viewport element makes that viewport the active one. */
+  function listenForActive(runtime: Runtime, element: HTMLElement): () => void {
+    const choose = (): void => {
+      // A viewport the layout has dropped is no longer anyone's to choose.
+      if (viewportState(runtime.id) !== undefined) makeActive(runtime.id);
+    };
+    element.addEventListener('pointerdown', choose, true);
+    element.addEventListener('focusin', choose);
+    return (): void => {
+      element.removeEventListener('pointerdown', choose, true);
+      element.removeEventListener('focusin', choose);
+    };
+  }
+
   /** Draws the overlay again for every stack on screen, or removes it where the config no longer has one. */
   function refreshOverlays(): void {
     for (const runtime of runtimes.values()) {
@@ -1400,13 +1435,16 @@ export function createViewerCore(
           api: undefined,
           cine: undefined,
           stopKeys: undefined,
+          stopActive: undefined,
         };
         runtimes.set(viewportId, runtime);
       }
       if (runtime.element === element) return;
       runtime.stopKeys?.();
+      runtime.stopActive?.();
       runtime.element = element;
       runtime.stopKeys = listenForKeys(runtime, element);
+      runtime.stopActive = listenForActive(runtime, element);
       runtime.api ??= apiFor(runtime);
       // Anything drawn into a previous element is replaced when this runs.
       enqueue(() => syncViewport(viewportId)).catch((error: unknown) => {
@@ -1419,6 +1457,8 @@ export function createViewerCore(
       runtimes.delete(viewportId);
       runtime.stopKeys?.();
       runtime.stopKeys = undefined;
+      runtime.stopActive?.();
+      runtime.stopActive = undefined;
       runtime.element = undefined;
       runtime.api = undefined;
       if (!destroyed) {
@@ -1427,6 +1467,14 @@ export function createViewerCore(
           return Promise.resolve();
         }).catch(noop);
       }
+    },
+    get active(): string {
+      return activeViewport;
+    },
+    setActive(viewportId): void {
+      assertAlive();
+      requireViewport(viewportId);
+      makeActive(viewportId);
     },
     get: (viewportId) => runtimes.get(viewportId)?.api,
     list: () =>
@@ -1467,6 +1515,7 @@ export function createViewerCore(
       destroyed = true;
       for (const runtime of runtimes.values()) {
         runtime.stopKeys?.();
+        runtime.stopActive?.();
         teardown(runtime);
       }
       runtimes.clear();

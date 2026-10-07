@@ -2,6 +2,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { layoutCells } from './layout';
 import { createThrottledAnnouncer, describeViewport } from './live-label';
 
+describe('describeViewport with several viewports', () => {
+  it('says which one it is first, for an empty one too', () => {
+    const position = { index: 1, count: 4 };
+    expect(
+      describeViewport({ name: undefined, imageIndex: undefined, imageCount: 0, position }),
+    ).toBe('Viewport 2 of 4, No image shown');
+    expect(describeViewport({ name: 'Chest CT', imageIndex: 11, imageCount: 64, position })).toBe(
+      'Viewport 2 of 4, Chest CT, image 12 of 64',
+    );
+  });
+
+  it('says nothing of the place when there is only one', () => {
+    expect(
+      describeViewport({
+        name: 'Chest CT',
+        imageIndex: 0,
+        imageCount: 2,
+        position: { index: 0, count: 1 },
+      }),
+    ).toBe('Chest CT, image 1 of 2');
+  });
+});
+
 describe('describeViewport', () => {
   it('says what is shown and where in the series', () => {
     expect(describeViewport({ name: 'Chest CT', imageIndex: 11, imageCount: 64 })).toBe(

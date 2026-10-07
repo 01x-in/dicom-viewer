@@ -10,12 +10,23 @@ export interface ViewportDescription {
   readonly window?: WindowLevel | undefined;
   readonly invert?: boolean | undefined;
   readonly zoom?: number | undefined;
+  /** Which of several viewports this is. Said only when there is more than one. */
+  readonly position?: { readonly index: number; readonly count: number } | undefined;
 }
 
 const round = (value: number): string => Math.round(value).toString();
 
 /** What a viewport shows, in words: the label a screen reader gets for a picture. */
 export function describeViewport(viewport: ViewportDescription): string {
+  const { position } = viewport;
+  const where =
+    position === undefined || position.count < 2
+      ? ''
+      : `Viewport ${(position.index + 1).toString()} of ${position.count.toString()}, `;
+  return `${where}${describeContent(viewport)}`;
+}
+
+function describeContent(viewport: ViewportDescription): string {
   const { name, imageIndex, imageCount } = viewport;
   if (name === undefined || imageIndex === undefined || imageCount <= 0) {
     return 'No image shown';

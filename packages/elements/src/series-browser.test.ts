@@ -165,6 +165,37 @@ describe('<dv-series-browser>', () => {
     ).toBe(FAKE_IDS.ct);
   });
 
+  it('works on the active viewport when it is not told one, and follows it', async () => {
+    const fake = createFakeViewer({
+      initialState: {
+        version: 1,
+        layout: '1x2',
+        viewports: [{ id: 'vp-0' }, { id: 'vp-1' }],
+      },
+    });
+    open.push(fake);
+    fake.viewer.viewports.attach('vp-1', document.createElement('div'));
+    await fake.viewer.loadStudy(FAKE_IDS.study);
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks);
+    const browser = document.createElement('dv-series-browser') as DvSeriesBrowserElement;
+    browser.viewer = fake.viewer;
+    document.body.append(browser);
+    await settle(browser);
+    expect(row(browser, FAKE_IDS.ctTwoStacks).getAttribute('aria-selected')).toBe('true');
+
+    fake.viewer.viewports.setActive('vp-1');
+    await settle(browser);
+    // The series on the other viewport is not the one on screen where the person is working.
+    expect(row(browser, FAKE_IDS.ctTwoStacks).getAttribute('aria-selected')).toBe('false');
+    row(browser, FAKE_IDS.ct).click();
+    await settle(browser);
+    expect(
+      fake.viewer.getState().viewports.find((viewport) => viewport.id === 'vp-1')
+        ?.seriesInstanceUID,
+    ).toBe(FAKE_IDS.ct);
+    expect(fake.viewer.getState().viewports[0]?.seriesInstanceUID).toBe(FAKE_IDS.ctTwoStacks);
+  });
+
   it('shows a SEG as unavailable, does not draw it, and ignores a click on it', async () => {
     const { browser, fake } = await mount();
     const seg = row(browser, FAKE_IDS.seg);

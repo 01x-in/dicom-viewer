@@ -179,6 +179,10 @@ export class DvViewerElement extends LitElement {
         outline: 2px solid var(--dv-color-focus);
         outline-offset: -2px;
       }
+      /* The viewport the toolbar acts on, when there is more than one. */
+      ::slotted([data-viewport-id][data-active]) {
+        box-shadow: inset 0 0 0 2px var(--dv-color-accent);
+      }
       .overlay {
         position: absolute;
         inset: 0;
@@ -501,10 +505,22 @@ export class DvViewerElement extends LitElement {
     };
   }
 
-  /** The viewports go in the light DOM, where Cornerstone can measure them, named for the slot that shows them. */
-  #createViewportElements(viewer: Viewer): void {
+  /**
+   * The viewports go in the light DOM, where Cornerstone can measure them, named for the slot that
+   * shows them. One element per viewport of the layout: a new one is attached, and one the layout no
+   * longer has is detached and removed. Safe to call again.
+   */
+  #syncViewportElements(viewer: Viewer): void {
     const { ids } = layoutCells(viewer.getState().layout);
+    for (const element of [...this.#viewportElements]) {
+      const id = element.dataset['viewportId'];
+      if (id !== undefined && ids.includes(id)) continue;
+      if (id !== undefined) viewer.viewports.detach(id);
+      element.remove();
+      this.#viewportElements.splice(this.#viewportElements.indexOf(element), 1);
+    }
     for (const id of ids) {
+      if (this.#viewportElements.some((element) => element.dataset['viewportId'] === id)) continue;
       const element = document.createElement('div');
       element.slot = `viewport-${id}`;
       element.className = 'dv-viewport';
@@ -513,11 +529,26 @@ export class DvViewerElement extends LitElement {
       element.setAttribute('aria-roledescription', 'DICOM viewport');
       element.setAttribute(
         'aria-label',
-        describeViewport({ name: undefined, imageIndex: undefined, imageCount: 0 }),
+        describeViewport({
+          name: undefined,
+          imageIndex: undefined,
+          imageCount: 0,
+          position: { index: ids.indexOf(id), count: ids.length },
+        }),
       );
       this.append(element);
       this.#viewportElements.push(element);
       viewer.viewports.attach(id, element);
+    }
+    this.#refreshActive(viewer);
+  }
+
+  /** Marks the viewport the toolbar acts on, but only where there is more than one to tell apart. */
+  #refreshActive(viewer: Viewer): void {
+    const many = this.#viewportElements.length > 1;
+    for (const element of this.#viewportElements) {
+      const active = many && element.dataset['viewportId'] === viewer.viewports.active;
+      element.toggleAttribute('data-active', active);
     }
   }
 
@@ -540,6 +571,10 @@ export class DvViewerElement extends LitElement {
         window: viewport?.window,
         invert: viewport?.invert,
         zoom: viewport?.zoom,
+        position: {
+          index: state.viewports.findIndex((candidate) => candidate.id === id),
+          count: state.viewports.length,
+        },
       });
       element.setAttribute('aria-label', text);
       spoken.push(text);
@@ -648,8 +683,15 @@ export class DvViewerElement extends LitElement {
         viewer.on('error', ({ error, context }) => {
           this.#fail(error, context);
         }),
-        viewer.on('state:changed', () => {
+        viewer.on('state:changed', ({ state, previous }) => {
+          if (state.layout !== previous.layout) {
+            this.#syncViewportElements(viewer);
+            this.requestUpdate();
+          }
           this.#refreshLabels(true);
+        }),
+        viewer.on('viewport:active', () => {
+          this.#refreshActive(viewer);
         }),
         viewer.on('study:loaded', () => {
           this.#refreshLabels(false);
@@ -665,7 +707,7 @@ export class DvViewerElement extends LitElement {
       this.#syncMeasurementsPanel(viewer);
       this.#syncSegmentationsPanel(viewer);
       // A throw here (and any later one) lands in the catch below, which reports it.
-      this.#createViewportElements(viewer);
+      this.#syncViewportElements(viewer);
       await viewer.loadStudy(study);
       if (generation !== this.#generation) return;
       const showing = viewer.getState().viewports.find((viewport) => viewport.id === 'vp-0');
@@ -742,7 +784,7 @@ export class DvViewerElement extends LitElement {
 
   override render(): TemplateResult {
     const viewer = this.#viewer;
-    const { ids, columns, rows } = layoutCells(viewer?.getState().layout ?? '1x1');
+    const { cells, columns, rows } = layoutCells(viewer?.getState().layout ?? '1x1');
     return html`<div class="shell" part="shell" role="region" aria-label=${this.label}>
       <div class="banner" part="banner"><slot name="banner"></slot></div>
       ${
@@ -761,7 +803,10 @@ export class DvViewerElement extends LitElement {
           part="stage"
           style=${`grid-template-columns: repeat(${columns.toString()}, minmax(0, 1fr)); grid-template-rows: repeat(${rows.toString()}, minmax(0, 1fr));`}
         >
-          ${ids.map((id) => html`<div class="cell"><slot name="viewport-${id}"></slot></div>`)}
+          ${cells.map(
+            (cell) =>
+              html`<div class="cell" style=${`grid-column: ${cell.column.toString()} / span ${cell.columnSpan.toString()}; grid-row: ${cell.row.toString()} / span ${cell.rowSpan.toString()};`}><slot name="viewport-${cell.id}"></slot></div>`,
+          )}
           <div class="overlay"><slot name="viewport-overlay"></slot></div>
           ${
             this.shown || this.status === 'loading'

@@ -1,4 +1,10 @@
-import type { KeyAction, PrimaryTool, Viewer } from '@scope/viewer-core';
+import {
+  type KeyAction,
+  LAYOUTS,
+  type LayoutId,
+  type PrimaryTool,
+  type Viewer,
+} from '@scope/viewer-core';
 import type { TemplateResult } from 'lit';
 import type { IconName } from './icons';
 
@@ -153,6 +159,30 @@ const PRESETS: MenuItem = {
     })),
 };
 
+/** What each layout is called in a menu. */
+export const LAYOUT_LABELS: Readonly<Record<LayoutId, string>> = {
+  '1x1': 'One viewport',
+  '1x2': 'Two side by side',
+  '2x2': 'Two by two',
+  '1+3': 'One large, three small',
+};
+
+/** The layouts as a menu: the one in use is marked, and choosing one needs no series. */
+const LAYOUT: MenuItem = {
+  type: 'menu',
+  id: 'layout',
+  label: 'Layout',
+  icon: 'layout',
+  items: ({ viewer }) =>
+    LAYOUTS.map((layout) => ({
+      id: `layout-${layout}`,
+      label: LAYOUT_LABELS[layout],
+      enabled: () => true,
+      run: () => viewer.setLayout(layout),
+      pressed: () => viewer.getState().layout === layout,
+    })),
+};
+
 /** The measurement tools as a menu: the left mouse button draws the one that is chosen. */
 const MEASURE: MenuItem = {
   type: 'menu',
@@ -183,6 +213,7 @@ export const TOOLBAR_ACTIONS: {
   readonly reset: ActionItem;
   readonly cine: ActionItem;
   readonly presets: MenuItem;
+  readonly layout: MenuItem;
   readonly measure: MenuItem;
 } = {
   zoomIn: ZOOM_IN,
@@ -191,6 +222,7 @@ export const TOOLBAR_ACTIONS: {
   reset: RESET,
   cine: CINE,
   presets: PRESETS,
+  layout: LAYOUT,
   measure: MEASURE,
 };
 
@@ -209,6 +241,7 @@ export const DEFAULT_TOOLBAR: readonly ToolbarItem[] = [
   RESET,
   CINE,
   { type: 'separator' },
+  LAYOUT,
   PRESETS,
 ];
 
