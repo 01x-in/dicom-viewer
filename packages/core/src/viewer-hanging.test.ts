@@ -156,6 +156,9 @@ describe('viewer.hangingProtocols', () => {
     await expect(h.viewer.hangingProtocols.apply()).rejects.toThrow('no picture');
     expect(h.viewer.getState()).toEqual(before);
     expect(h.viewer.viewports.active).toBe('vp-0');
+    // The engine shows the prior series again, on a stack that is still live.
+    expect(h.viewer.viewports.get('vp-0')?.series?.seriesInstanceUID).toBe(CT_TWO_STACKS);
+    expect(h.port.stacks.at(-1)?.destroyed).toBe(false);
     h.port.renderStack = original;
   });
 });
