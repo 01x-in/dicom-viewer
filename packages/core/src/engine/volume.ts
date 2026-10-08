@@ -88,7 +88,9 @@ export function volumesHeld(): number {
 
 function firstNumber(stack: SeriesStack, tag: string): number | undefined {
   const value = stack.instances[0]?.metadata[tag]?.Value?.[0];
-  return typeof value === 'number' ? value : undefined;
+  // A decimal string (DS) may arrive as text, as the data layer's own reader accepts.
+  const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  return typeof number === 'number' && Number.isFinite(number) ? number : undefined;
 }
 
 /** The window the images ask for, from the headers of the first one. */

@@ -155,6 +155,7 @@ describe('viewer.hangingProtocols', () => {
     };
     await expect(h.viewer.hangingProtocols.apply()).rejects.toThrow('no picture');
     expect(h.viewer.getState()).toEqual(before);
+    expect(h.viewer.viewports.active).toBe('vp-0');
     h.port.renderStack = original;
   });
 });

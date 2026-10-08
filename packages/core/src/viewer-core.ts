@@ -1362,6 +1362,7 @@ export function createViewerCore(
         continue;
       }
       const before = store.getState();
+      const activeBefore = activeViewport;
       try {
         await hangNow(match);
       } catch (error) {
@@ -1369,6 +1370,7 @@ export function createViewerCore(
         store.update({ layout: before.layout, viewports: before.viewports }, 'api');
         dropRemovedViewports();
         for (const viewport of before.viewports) await syncViewport(viewport.id).catch(noop);
+        if (viewportState(activeBefore) !== undefined) makeActive(activeBefore);
         throw error;
       }
       return match;
