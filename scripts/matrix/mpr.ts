@@ -186,7 +186,8 @@ export async function scenarioMpr(browser: Browser, input: HeadlessInput): Promi
     let previous = '';
     for (let tries = 0; tries < 60; tries += 1) {
       const looks = JSON.stringify(
-        await Promise.all(PLANES.map(async (plane) => (await read(page, plane.selector)).box)),
+        // The middle row and column as well as the box, so a plane still filling in is not taken for done.
+        await Promise.all(PLANES.map((plane) => read(page, plane.selector))),
       );
       if (looks === previous) break;
       previous = looks;
