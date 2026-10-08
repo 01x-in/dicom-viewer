@@ -113,7 +113,11 @@ async function loadInstance(path: string): Promise<InstanceRecord> {
 
 /** Loads every `<dir>/<series>/*.dcm` and groups the instances by series. */
 export async function loadFixtures(dir: string): Promise<FixtureStore> {
-  const entries = await readdir(dir, { withFileTypes: true });
+  // `readdir` has no order on most file systems, and the first study of the store is the main one
+  // for every consumer: read the directories by name.
+  const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
   const series: SeriesRecord[] = [];
   for (const entry of entries.filter((candidate) => candidate.isDirectory())) {
     const names = (await readdir(join(dir, entry.name))).filter((name) => name.endsWith('.dcm'));

@@ -1,4 +1,8 @@
-import type { SeriesSummary, Viewer } from '@scope/viewer-core';
+import {
+  isDisplayableModality as coreIsDisplayableModality,
+  type SeriesSummary,
+  type Viewer,
+} from '@scope/viewer-core';
 import {
   css,
   type CSSResultGroup,
@@ -9,14 +13,13 @@ import {
   type PropertyValues,
   type TemplateResult,
 } from 'lit';
+import { SERIES_DRAG_TYPE, seriesDragData } from './series-drag';
 import { nextFocusIndex } from './toolbar-config';
 import { baseStyles, themeStyles } from './theme';
 
-/** Modalities that hold no picture to show, so they cannot be put in a viewport. */
-const NOT_IMAGES: ReadonlySet<string> = new Set(['SEG', 'SR', 'KO', 'PR', 'DOC', 'REG', 'RWV']);
-
+/** Whether a series of this modality has pictures that can be put in a viewport. */
 export function isDisplayableModality(modality: string): boolean {
-  return !NOT_IMAGES.has(modality);
+  return coreIsDisplayableModality(modality);
 }
 
 /** What a row says about its series. Pure, so the wording is tested without a DOM. */
@@ -128,7 +131,8 @@ export class DvSeriesBrowserElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
-  declare viewportId: string;
+  /** The viewport the browser shows and fills. Default: the active one, which follows the person. */
+  declare viewportId: string | undefined;
   declare label: string;
   declare series: readonly SeriesSummary[];
   declare shownUid: string | undefined;
@@ -143,7 +147,7 @@ export class DvSeriesBrowserElement extends LitElement {
 
   constructor() {
     super();
-    this.viewportId = 'vp-0';
+    this.viewportId = undefined;
     this.label = 'Series';
     this.series = [];
     this.shownUid = undefined;
@@ -206,6 +210,9 @@ export class DvSeriesBrowserElement extends LitElement {
       viewer.on('state:changed', () => {
         this.#sync();
       }),
+      viewer.on('viewport:active', () => {
+        this.#sync();
+      }),
     ];
   }
 
@@ -226,9 +233,10 @@ export class DvSeriesBrowserElement extends LitElement {
       this.#rovingIndex = 0;
     }
     this.series = study?.series ?? [];
+    const target = this.viewportId ?? viewer?.viewports.active;
     this.shownUid = viewer
       ?.getState()
-      .viewports.find((viewport) => viewport.id === this.viewportId)?.seriesInstanceUID;
+      .viewports.find((viewport) => viewport.id === target)?.seriesInstanceUID;
   }
 
   #setThumbnail(uid: string, thumbnail: Thumbnail): void {
@@ -262,18 +270,20 @@ export class DvSeriesBrowserElement extends LitElement {
   #choose(summary: SeriesSummary): void {
     const { viewer } = this;
     if (viewer === undefined || !isDisplayableModality(summary.modality)) return;
-    viewer.setViewportSeries(this.viewportId, summary.seriesInstanceUID).catch((error: unknown) => {
-      this.dispatchEvent(
-        new CustomEvent<{ error: Error; context: 'series' }>('dv-error', {
-          detail: {
-            error: error instanceof Error ? error : new Error(String(error)),
-            context: 'series',
-          },
-          bubbles: true,
-          composed: true,
-        }),
-      );
-    });
+    viewer
+      .setViewportSeries(this.viewportId ?? viewer.viewports.active, summary.seriesInstanceUID)
+      .catch((error: unknown) => {
+        this.dispatchEvent(
+          new CustomEvent<{ error: Error; context: 'series' }>('dv-error', {
+            detail: {
+              error: error instanceof Error ? error : new Error(String(error)),
+              context: 'series',
+            },
+            bubbles: true,
+            composed: true,
+          }),
+        );
+      });
   }
 
   #onKeydown(event: KeyboardEvent, summary: SeriesSummary): void {
@@ -290,6 +300,21 @@ export class DvSeriesBrowserElement extends LitElement {
     rows[next]?.focus();
   }
 
+  /** A series can be dragged onto a viewport. The payload is the series and its study, as one type only. */
+  #onDragStart(event: DragEvent, summary: SeriesSummary, displayable: boolean): void {
+    const studyInstanceUID = this.viewer?.getState().studyInstanceUID;
+    const { dataTransfer } = event;
+    if (!displayable || studyInstanceUID === undefined || dataTransfer === null) {
+      event.preventDefault();
+      return;
+    }
+    dataTransfer.setData(
+      SERIES_DRAG_TYPE,
+      seriesDragData(studyInstanceUID, summary.seriesInstanceUID),
+    );
+    dataTransfer.effectAllowed = 'copy';
+  }
+
   #renderRow(summary: SeriesSummary, position: number): TemplateResult {
     const { title, detail } = describeSeries(summary);
     const selected = summary.seriesInstanceUID === this.shownUid;
@@ -303,6 +328,10 @@ export class DvSeriesBrowserElement extends LitElement {
       aria-selected=${selected ? 'true' : 'false'}
       aria-disabled=${displayable ? nothing : 'true'}
       aria-label=${`${title}, ${detail}`}
+      draggable=${displayable ? 'true' : 'false'}
+      @dragstart=${(event: DragEvent): void => {
+        this.#onDragStart(event, summary, displayable);
+      }}
       @click=${(): void => {
         this.#choose(summary);
       }}

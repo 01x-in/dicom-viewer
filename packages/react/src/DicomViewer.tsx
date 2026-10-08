@@ -28,6 +28,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { sameViewState, viewStatePatch } from '@scope/viewer-core';
 import { ViewerContext } from './context';
 
 /** A side panel written in React. It is drawn into a portal, so it keeps the host's context. */
@@ -69,6 +70,14 @@ export interface DicomViewerProps {
   readonly navigate?: NavigateTarget | undefined;
   /** Read when the viewer starts. Later changes are ignored: use the viewer's API to change the view. */
   readonly initialState?: ViewerStateV1 | undefined;
+  /**
+   * The view the page wants: the layout, and in every viewport the series, plane, slice, window,
+   * and zoom. The viewer shows it when it starts, and again whenever it gets another; what a state
+   * leaves out of a viewport is cleared. Pair it with `onStateChange` to keep it up to date, as for
+   * any controlled input: a state that is the one the viewer is in changes nothing. The study is
+   * not part of it (use `studyInstanceUID`), and neither are measurements and SEGs.
+   */
+  readonly state?: ViewerStateV1 | undefined;
   /** Called after every change of the state, with who made it. */
   readonly onStateChange?: ((state: ViewerStateV1, origin: string) => void) | undefined;
   /** Items for the toolbar, or `false` for none. Default: the built-in tools, actions and presets. */
@@ -184,7 +193,8 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
   useEffect(() => {
     const element = elementRef.current;
     if (!defined || element === null) return;
-    const { initialState } = latest.current;
+    // A controlled state starts the viewer too, unless the page has an initial one of its own.
+    const initialState = latest.current.initialState ?? latest.current.state;
     element.options = initialState === undefined ? options : { ...options, initialState };
     element.config = config;
     element.commands = commands;
@@ -272,6 +282,17 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
       latest.current.onStateChange?.(state, origin);
     });
   }, [viewer]);
+
+  // A state the page gives is shown. One that is the state the viewer is in changes nothing.
+  const stateKey = props.state === undefined ? '' : JSON.stringify(props.state);
+  useEffect(() => {
+    const wanted = latest.current.state;
+    if (viewer === undefined || wanted === undefined) return;
+    if (sameViewState(viewer.getState(), wanted)) return;
+    viewer.setState(viewStatePatch(wanted)).catch((error: unknown) => {
+      latest.current.onError?.(error instanceof Error ? error : new Error(String(error)));
+    });
+  }, [viewer, stateKey]);
 
   const navigateKey = targetKey(props.navigate);
   useEffect(() => {

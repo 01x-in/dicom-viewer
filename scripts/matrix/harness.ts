@@ -58,6 +58,9 @@ export async function watch(browser: Browser, trackGl = false): Promise<Watched>
     // Remember every WebGL context so a leak shows up as one that is still alive after the viewers are gone.
     await page.addInitScript(() => {
       window.__dvGl = [];
+      // A context is asked for again on every render (a volume does), and the same one comes back:
+      // it is one context however many times it is asked for.
+      const seen = new WeakSet();
       for (const prototype of [HTMLCanvasElement.prototype, OffscreenCanvas.prototype]) {
         // eslint-disable-next-line @typescript-eslint/unbound-method -- it is called with the right `this` below
         const original = prototype.getContext as (this: unknown, ...args: unknown[]) => unknown;
@@ -72,7 +75,10 @@ export async function watch(browser: Browser, trackGl = false): Promise<Watched>
               (typeof WebGL2RenderingContext !== 'undefined' &&
                 result instanceof WebGL2RenderingContext))
           ) {
-            window.__dvGl?.push(new WeakRef(result));
+            if (!seen.has(result)) {
+              seen.add(result);
+              window.__dvGl?.push(new WeakRef(result));
+            }
           }
           return result;
         };

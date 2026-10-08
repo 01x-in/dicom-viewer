@@ -20,6 +20,7 @@ describe('the tools of a viewer', () => {
       'pan',
       'zoom',
       'stack-scroll',
+      'crosshairs',
       'length',
       'bidirectional',
       'ellipse',
@@ -30,6 +31,43 @@ describe('the tools of a viewer', () => {
     expect(viewer.tools.list().filter((tool) => tool.kind === 'measure')).toHaveLength(6);
     expect(viewer.tools.list()).toEqual(PRIMARY_TOOLS);
     expect(viewer.tools.getActive()).toBe('window-level');
+  });
+
+  it('has crosshairs among the view tools', () => {
+    const crosshairs = harness()
+      .viewer.tools.list()
+      .find((tool) => tool.id === 'crosshairs');
+    expect(crosshairs).toEqual({ id: 'crosshairs', label: 'Crosshairs', kind: 'view' });
+  });
+
+  it('offers crosshairs only while two planes of one volume are on screen', async () => {
+    const h = harness();
+    h.viewer.viewports.attach('vp-0', h.element);
+    await h.viewer.loadStudy(STUDY);
+    expect(h.viewer.tools.isAvailable('crosshairs')).toBe(false);
+    expect(h.viewer.tools.isAvailable('pan')).toBe(true);
+    await h.viewer.setLayout('1x2');
+    h.viewer.viewports.attach('vp-1', document.createElement('div'));
+    await h.viewer.setViewportSeries('vp-0', CT, { orientation: 'axial' });
+    expect(h.viewer.tools.isAvailable('crosshairs')).toBe(false);
+    await h.viewer.setViewportSeries('vp-1', CT, { orientation: 'coronal' });
+    expect(h.viewer.tools.isAvailable('crosshairs')).toBe(true);
+    // Two planes of different volumes are not linked.
+    await h.viewer.setViewportSeries('vp-1', CT_TWO_STACKS, { orientation: 'coronal' });
+    expect(h.viewer.tools.isAvailable('crosshairs')).toBe(false);
+    // Slices are not planes.
+    await h.viewer.setViewportSeries('vp-1', CT);
+    expect(h.viewer.tools.isAvailable('crosshairs')).toBe(false);
+  });
+
+  it('gives crosshairs to a plane, which can use it, and to nothing else', async () => {
+    const h = harness();
+    h.viewer.viewports.attach('vp-0', h.element);
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.setViewportSeries('vp-0', CT, { orientation: 'axial' });
+    await h.viewer.tools.setActive('crosshairs');
+    expect(h.port.stacks[0]?.primaryTool).toBe('crosshairs');
+    expect(h.viewer.tools.getActive()).toBe('crosshairs');
   });
 
   it('gives the active tool to every stack it draws', async () => {

@@ -2,6 +2,7 @@ import {
   type CommandInput,
   createDicomWebDataSource,
   createViewer,
+  describeFallback,
   parseViewerConfig,
   type ResolvedViewerConfig,
   type Viewer,
@@ -20,6 +21,7 @@ import {
   type TemplateResult,
 } from 'lit';
 import { layoutCells } from './layout';
+import { hasSeriesDrag, readSeriesDrag, SERIES_DRAG_TYPE } from './series-drag';
 import { createThrottledAnnouncer, describeViewport, type ThrottledAnnouncer } from './live-label';
 import type { DvMeasurementListElement } from './measurement-list';
 import type { DvSegmentationListElement } from './segmentation-list';
@@ -118,6 +120,7 @@ export class DvViewerElement extends LitElement {
     status: { reflect: true },
     shown: { state: true },
     announcement: { state: true },
+    notices: { state: true },
   };
 
   static override styles: CSSResultGroup = [
@@ -178,6 +181,33 @@ export class DvViewerElement extends LitElement {
       ::slotted([data-viewport-id]:focus-visible) {
         outline: 2px solid var(--dv-color-focus);
         outline-offset: -2px;
+      }
+      /* The viewport the toolbar acts on, when there is more than one. */
+      ::slotted([data-viewport-id][data-active]) {
+        box-shadow: inset 0 0 0 2px var(--dv-color-accent);
+      }
+      /* Where a dragged series would land. Over the viewport, which fills its cell. */
+      .cell[data-drop-target]::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        border: 3px solid var(--dv-color-accent);
+        pointer-events: none;
+      }
+      /* Why a viewport shows slices where it was asked for a plane. */
+      .notice {
+        position: absolute;
+        inset-inline: var(--dv-space);
+        bottom: var(--dv-space);
+        z-index: 1;
+        padding: var(--dv-space);
+        border: 1px solid var(--dv-color-border);
+        border-radius: var(--dv-radius);
+        background: var(--dv-color-surface);
+        color: var(--dv-color-text);
+        font-size: 0.85em;
+        pointer-events: none;
       }
       .overlay {
         position: absolute;
@@ -252,6 +282,8 @@ export class DvViewerElement extends LitElement {
   declare status: ViewerStatus;
   declare shown: boolean;
   declare announcement: string;
+  /** Why a viewport shows slices where it was asked for a plane, by viewport id. */
+  declare notices: Readonly<Record<string, string>>;
 
   #viewer: Viewer | undefined;
   #generation = 0;
@@ -282,6 +314,7 @@ export class DvViewerElement extends LitElement {
     this.status = 'idle';
     this.shown = false;
     this.announcement = '';
+    this.notices = {};
   }
 
   /** The viewer this element runs, while it has one. */
@@ -361,6 +394,7 @@ export class DvViewerElement extends LitElement {
     for (const element of this.#viewportElements.splice(0)) element.remove();
     this.shown = false;
     this.announcement = '';
+    this.notices = {};
   }
 
   #fail(error: unknown, context: string): void {
@@ -501,10 +535,22 @@ export class DvViewerElement extends LitElement {
     };
   }
 
-  /** The viewports go in the light DOM, where Cornerstone can measure them, named for the slot that shows them. */
-  #createViewportElements(viewer: Viewer): void {
+  /**
+   * The viewports go in the light DOM, where Cornerstone can measure them, named for the slot that
+   * shows them. One element per viewport of the layout: a new one is attached, and one the layout no
+   * longer has is detached and removed. Safe to call again.
+   */
+  #syncViewportElements(viewer: Viewer): void {
     const { ids } = layoutCells(viewer.getState().layout);
+    for (const element of [...this.#viewportElements]) {
+      const id = element.dataset['viewportId'];
+      if (id !== undefined && ids.includes(id)) continue;
+      if (id !== undefined) viewer.viewports.detach(id);
+      element.remove();
+      this.#viewportElements.splice(this.#viewportElements.indexOf(element), 1);
+    }
     for (const id of ids) {
+      if (this.#viewportElements.some((element) => element.dataset['viewportId'] === id)) continue;
       const element = document.createElement('div');
       element.slot = `viewport-${id}`;
       element.className = 'dv-viewport';
@@ -513,11 +559,62 @@ export class DvViewerElement extends LitElement {
       element.setAttribute('aria-roledescription', 'DICOM viewport');
       element.setAttribute(
         'aria-label',
-        describeViewport({ name: undefined, imageIndex: undefined, imageCount: 0 }),
+        describeViewport({
+          name: undefined,
+          imageIndex: undefined,
+          imageCount: 0,
+          position: { index: ids.indexOf(id), count: ids.length },
+        }),
       );
       this.append(element);
       this.#viewportElements.push(element);
       viewer.viewports.attach(id, element);
+    }
+    this.#refreshActive(viewer);
+  }
+
+  #onDragOver(event: DragEvent): void {
+    if (!hasSeriesDrag(event.dataTransfer)) return;
+    // Cancelling the event is what makes the cell a place the series can be dropped.
+    event.preventDefault();
+    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'copy';
+    if (event.currentTarget instanceof HTMLElement) {
+      event.currentTarget.toggleAttribute('data-drop-target', true);
+    }
+  }
+
+  #onDragLeave(event: DragEvent): void {
+    if (event.currentTarget instanceof HTMLElement) {
+      event.currentTarget.toggleAttribute('data-drop-target', false);
+    }
+  }
+
+  /** A series dropped on a viewport is shown there, and the viewport becomes the active one. */
+  #onDrop(event: DragEvent, viewportId: string): void {
+    if (event.currentTarget instanceof HTMLElement) {
+      event.currentTarget.toggleAttribute('data-drop-target', false);
+    }
+    const { dataTransfer } = event;
+    const viewer = this.#viewer;
+    if (viewer === undefined || dataTransfer === null || !hasSeriesDrag(dataTransfer)) return;
+    event.preventDefault();
+    // A drop can come from another page, or another viewer on this one: only this study's series.
+    const dropped = readSeriesDrag(dataTransfer.getData(SERIES_DRAG_TYPE));
+    if (dropped === undefined || dropped.studyInstanceUID !== viewer.getState().studyInstanceUID) {
+      return;
+    }
+    viewer.viewports.setActive(viewportId);
+    viewer.setViewportSeries(viewportId, dropped.seriesInstanceUID).catch((error: unknown) => {
+      this.#fail(error, 'drop');
+    });
+  }
+
+  /** Marks the viewport the toolbar acts on, but only where there is more than one to tell apart. */
+  #refreshActive(viewer: Viewer): void {
+    const many = this.#viewportElements.length > 1;
+    for (const element of this.#viewportElements) {
+      const active = many && element.dataset['viewportId'] === viewer.viewports.active;
+      element.toggleAttribute('data-active', active);
     }
   }
 
@@ -528,11 +625,16 @@ export class DvViewerElement extends LitElement {
     const state = viewer.getState();
     const series = viewer.getStudy()?.series ?? [];
     const spoken: string[] = [];
+    const notices: Record<string, string> = {};
     for (const element of this.#viewportElements) {
       const id = element.dataset['viewportId'];
       const viewport = state.viewports.find((candidate) => candidate.id === id);
       const api = id === undefined ? undefined : viewer.viewports.get(id);
       const summary = series.find((item) => item.seriesInstanceUID === viewport?.seriesInstanceUID);
+      const mpr = api?.mpr;
+      if (id !== undefined && mpr?.mode === 'stack' && mpr.reason !== undefined) {
+        notices[id] = describeFallback(mpr.reason);
+      }
       const text = describeViewport({
         name: summary === undefined ? undefined : (summary.description ?? summary.modality),
         imageIndex: viewport?.imageIndex,
@@ -540,11 +642,17 @@ export class DvViewerElement extends LitElement {
         window: viewport?.window,
         invert: viewport?.invert,
         zoom: viewport?.zoom,
+        plane: mpr?.mode === 'volume' ? mpr.requested : undefined,
+        position: {
+          index: state.viewports.findIndex((candidate) => candidate.id === id),
+          count: state.viewports.length,
+        },
       });
       element.setAttribute('aria-label', text);
       spoken.push(text);
     }
     this.shown = state.viewports.some((viewport) => viewport.seriesInstanceUID !== undefined);
+    if (JSON.stringify(notices) !== JSON.stringify(this.notices)) this.notices = notices;
     if (announce) this.#announcer?.push(spoken.join('. '));
   }
 
@@ -648,8 +756,23 @@ export class DvViewerElement extends LitElement {
         viewer.on('error', ({ error, context }) => {
           this.#fail(error, context);
         }),
-        viewer.on('state:changed', () => {
+        viewer.on('state:changed', ({ state, previous }) => {
+          if (state.layout !== previous.layout) {
+            this.#syncViewportElements(viewer);
+            this.requestUpdate();
+          }
           this.#refreshLabels(true);
+        }),
+        viewer.on('viewport:active', () => {
+          this.#refreshActive(viewer);
+        }),
+        // A viewport that asked for a plane and got slices says why.
+        viewer.on('viewport:mpr', () => {
+          this.#refreshLabels(true);
+        }),
+        // Every new picture reports its slice, so the notice follows a viewport that went back to slices.
+        viewer.on('viewport:image', () => {
+          this.#refreshLabels(false);
         }),
         viewer.on('study:loaded', () => {
           this.#refreshLabels(false);
@@ -665,7 +788,7 @@ export class DvViewerElement extends LitElement {
       this.#syncMeasurementsPanel(viewer);
       this.#syncSegmentationsPanel(viewer);
       // A throw here (and any later one) lands in the catch below, which reports it.
-      this.#createViewportElements(viewer);
+      this.#syncViewportElements(viewer);
       await viewer.loadStudy(study);
       if (generation !== this.#generation) return;
       const showing = viewer.getState().viewports.find((viewport) => viewport.id === 'vp-0');
@@ -674,8 +797,10 @@ export class DvViewerElement extends LitElement {
           await viewer.setViewportSeries('vp-0', this.seriesInstanceUid);
         }
       } else if (showing?.seriesInstanceUID === undefined) {
-        // Nothing asked for and nothing restored.
-        await this.#showFirstPictureSeries(viewer, generation);
+        // Nothing asked for and nothing restored: the host's protocols hang the study, else the first picture shows.
+        if (!(await this.#hang(viewer))) {
+          await this.#showFirstPictureSeries(viewer, generation);
+        }
       }
       if (generation !== this.#generation) return;
       this.#refreshLabels(false);
@@ -700,6 +825,17 @@ export class DvViewerElement extends LitElement {
   #shownViewport(viewer: Viewer): ViewportApi | undefined {
     const viewport = viewer.viewports.get('vp-0');
     return viewport?.series === undefined ? undefined : viewport;
+  }
+
+  /** Hangs the study with the host's hanging protocols. `false` when there are none, none fits, or none could be opened. */
+  async #hang(viewer: Viewer): Promise<boolean> {
+    if (viewer.hangingProtocols.list().length === 0) return false;
+    try {
+      return (await viewer.hangingProtocols.apply()) !== undefined;
+    } catch {
+      // The first picture series is tried next, and reports its own failure.
+      return false;
+    }
   }
 
   /**
@@ -742,7 +878,7 @@ export class DvViewerElement extends LitElement {
 
   override render(): TemplateResult {
     const viewer = this.#viewer;
-    const { ids, columns, rows } = layoutCells(viewer?.getState().layout ?? '1x1');
+    const { cells, columns, rows } = layoutCells(viewer?.getState().layout ?? '1x1');
     return html`<div class="shell" part="shell" role="region" aria-label=${this.label}>
       <div class="banner" part="banner"><slot name="banner"></slot></div>
       ${
@@ -761,7 +897,14 @@ export class DvViewerElement extends LitElement {
           part="stage"
           style=${`grid-template-columns: repeat(${columns.toString()}, minmax(0, 1fr)); grid-template-rows: repeat(${rows.toString()}, minmax(0, 1fr));`}
         >
-          ${ids.map((id) => html`<div class="cell"><slot name="viewport-${id}"></slot></div>`)}
+          ${cells.map(
+            (cell) =>
+              html`<div class="cell" @dragover=${this.#onDragOver} @dragleave=${this.#onDragLeave} @drop=${(
+                event: DragEvent,
+              ): void => {
+                this.#onDrop(event, cell.id);
+              }} style=${`grid-column: ${cell.column.toString()} / span ${cell.columnSpan.toString()}; grid-row: ${cell.row.toString()} / span ${cell.rowSpan.toString()};`}><slot name="viewport-${cell.id}"></slot>${this.notices[cell.id] === undefined ? nothing : html`<div class="notice" role="note"><strong>Slices</strong> ${this.notices[cell.id]}</div>`}</div>`,
+          )}
           <div class="overlay"><slot name="viewport-overlay"></slot></div>
           ${
             this.shown || this.status === 'loading'

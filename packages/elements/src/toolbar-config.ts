@@ -1,4 +1,10 @@
-import type { KeyAction, PrimaryTool, Viewer } from '@scope/viewer-core';
+import {
+  type KeyAction,
+  LAYOUTS,
+  type LayoutId,
+  type PrimaryTool,
+  type Viewer,
+} from '@scope/viewer-core';
 import type { TemplateResult } from 'lit';
 import type { IconName } from './icons';
 
@@ -14,6 +20,7 @@ export const TOOL_ICONS: Readonly<Record<PrimaryTool, IconName>> = {
   pan: 'pan',
   zoom: 'zoom',
   'stack-scroll': 'stack-scroll',
+  crosshairs: 'crosshairs',
   length: 'length',
   bidirectional: 'bidirectional',
   ellipse: 'ellipse',
@@ -153,6 +160,40 @@ const PRESETS: MenuItem = {
     })),
 };
 
+/** What each layout is called in a menu. */
+export const LAYOUT_LABELS: Readonly<Record<LayoutId, string>> = {
+  '1x1': 'One viewport',
+  '1x2': 'Two side by side',
+  '2x2': 'Two by two',
+  '1+3': 'One large, three small',
+};
+
+/** The layouts as a menu: the one in use is marked, and choosing one needs no series. */
+const LAYOUT: MenuItem = {
+  type: 'menu',
+  id: 'layout',
+  label: 'Layout',
+  icon: 'layout',
+  items: ({ viewer }) => [
+    ...LAYOUTS.map((layout) => ({
+      id: `layout-${layout}`,
+      label: LAYOUT_LABELS[layout],
+      enabled: () => true,
+      run: () => viewer.setLayout(layout),
+      // A 2x2 of planes is the last entry, not this one.
+      pressed: () =>
+        viewer.getState().layout === layout && viewer.commands.pressed('mpr.show') !== true,
+    })),
+    {
+      id: 'layout-mpr',
+      label: 'Three planes and slices',
+      // Needs a series on screen to reformat: the default of an action.
+      run: () => viewer.showMpr(),
+      pressed: () => viewer.commands.pressed('mpr.show') === true,
+    },
+  ],
+};
+
 /** The measurement tools as a menu: the left mouse button draws the one that is chosen. */
 const MEASURE: MenuItem = {
   type: 'menu',
@@ -183,6 +224,7 @@ export const TOOLBAR_ACTIONS: {
   readonly reset: ActionItem;
   readonly cine: ActionItem;
   readonly presets: MenuItem;
+  readonly layout: MenuItem;
   readonly measure: MenuItem;
 } = {
   zoomIn: ZOOM_IN,
@@ -191,6 +233,7 @@ export const TOOLBAR_ACTIONS: {
   reset: RESET,
   cine: CINE,
   presets: PRESETS,
+  layout: LAYOUT,
   measure: MEASURE,
 };
 
@@ -200,6 +243,7 @@ export const DEFAULT_TOOLBAR: readonly ToolbarItem[] = [
   { type: 'tool', tool: 'pan' },
   { type: 'tool', tool: 'zoom' },
   { type: 'tool', tool: 'stack-scroll' },
+  { type: 'tool', tool: 'crosshairs' },
   { type: 'separator' },
   MEASURE,
   { type: 'separator' },
@@ -209,6 +253,7 @@ export const DEFAULT_TOOLBAR: readonly ToolbarItem[] = [
   RESET,
   CINE,
   { type: 'separator' },
+  LAYOUT,
   PRESETS,
 ];
 

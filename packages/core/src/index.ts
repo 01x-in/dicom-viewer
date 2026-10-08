@@ -1,5 +1,6 @@
 export { createDicomWebDataSource } from './data/dicomweb';
 export { DataSourceError } from './data/errors';
+export { isDicomUid } from './data/uid';
 export type { DicomWebDataSourceOptions } from './data/dicomweb';
 export type { DicomWebRequest, RetryOptions } from './data/request';
 export type {
@@ -24,6 +25,28 @@ export {
   isBrowserEnvironment,
 } from './environment';
 export type { ViewSnapshot, WindowLevel } from './rendering-port';
+export {
+  DEFAULT_HANGING_PROTOCOLS,
+  isDisplayableModality,
+  matchHangingProtocol,
+  parseHangingProtocols,
+} from './hanging';
+export type {
+  HangingAssignment,
+  HangingMatch,
+  HangingProtocol,
+  HangingViewport,
+  SeriesRule,
+} from './hanging';
+export {
+  decideMpr,
+  describeFallback,
+  isMprOrientation,
+  MPR_ORIENTATIONS,
+} from './mpr';
+export type { MprDecision, MprFallbackReason, MprOrientation } from './mpr';
+export { isLayout, LAYOUTS, layoutCells, layoutViewportIds } from './layouts';
+export type { LayoutCell, LayoutCells, LayoutId } from './layouts';
 export { createEmitter } from './state/events';
 export type { Unsubscribe } from './state/events';
 export type { StateOrigin, SubscribeOptions } from './state/store';
@@ -31,7 +54,9 @@ export { decodeViewerState, encodeViewerState } from './state/url';
 export {
   createInitialState,
   parseViewerState,
+  sameViewState,
   viewerStateV1Schema,
+  viewStatePatch,
 } from './state/viewer-state';
 export type { ParseResult, ViewerStateV1, ViewportStateV1 } from './state/viewer-state';
 export { describeOverlay, overlayLines, renderOverlay } from './overlay';
@@ -148,6 +173,9 @@ export type { Command, CommandContext, CommandInput, CommandsApi } from './comma
 export type { ParsedViewerConfig } from './config/schema';
 export type {
   ConfigApi,
+  HangingProtocolsApi,
+  ShowMprOptions,
+  ViewportMprInfo,
   NavigateResult,
   NavigateTarget,
   SetViewportSeriesOptions,

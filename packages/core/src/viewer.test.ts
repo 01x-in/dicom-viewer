@@ -25,4 +25,16 @@ describe('createViewer', () => {
       viewer.destroy();
     }
   });
+
+  it('passes the hanging protocols on', () => {
+    const viewer = createViewer({
+      dataSource: fakeSource(),
+      hangingProtocols: [{ id: 'one', layout: '1x1', viewports: [{ id: 'vp-0', series: {} }] }],
+    });
+    try {
+      expect(viewer.hangingProtocols.list().map((protocol) => protocol.id)).toEqual(['one']);
+    } finally {
+      viewer.destroy();
+    }
+  });
 });

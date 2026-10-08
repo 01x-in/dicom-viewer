@@ -159,7 +159,7 @@ export class DvMeasurementListElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
-  declare viewportId: string;
+  declare viewportId: string | undefined;
   declare label: string;
   declare items: readonly Measurement[];
   declare selectedId: string | undefined;
@@ -174,7 +174,7 @@ export class DvMeasurementListElement extends LitElement {
 
   constructor() {
     super();
-    this.viewportId = 'vp-0';
+    this.viewportId = undefined;
     this.label = 'Measurements';
     this.items = [];
     this.selectedId = undefined;
@@ -272,8 +272,9 @@ export class DvMeasurementListElement extends LitElement {
   }
 
   #jump(measurement: Measurement): void {
-    this.viewer?.measurements
-      .jumpTo(measurement.id, { viewportId: this.viewportId })
+    const { viewer } = this;
+    viewer?.measurements
+      .jumpTo(measurement.id, { viewportId: this.viewportId ?? viewer.viewports.active })
       .catch((error: unknown) => {
         this.#fail(error);
       });

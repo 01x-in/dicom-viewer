@@ -8,6 +8,8 @@ import {
   init as initCornerstone,
   setUseCPURendering,
   utilities,
+  volumeLoader,
+  cornerstoneStreamingImageVolumeLoader,
 } from '@cornerstonejs/core';
 import {
   loadImage as loadWadorsImage,
@@ -19,6 +21,8 @@ import { createFrameRequests, type FrameRequests } from './frame-policy';
 import { LOCAL_FILE_SCHEME, loadLocalFileImage } from './local-files';
 import { registerTools } from './tools';
 
+/** The scheme of a volume id picks the loader that builds it. */
+export const VOLUME_SCHEME = 'cornerstoneStreamingImageVolume';
 const DECODE_WORKER_NAME = 'dicomImageLoader';
 /** The name @cornerstonejs/tools looks up for segmentation statistics and contours. */
 const COMPUTE_WORKER_NAME = 'compute';
@@ -132,6 +136,14 @@ function initializeOnce(options: RuntimeOptions): void {
   // after a 401 refresh.
   imageLoader.registerImageLoader('wadors', tracked(frameRequests.wrap(loadWadorsImage)));
   imageLoader.registerImageLoader(LOCAL_FILE_SCHEME, tracked(loadLocalFileImage));
+  // The loader that builds a volume from the images of a stack, for the reformatted planes.
+  volumeLoader.registerVolumeLoader(VOLUME_SCHEME, (volumeId, loaderOptions) => {
+    const imageIds = loaderOptions?.['imageIds'];
+    if (!Array.isArray(imageIds) || !imageIds.every((id) => typeof id === 'string')) {
+      throw new TypeError('A volume is built from a list of image ids.');
+    }
+    return cornerstoneStreamingImageVolumeLoader(volumeId, { imageIds });
+  });
   registerTools();
 }
 

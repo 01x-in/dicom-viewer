@@ -12,10 +12,13 @@ import type {
   PixelSlice,
   RenderingPort,
   RenderStackOptions,
+  RenderVolumeOptions,
   SegmentationHandle,
   StackPort,
   ViewSnapshot,
 } from '../rendering-port';
+import { VolumeUnsupportedError } from '../rendering-port';
+import type { MprOrientation } from '../mpr';
 import type { SegmentationDisplay } from '../segmentations/display';
 import type { SegmentationHeader } from '../segmentations/header';
 import type { SegmentIndexEntry, SegmentIndexResult } from '../segmentations/segment-index';
@@ -285,8 +288,20 @@ export function fakeSource(): FakeSource {
   };
 }
 
+/** How many slices a plane has: along the stack for axial, along the columns or rows for the others. */
+function planeCount(stack: SeriesStack, orientation: MprOrientation | undefined): number {
+  const first = stack.instances[0]?.metadata;
+  const rows = first?.['00280010']?.Value?.[0];
+  const columns = first?.['00280011']?.Value?.[0];
+  if (orientation === 'sagittal') return typeof columns === 'number' ? columns : 512;
+  if (orientation === 'coronal') return typeof rows === 'number' ? rows : 256;
+  return stack.imageIds.length;
+}
+
 export interface FakeStackPort extends StackPort {
   readonly element: HTMLElement;
+  /** The plane of a volume view, or `undefined` for a stack of slices. */
+  readonly orientation: MprOrientation | undefined;
   readonly stack: SeriesStack;
   destroyed: boolean;
   /** Every pixel sample this stack served, so a test can tell which stack answered. */
@@ -319,6 +334,10 @@ export interface FakePort extends RenderingPort {
   readonly stacks: FakeStackPort[];
   readonly log: string[];
   destroyed: boolean;
+  /** Every `renderVolume` call, as `coronal <first image id>`. */
+  readonly volumeCalls: string[];
+  /** Makes `renderVolume` throw `VolumeUnsupportedError`, as an engine without WebGL would. */
+  volumeUnsupported: boolean;
   /** Holds every `renderStack` until `release()`, to test what happens while one is in flight. */
   hold(): { release(): void };
   /** Every SEG the viewer asked the engine to parse, and what it gave. */
@@ -354,6 +373,7 @@ export function fakePort(): FakePort {
   const segmentationHandles: FakeSegmentationHandle[] = [];
   let segmentationFailure = false;
   let segmentationGate: Promise<void> | undefined;
+  const volumeCalls: string[] = [];
   const thumbnailCalls: string[] = [];
   let thumbnailFailure = false;
   let thumbnailGate: Promise<void> | undefined;
@@ -366,6 +386,173 @@ export function fakePort(): FakePort {
     return found === undefined ? undefined : port.segmentationDrawFaults.get(found.id);
   };
 
+  async function renderFake(
+    element: HTMLElement,
+    stack: SeriesStack,
+    options: RenderStackOptions,
+    orientation: MprOrientation | undefined,
+  ): Promise<FakeStackPort> {
+    log.push(`${orientation ?? 'render'} ${stack.imageIds[0] ?? '?'}`);
+    await gate;
+    const listeners = new Set<(index: number) => void>();
+    const viewListeners = new Set<(view: ViewSnapshot) => void>();
+    let view: ViewSnapshot = {
+      window: FAKE_DEFAULT_WINDOW,
+      defaultWindow: FAKE_DEFAULT_WINDOW,
+      invert: false,
+      zoom: 1,
+    };
+    const changeView = (change: Partial<ViewSnapshot>): void => {
+      view = { ...view, ...change };
+      for (const listener of [...viewListeners]) listener(view);
+    };
+    const count = planeCount(stack, orientation);
+    const last = count - 1;
+    let index =
+      options.imageIndex === undefined
+        ? Math.floor(count / 2)
+        : Math.min(Math.max(0, options.imageIndex), last);
+    const measurementListeners = new Set<(change: MeasurementChange) => void>();
+    const fake: FakeStackPort = {
+      element,
+      stack,
+      destroyed: false,
+      measurements: new Map(),
+      measurementCalls: [],
+      slicesRead: [],
+      segmentations: new Map(),
+      segmentationCalls: [],
+      emitMeasurement(change): void {
+        if (change.kind === 'completed' || change.kind === 'modified') {
+          fake.measurements.set(change.measurement.id, change.measurement);
+        } else if (change.kind === 'removed') {
+          fake.measurements.delete(change.id);
+        }
+        for (const listener of [...measurementListeners]) listener(change);
+      },
+      samples: [],
+      viewCalls: [],
+      renderOptions: options,
+      primaryTool: undefined,
+      imageCount: count,
+      orientation,
+      getImageIndex: () => index,
+      setImageIndex(next): Promise<void> {
+        index = next;
+        for (const listener of [...listeners]) listener(next);
+        return Promise.resolve();
+      },
+      emitImage(next): void {
+        index = next;
+        for (const listener of [...listeners]) listener(next);
+      },
+      onImageChange(listener): () => void {
+        listeners.add(listener);
+        return (): void => {
+          listeners.delete(listener);
+        };
+      },
+      getView: () => view,
+      setWindow(window): void {
+        fake.viewCalls.push(`window ${window.center.toString()}/${window.width.toString()}`);
+        changeView({ window });
+      },
+      setInvert(invert): void {
+        fake.viewCalls.push(`invert ${String(invert)}`);
+        changeView({ invert });
+      },
+      setZoom(zoom): void {
+        fake.viewCalls.push(`zoom ${zoom.toString()}`);
+        changeView({ zoom });
+      },
+      resetView(): void {
+        fake.viewCalls.push('reset');
+        changeView({ window: view.defaultWindow, invert: false, zoom: 1 });
+      },
+      setPrimaryTool(tool): void {
+        fake.primaryTool = tool;
+      },
+      emitView: changeView,
+      onViewChange(listener): () => void {
+        viewListeners.add(listener);
+        return (): void => {
+          viewListeners.delete(listener);
+        };
+      },
+      sampleHu(imageIndex, row, column): Promise<number> {
+        fake.samples.push({ imageIndex, row, column });
+        return Promise.resolve(imageIndex * 1000 + row * 10 + column);
+      },
+      readSlice(imageIndex): Promise<PixelSlice> {
+        fake.slicesRead.push(imageIndex);
+        const imageId = stack.imageIds[imageIndex];
+        if (imageId === undefined) {
+          return Promise.reject(new RangeError(`No image at index ${imageIndex.toString()}.`));
+        }
+        return Promise.resolve(port.sliceOf(imageId, imageIndex));
+      },
+      addMeasurement(measurement): void {
+        fake.measurementCalls.push(`add ${measurement.id}`);
+        if (fake.measurements.has(measurement.id)) return;
+        if (measurement.imageIndex < 0 || measurement.imageIndex >= stack.imageIds.length) return;
+        fake.measurements.set(measurement.id, measurement);
+      },
+      updateMeasurement(measurement): void {
+        fake.measurementCalls.push(`update ${measurement.id}`);
+        if (fake.measurements.has(measurement.id)) {
+          fake.measurements.set(measurement.id, measurement);
+        }
+      },
+      removeMeasurement(id): void {
+        fake.measurementCalls.push(`remove ${id}`);
+        fake.measurements.delete(id);
+      },
+      selectMeasurement(id): void {
+        fake.measurementCalls.push(`select ${id ?? 'none'}`);
+      },
+      onMeasurementChange(listener): () => void {
+        measurementListeners.add(listener);
+        return (): void => {
+          measurementListeners.delete(listener);
+        };
+      },
+      drawSegmentation(handle, display): boolean {
+        const fault = fakeFault(handle);
+        if (fault === 'throw') throw new Error('the engine failed to draw');
+        if (fault === 'refuse') return false;
+        if (port.throwOnSegmentationDraw) throw new Error('the engine failed to draw');
+        if (port.refuseSegmentations) return false;
+        const fakeHandle = segmentationHandles.find((candidate) => candidate === handle);
+        if (
+          fakeHandle === undefined ||
+          fakeHandle.disposed ||
+          fakeHandle.referencedImageIds.length !== stack.imageIds.length ||
+          fakeHandle.referencedImageIds.some((imageId, at) => imageId !== stack.imageIds[at])
+        ) {
+          return false;
+        }
+        fake.segmentationCalls.push(`draw ${fakeHandle.id}`);
+        fake.segmentations.set(fakeHandle, display);
+        return true;
+      },
+      hideSegmentation(handle): void {
+        const fakeHandle = segmentationHandles.find((candidate) => candidate === handle);
+        if (fakeHandle === undefined) return;
+        fake.segmentationCalls.push(`hide ${fakeHandle.id}`);
+        fake.segmentations.delete(fakeHandle);
+      },
+      destroy(): void {
+        fake.destroyed = true;
+        fake.segmentations.clear();
+        fake.measurements.clear();
+        measurementListeners.clear();
+        log.push(`destroy ${stack.imageIds[0] ?? '?'}`);
+      },
+    };
+    stacks.push(fake);
+    return fake;
+  }
+
   const port: FakePort = {
     sliceOf: (_imageId, imageIndex) => ({
       rows: 256,
@@ -374,6 +561,8 @@ export function fakePort(): FakePort {
     }),
     stacks,
     log,
+    volumeCalls,
+    volumeUnsupported: false,
     destroyed: false,
     segmentationLoads,
     segmentationHandles,
@@ -425,164 +614,15 @@ export function fakePort(): FakePort {
         },
       };
     },
-    async renderStack(element, stack, options: RenderStackOptions = {}): Promise<StackPort> {
-      log.push(`render ${stack.imageIds[0] ?? '?'}`);
-      await gate;
-      const listeners = new Set<(index: number) => void>();
-      const viewListeners = new Set<(view: ViewSnapshot) => void>();
-      let view: ViewSnapshot = {
-        window: FAKE_DEFAULT_WINDOW,
-        defaultWindow: FAKE_DEFAULT_WINDOW,
-        invert: false,
-        zoom: 1,
-      };
-      const changeView = (change: Partial<ViewSnapshot>): void => {
-        view = { ...view, ...change };
-        for (const listener of [...viewListeners]) listener(view);
-      };
-      const last = stack.imageIds.length - 1;
-      let index =
-        options.imageIndex === undefined
-          ? Math.floor(stack.imageIds.length / 2)
-          : Math.min(Math.max(0, options.imageIndex), last);
-      const measurementListeners = new Set<(change: MeasurementChange) => void>();
-      const fake: FakeStackPort = {
-        element,
-        stack,
-        destroyed: false,
-        measurements: new Map(),
-        measurementCalls: [],
-        slicesRead: [],
-        segmentations: new Map(),
-        segmentationCalls: [],
-        emitMeasurement(change): void {
-          if (change.kind === 'completed' || change.kind === 'modified') {
-            fake.measurements.set(change.measurement.id, change.measurement);
-          } else if (change.kind === 'removed') {
-            fake.measurements.delete(change.id);
-          }
-          for (const listener of [...measurementListeners]) listener(change);
-        },
-        samples: [],
-        viewCalls: [],
-        renderOptions: options,
-        primaryTool: undefined,
-        imageCount: stack.imageIds.length,
-        getImageIndex: () => index,
-        setImageIndex(next): Promise<void> {
-          index = next;
-          for (const listener of [...listeners]) listener(next);
-          return Promise.resolve();
-        },
-        emitImage(next): void {
-          index = next;
-          for (const listener of [...listeners]) listener(next);
-        },
-        onImageChange(listener): () => void {
-          listeners.add(listener);
-          return (): void => {
-            listeners.delete(listener);
-          };
-        },
-        getView: () => view,
-        setWindow(window): void {
-          fake.viewCalls.push(`window ${window.center.toString()}/${window.width.toString()}`);
-          changeView({ window });
-        },
-        setInvert(invert): void {
-          fake.viewCalls.push(`invert ${String(invert)}`);
-          changeView({ invert });
-        },
-        setZoom(zoom): void {
-          fake.viewCalls.push(`zoom ${zoom.toString()}`);
-          changeView({ zoom });
-        },
-        resetView(): void {
-          fake.viewCalls.push('reset');
-          changeView({ window: view.defaultWindow, invert: false, zoom: 1 });
-        },
-        setPrimaryTool(tool): void {
-          fake.primaryTool = tool;
-        },
-        emitView: changeView,
-        onViewChange(listener): () => void {
-          viewListeners.add(listener);
-          return (): void => {
-            viewListeners.delete(listener);
-          };
-        },
-        sampleHu(imageIndex, row, column): Promise<number> {
-          fake.samples.push({ imageIndex, row, column });
-          return Promise.resolve(imageIndex * 1000 + row * 10 + column);
-        },
-        readSlice(imageIndex): Promise<PixelSlice> {
-          fake.slicesRead.push(imageIndex);
-          const imageId = stack.imageIds[imageIndex];
-          if (imageId === undefined) {
-            return Promise.reject(new RangeError(`No image at index ${imageIndex.toString()}.`));
-          }
-          return Promise.resolve(port.sliceOf(imageId, imageIndex));
-        },
-        addMeasurement(measurement): void {
-          fake.measurementCalls.push(`add ${measurement.id}`);
-          if (fake.measurements.has(measurement.id)) return;
-          if (measurement.imageIndex < 0 || measurement.imageIndex >= stack.imageIds.length) return;
-          fake.measurements.set(measurement.id, measurement);
-        },
-        updateMeasurement(measurement): void {
-          fake.measurementCalls.push(`update ${measurement.id}`);
-          if (fake.measurements.has(measurement.id)) {
-            fake.measurements.set(measurement.id, measurement);
-          }
-        },
-        removeMeasurement(id): void {
-          fake.measurementCalls.push(`remove ${id}`);
-          fake.measurements.delete(id);
-        },
-        selectMeasurement(id): void {
-          fake.measurementCalls.push(`select ${id ?? 'none'}`);
-        },
-        onMeasurementChange(listener): () => void {
-          measurementListeners.add(listener);
-          return (): void => {
-            measurementListeners.delete(listener);
-          };
-        },
-        drawSegmentation(handle, display): boolean {
-          const fault = fakeFault(handle);
-          if (fault === 'throw') throw new Error('the engine failed to draw');
-          if (fault === 'refuse') return false;
-          if (port.throwOnSegmentationDraw) throw new Error('the engine failed to draw');
-          if (port.refuseSegmentations) return false;
-          const fakeHandle = segmentationHandles.find((candidate) => candidate === handle);
-          if (
-            fakeHandle === undefined ||
-            fakeHandle.disposed ||
-            fakeHandle.referencedImageIds.length !== stack.imageIds.length ||
-            fakeHandle.referencedImageIds.some((imageId, at) => imageId !== stack.imageIds[at])
-          ) {
-            return false;
-          }
-          fake.segmentationCalls.push(`draw ${fakeHandle.id}`);
-          fake.segmentations.set(fakeHandle, display);
-          return true;
-        },
-        hideSegmentation(handle): void {
-          const fakeHandle = segmentationHandles.find((candidate) => candidate === handle);
-          if (fakeHandle === undefined) return;
-          fake.segmentationCalls.push(`hide ${fakeHandle.id}`);
-          fake.segmentations.delete(fakeHandle);
-        },
-        destroy(): void {
-          fake.destroyed = true;
-          fake.segmentations.clear();
-          fake.measurements.clear();
-          measurementListeners.clear();
-          log.push(`destroy ${stack.imageIds[0] ?? '?'}`);
-        },
-      };
-      stacks.push(fake);
-      return fake;
+    renderStack(element, stack, options: RenderStackOptions = {}): Promise<StackPort> {
+      return renderFake(element, stack, options, undefined);
+    },
+    async renderVolume(element, stack, options: RenderVolumeOptions): Promise<StackPort> {
+      volumeCalls.push(`${options.orientation} ${stack.imageIds[0] ?? '?'}`);
+      if (port.volumeUnsupported) {
+        throw new VolumeUnsupportedError('The fake engine cannot draw a volume.');
+      }
+      return renderFake(element, stack, options, options.orientation);
     },
     async renderThumbnail(stack, imageIndex, size): Promise<string> {
       const imageId = stack.imageIds[imageIndex] ?? '?';

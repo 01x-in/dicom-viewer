@@ -190,12 +190,16 @@ function scheduleAddressUpdate(current: Viewer): void {
   }, 200);
 }
 
-/** The state with a `vp-1` in it, keeping everything a restored link said. */
+/** The state in a layout with a `vp-1`, keeping everything a restored link said. */
 function withSecondViewport(state: ViewerStateV1 | undefined): ViewerStateV1 {
   const base: ViewerStateV1 = state ?? { version: 1, layout: '1x1', viewports: [{ id: 'vp-0' }] };
   return base.viewports.some((viewport) => viewport.id === 'vp-1')
     ? base
-    : { ...base, viewports: [...base.viewports, { id: 'vp-1' }] };
+    : {
+        ...base,
+        layout: '1x2',
+        viewports: [...base.viewports, { id: 'vp-1' }],
+      };
 }
 
 /** Starts a viewer on `dataSource`, restores what the link says, and wires the page to it. */
@@ -285,7 +289,8 @@ async function settled(): Promise<void> {
         held.workers +
         held.renderingEngines +
         held.viewports +
-        held.activeEngines ===
+        held.activeEngines +
+        held.volumes ===
       0
     ) {
       return;
@@ -338,6 +343,7 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
     const host = document.createElement('div');
     host.style.cssText = 'width:256px;height:256px';
     document.body.append(host);
+    const extraHosts: HTMLElement[] = [];
     // With `alternate`, every other cycle runs with the other assets mode, which the runtime only
     // allows while no viewer is running.
     const assets =
@@ -361,6 +367,20 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
       const viewport = cycleViewer.viewports.get('vp-0');
       await viewport?.setImageIndex((index * 7) % 64);
       await measureSomething(cycleViewer, cycleSource, studyUid, seriesUid, (index * 7) % 64);
+      if (params.has('mpr')) {
+        // Three planes of one volume, so the leak test covers what a volume and its viewports hold.
+        await cycleViewer.setLayout('2x2');
+        const planes = ['axial', 'sagittal', 'coronal'] as const;
+        for (const [at, orientation] of planes.entries()) {
+          const planeHost = document.createElement('div');
+          planeHost.style.cssText = 'width:192px;height:192px';
+          document.body.append(planeHost);
+          extraHosts.push(planeHost);
+          const id = `vp-${(at + 1).toString()}`;
+          cycleViewer.viewports.attach(id, planeHost);
+          await cycleViewer.setViewportSeries(id, seriesUid, { orientation });
+        }
+      }
       if (segUid !== null) {
         await cycleViewer.segmentations.load(segUid);
         await cycleViewer.segmentations.highlight(segUid, [2], { mode: 'outline' });
@@ -370,6 +390,7 @@ async function runCycles(count: number, alternateAssets: boolean): Promise<void>
     } finally {
       cycleViewer.destroy();
       host.remove();
+      for (const extra of extraHosts) extra.remove();
     }
     // Teardown finishes once the images still on their way have landed. Wait for that, not for a
     // fixed time, then record what is left.

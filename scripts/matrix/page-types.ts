@@ -8,6 +8,7 @@ export interface ViewerHandle {
       id: string;
       seriesInstanceUID?: string;
       stackIndex?: number;
+      orientation?: string;
       imageIndex?: number;
       window?: { center: number; width: number };
       invert?: boolean;
@@ -27,13 +28,28 @@ export interface ViewerHandle {
   viewports: {
     attach(viewportId: string, element: HTMLElement): void;
     detach(viewportId: string): void;
-    get(viewportId: string): { setImageIndex(index: number): Promise<void> } | undefined;
+    get(viewportId: string):
+      | {
+          setImageIndex(index: number): Promise<void>;
+          getImageIndex(): number | undefined;
+          readonly imageCount: number;
+          readonly mpr: { requested: string; mode: string; reason?: string } | undefined;
+          setWindow(center: number, width: number): Promise<void>;
+        }
+      | undefined;
+    readonly active: string;
+    setActive(viewportId: string): void;
   };
+  setLayout(layout: string): Promise<void>;
   thumbnails: {
     get(seriesInstanceUID: string, options?: { size?: number }): Promise<string | undefined>;
   };
   tools: { setActive(tool: string): Promise<void>; getActive(): string };
-  setViewportSeries(viewportId: string, seriesInstanceUID: string): Promise<void>;
+  setViewportSeries(
+    viewportId: string,
+    seriesInstanceUID: string,
+    options?: { orientation?: string; imageIndex?: number },
+  ): Promise<void>;
   measurements: {
     add(measurement: object): Promise<MeasurementSummary>;
     list(): MeasurementSummary[];

@@ -6,6 +6,7 @@ import {
   imageLoader,
   type Types,
   metaData,
+  volumeLoader,
 } from '@cornerstonejs/core';
 import { Enums as ToolsEnums, segmentation } from '@cornerstonejs/tools';
 import { z } from 'zod';
@@ -100,9 +101,19 @@ interface Layer {
   readonly segments: readonly { readonly number: number; readonly label: string }[];
 }
 
+/** A layer drawn over the volume of a stack: the labelmap images copied into a volume of the same shape. */
+interface VolumeLayer {
+  readonly layer: Layer;
+  readonly volumeId: string;
+  /** How many planes of the volume draw it. */
+  users: number;
+}
+
 interface Loaded {
   readonly layers: readonly Layer[];
   readonly referencedImageIds: readonly string[];
+  /** The layers copied into volumes so far, by layer and by the volume they are drawn over. */
+  readonly volumeLayers: Map<string, VolumeLayer>;
   disposed: boolean;
 }
 
@@ -351,6 +362,7 @@ export async function parseSegmentation(
     const loaded: Loaded = {
       layers: registered,
       referencedImageIds: [...imageIds],
+      volumeLayers: new Map(),
       disposed: false,
     };
     const handle: SegmentationHandle = {
@@ -365,6 +377,7 @@ export async function parseSegmentation(
       dispose(): void {
         if (loaded.disposed) return;
         loaded.disposed = true;
+        for (const entry of [...loaded.volumeLayers.values()]) removeVolumeLayer(loaded, entry);
         for (const layer of loaded.layers) {
           segmentation.removeSegmentation(layer.segmentationId);
           segmentation.removeSegmentation(layer.outlineSegmentationId);
@@ -383,6 +396,90 @@ export async function parseSegmentation(
     removeFromCache(allImageIds);
     throw error;
   }
+}
+
+let volumeLayerCount = 0;
+
+/**
+ * Copies the labelmap images of a layer into a volume with the shape of the volume of the stack,
+ * and registers it with Cornerstone as a segmentation of its own (and a second, for outlines). A
+ * plane of the volume can draw a labelmap only as a volume. Slice by slice: the volume orders its
+ * images along the slice normal, which need not be the order of the stack.
+ */
+function makeVolumeLayer(layer: Layer, volumeId: string): VolumeLayer {
+  volumeLayerCount += 1;
+  const labelmapVolumeId = `dv-seg-volume-${volumeLayerCount.toString()}`;
+  const labelmap = volumeLoader.createAndCacheDerivedLabelmapVolume(volumeId, {
+    volumeId: labelmapVolumeId,
+  });
+  const base = cache.getVolume(volumeId);
+  // The labelmap image of each image of the stack. A layer from the adapters has images only where
+  // the SEG has pixels, so they are found by the image they name, not by position.
+  const scalarsByImage = new Map<string, ArrayLike<number>>();
+  for (const imageId of layer.imageIds) {
+    const image = cache.getImage(imageId);
+    const scalars = image?.voxelManager?.getScalarData();
+    if (image?.referencedImageId !== undefined && scalars !== undefined) {
+      scalarsByImage.set(image.referencedImageId, scalars);
+    }
+  }
+  try {
+    for (const [slice, labelmapImageId] of labelmap.imageIds.entries()) {
+      const source = scalarsByImage.get(base?.imageIds[slice] ?? '');
+      const target = cache.getImage(labelmapImageId)?.voxelManager?.getWritableScalarData();
+      if (source === undefined || target === undefined) continue;
+      if (source.length === target.length) target.set(source);
+    }
+    const volumeLayer: Layer = {
+      segmentationId: `${labelmapVolumeId}-fill`,
+      outlineSegmentationId: `${labelmapVolumeId}-outline`,
+      imageIds: layer.imageIds,
+      segments: layer.segments,
+    };
+    for (const segmentationId of [volumeLayer.segmentationId, volumeLayer.outlineSegmentationId]) {
+      segmentation.addSegmentations([
+        {
+          segmentationId,
+          representation: {
+            type: ToolsEnums.SegmentationRepresentations.Labelmap,
+            data: { volumeId: labelmapVolumeId },
+          },
+          config: {
+            segments: Object.fromEntries(
+              layer.segments.map(({ number, label }) => [
+                number,
+                { segmentIndex: number, label, locked: true, active: false },
+              ]),
+            ),
+          },
+        },
+      ]);
+    }
+    return { layer: volumeLayer, volumeId: labelmapVolumeId, users: 0 };
+  } catch (error) {
+    removeLabelmapVolume(labelmapVolumeId);
+    throw error;
+  }
+}
+
+function removeLabelmapVolume(labelmapVolumeId: string): void {
+  const volume = cache.getVolume(labelmapVolumeId);
+  const imageIds = volume?.imageIds ?? [];
+  if (volume !== undefined) cache.removeVolumeLoadObject(labelmapVolumeId);
+  // The images go with the volume; any left are dropped one by one.
+  removeFromCache(
+    imageIds.filter((imageId) => cache.getVolumeContainingImageId(imageId) === undefined),
+  );
+}
+
+/** Takes a layer's volume and its segmentations out of Cornerstone, and forgets it. */
+function removeVolumeLayer(loaded: Loaded, entry: VolumeLayer): void {
+  for (const [key, held] of loaded.volumeLayers) {
+    if (held === entry) loaded.volumeLayers.delete(key);
+  }
+  segmentation.removeSegmentation(entry.layer.segmentationId);
+  segmentation.removeSegmentation(entry.layer.outlineSegmentationId);
+  removeLabelmapVolume(entry.volumeId);
 }
 
 /** What is asked of one segment in one representation. */
@@ -457,9 +554,33 @@ export interface StackSegmentations {
 export function trackSegmentations(options: {
   readonly viewportId: string;
   readonly imageIds: readonly string[];
+  /** Set for a plane of a volume: the id of the volume, over which the SEG is drawn. */
+  readonly volumeId?: string;
 }): StackSegmentations {
-  const { viewportId, imageIds } = options;
+  const { viewportId, imageIds, volumeId } = options;
   const drawn = new Map<SegmentationHandle, DrawnLayer[]>();
+  /** The volume layers each handle holds a claim on, to give back when it is hidden. */
+  const claims = new Map<SegmentationHandle, VolumeLayer[]>();
+
+  /** The layer as this viewport draws it: itself on a stack, a copy in a volume on a plane. */
+  function layerFor(loaded: Loaded, handle: SegmentationHandle, layerIndex: number): Layer {
+    const layer = loaded.layers[layerIndex];
+    if (layer === undefined) throw new RangeError(`There is no layer ${layerIndex.toString()}.`);
+    if (volumeId === undefined) return layer;
+    const key = `${layerIndex.toString()}|${volumeId}`;
+    let entry = loaded.volumeLayers.get(key);
+    if (entry === undefined) {
+      entry = makeVolumeLayer(layer, volumeId);
+      loaded.volumeLayers.set(key, entry);
+    }
+    const mine = claims.get(handle) ?? [];
+    if (!mine.includes(entry)) {
+      entry.users += 1;
+      mine.push(entry);
+      claims.set(handle, mine);
+    }
+    return entry.layer;
+  }
 
   function addRepresentation(
     segmentationId: string,
@@ -537,6 +658,15 @@ export function trackSegmentations(options: {
       release(entry.fill);
       if (entry.outline !== undefined) release(entry.outline);
     }
+    // The volumes this plane drew go when the last plane that drew them lets go.
+    const loaded = loadedByHandle.get(handle);
+    for (const claimed of claims.get(handle) ?? []) {
+      claimed.users -= 1;
+      if (claimed.users <= 0 && loaded !== undefined && !loaded.disposed) {
+        removeVolumeLayer(loaded, claimed);
+      }
+    }
+    claims.delete(handle);
   }
 
   return {
@@ -549,7 +679,8 @@ export function trackSegmentations(options: {
       const layers = drawn.get(handle) ?? [];
       const fresh = !drawn.has(handle);
       drawn.set(handle, layers);
-      loaded.layers.forEach((layer, layerIndex) => {
+      for (const layerIndex of loaded.layers.keys()) {
+        const layer = layerFor(loaded, handle, layerIndex);
         const mine = display.segments.filter((shown) =>
           layer.segments.some((segment) => segment.number === shown.number),
         );
@@ -579,7 +710,7 @@ export function trackSegmentations(options: {
         } else if (entry.outline !== undefined) {
           applyLooks(entry.outline, outlines);
         }
-      });
+      }
       return true;
     },
     hide,

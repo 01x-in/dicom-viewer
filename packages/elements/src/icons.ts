@@ -11,6 +11,7 @@ export type IconName =
   | 'pan'
   | 'zoom'
   | 'stack-scroll'
+  | 'crosshairs'
   | 'length'
   | 'bidirectional'
   | 'ellipse'
@@ -24,6 +25,7 @@ export type IconName =
   | 'reset'
   | 'cine'
   | 'presets'
+  | 'layout'
   | 'chevron-down'
   | 'chevron-right'
   | 'series'
@@ -54,6 +56,8 @@ const SHAPES: Readonly<Record<IconName, string>> = {
   invert: `<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 4h16v16z" fill="currentColor"/>`,
   reset: `<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>`,
   cine: `<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>`,
+  layout: `<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M12 4v16M4 12h16"/>`,
+  crosshairs: `<path d="M12 3v7M12 14v7M3 12h7M14 12h7"/><circle cx="12" cy="12" r="1.5"/>`,
   presets: `<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>`,
   'chevron-down': `<path d="m6 9 6 6 6-6"/>`,
   'chevron-right': `<path d="m9 6 6 6-6 6"/>`,

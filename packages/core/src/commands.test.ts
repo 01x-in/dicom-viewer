@@ -16,6 +16,8 @@ describe('viewer.commands', () => {
     const { viewer } = harness();
     expect(viewer.commands.list()).toEqual([
       'cine.toggle',
+      'layout.set',
+      'mpr.show',
       'preset.apply',
       'tool.set',
       'view.invert',
@@ -48,6 +50,25 @@ describe('viewer.commands', () => {
     expect(h.viewer.viewports.get('vp-0')?.getView()?.zoom).toBe(before);
     await h.viewer.commands.run('preset.apply', { id: 'bone' });
     expect(h.viewer.viewports.get('vp-0')?.getView()?.window).toEqual({ center: 480, width: 2500 });
+  });
+
+  it('runs layout.set, and says whether it is the layout in use', async () => {
+    const h = harness();
+    expect(h.viewer.commands.pressed('layout.set', { layout: '2x2' })).toBe(false);
+    await h.viewer.commands.run('layout.set', { layout: '2x2' });
+    expect(h.viewer.getState().layout).toBe('2x2');
+    expect(h.viewer.commands.pressed('layout.set', { layout: '2x2' })).toBe(true);
+    expect(h.viewer.commands.pressed('layout.set', { layout: '1x1' })).toBe(false);
+    // Changing the layout needs no series.
+    expect(h.viewer.commands.enabled('layout.set', { layout: '1x1' })).toBe(true);
+  });
+
+  it('refuses a layout that does not exist, without running it', async () => {
+    const { viewer } = harness();
+    await expect(viewer.commands.run('layout.set', { layout: '3x3' })).rejects.toThrow(RangeError);
+    await expect(viewer.commands.run('layout.set')).rejects.toThrow(RangeError);
+    expect(viewer.commands.check('layout.set', { layout: '3x3' })).toMatch(/layout/);
+    expect(viewer.getState().layout).toBe('1x1');
   });
 
   it('is enabled only when there is a series to act on, except for choosing a tool', async () => {

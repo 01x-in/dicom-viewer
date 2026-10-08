@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isLayout, type LayoutId } from './layouts';
 import type { KeyAction } from './keyboard';
 import type { Unsubscribe } from './state/events';
 import { isPrimaryTool, type PrimaryTool } from './tools';
@@ -29,11 +30,11 @@ export type CommandInput = Command | Command['run'];
 export interface CommandsApi {
   /**
    * Adds a command. The id has a namespace and a name, such as `acme.export`; the built-in ones are
-   * `tool`, `view`, `cine`, and `preset`. Throws a `RangeError` for an id that is badly formed or
+   * `tool`, `view`, `cine`, `layout`, `mpr`, and `preset`. Throws a `RangeError` for an id that is badly formed or
    * taken. Returns what removes it again.
    */
   register(id: string, command: CommandInput): Unsubscribe;
-  /** Runs a command on a viewport (default `vp-0`). Rejects with a `RangeError` for an unknown command or arguments that do not fit. */
+  /** Runs a command on a viewport (default: the active one, `viewer.viewports.active`). Rejects with a `RangeError` for an unknown command or arguments that do not fit. */
   run(id: string, args?: unknown, options?: { readonly viewportId?: string }): Promise<void>;
   has(id: string): boolean;
   /** The ids, in alphabetical order. */
@@ -56,7 +57,6 @@ export const ZOOM_IN_FACTOR = 1.25;
 export const ZOOM_OUT_FACTOR = 0.8;
 
 const COMMAND_ID = /^[a-z][a-zA-Z0-9]*(?:\.[a-zA-Z][a-zA-Z0-9]*)+$/;
-const DEFAULT_VIEWPORT = 'vp-0';
 
 /** The first problem of a Zod parse, as a sentence. */
 function problem(error: z.ZodError): string {
@@ -77,6 +77,9 @@ const toolArgs: z.ZodType<{ readonly tool: PrimaryTool }> = z.strictObject({
   tool: z.custom<PrimaryTool>((value) => isPrimaryTool(value), 'There is no such tool.'),
 });
 const presetArgs: z.ZodType<{ readonly id: string }> = z.strictObject({ id: z.string().min(1) });
+const layoutArgs: z.ZodType<{ readonly layout: LayoutId }> = z.strictObject({
+  layout: z.custom<LayoutId>((value) => isLayout(value), 'There is no such layout.'),
+});
 const noArgs: z.ZodType<undefined> = z.undefined();
 
 const hasSeries = ({ viewer, viewportId }: CommandContext): boolean =>
@@ -149,6 +152,31 @@ function builtins(): Readonly<Record<string, Command>> {
       },
       keyMatcher: () => (action) => action.type === 'cine',
     },
+    'layout.set': {
+      run: ({ viewer }, args) => viewer.setLayout(parse(layoutArgs, 'layout.set', args).layout),
+      pressed: ({ viewer }, args) =>
+        viewer.getState().layout === parse(layoutArgs, 'layout.set', args).layout,
+      // Changing the layout needs no series.
+      enabled: () => true,
+      check: (args) => {
+        parse(layoutArgs, 'layout.set', args);
+      },
+    },
+    'mpr.show': {
+      run: ({ viewer }) => viewer.showMpr(),
+      pressed: ({ viewer }) => {
+        const { layout, viewports } = viewer.getState();
+        return (
+          layout === '2x2' &&
+          ['axial', 'sagittal', 'coronal'].every(
+            (orientation, at) => viewports[at]?.orientation === orientation,
+          )
+        );
+      },
+      check: (args) => {
+        parse(noArgs, 'mpr.show', args);
+      },
+    },
     'preset.apply': {
       run: (context, args) =>
         viewportOf(context)?.applyWindowPreset(parse(presetArgs, 'preset.apply', args).id),
@@ -172,7 +200,7 @@ export function createCommands(viewer: () => Viewer): CommandsApi {
   const commands = new Map<string, Command>(Object.entries(builtins()));
   const contextOf = (options?: { readonly viewportId?: string }): CommandContext => ({
     viewer: viewer(),
-    viewportId: options?.viewportId ?? DEFAULT_VIEWPORT,
+    viewportId: options?.viewportId ?? viewer().viewports.active,
   });
   return {
     register(id, input): Unsubscribe {

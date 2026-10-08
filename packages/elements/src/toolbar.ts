@@ -33,6 +33,8 @@ export type ToolbarLabels = 'tooltip' | 'inline';
 
 const EVENTS = [
   'tool:active',
+  'viewport:active',
+  'viewport:mpr',
   'viewport:voi',
   'viewport:cine',
   'state:changed',
@@ -254,8 +256,8 @@ export class DvToolbarElement extends LitElement {
   declare viewer: Viewer | undefined;
   /** What the toolbar shows. Default: the built-in tools, actions, and window presets. */
   declare items: readonly ToolbarItem[];
-  /** The viewport the actions work on. Default `vp-0`. */
-  declare viewportId: string;
+  /** The viewport the actions work on. Default: the active one, which follows the person. */
+  declare viewportId: string | undefined;
   /** The toolbar's accessible name. */
   declare label: string;
   /** `tooltip` (default): a button with a picture shows only the picture, and its name in a tooltip. `inline`: the name is beside the picture. */
@@ -273,7 +275,7 @@ export class DvToolbarElement extends LitElement {
   constructor() {
     super();
     this.items = DEFAULT_TOOLBAR;
-    this.viewportId = 'vp-0';
+    this.viewportId = undefined;
     this.label = 'Viewer tools';
     this.labels = 'tooltip';
     this.openMenu = undefined;
@@ -317,7 +319,9 @@ export class DvToolbarElement extends LitElement {
 
   #context(): ToolbarContext | undefined {
     const { viewer } = this;
-    return viewer === undefined ? undefined : { viewer, viewportId: this.viewportId };
+    return viewer === undefined
+      ? undefined
+      : { viewer, viewportId: this.viewportId ?? viewer.viewports.active };
   }
 
   #controls(): HTMLElement[] {
@@ -494,6 +498,8 @@ export class DvToolbarElement extends LitElement {
           item.tool;
         const at = position.next++;
         const pressed = context.viewer.tools.getActive() === item.tool;
+        // Crosshairs need two planes of one volume; the button is there, but says it cannot yet.
+        const available = context.viewer.tools.isAvailable(item.tool);
         const name = item.icon ?? TOOL_ICONS[item.tool];
         const hint = shortcutOf(
           context.viewer,
@@ -510,7 +516,9 @@ export class DvToolbarElement extends LitElement {
             tabindex=${this.#roving(at)}
             aria-label=${label}
             aria-pressed=${pressed ? 'true' : 'false'}
+            aria-disabled=${available ? nothing : 'true'}
             @click=${(): void => {
+              if (!available) return;
               context.viewer.tools.setActive(item.tool).catch((error: unknown) => {
                 this.#fail(error);
               });

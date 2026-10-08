@@ -1,4 +1,5 @@
 import type { SeriesStack } from './data/types';
+import type { MprOrientation } from './mpr';
 import type { MeasurementType, Point3 } from './measurements/model';
 import type { PixelSlice } from './measurements/stats';
 import type { SegmentationDisplay } from './segmentations/display';
@@ -114,6 +115,19 @@ export interface RenderStackOptions {
   readonly prefetchRadius?: number | undefined;
 }
 
+export interface RenderVolumeOptions extends RenderStackOptions {
+  /** The plane to show. `imageIndex` counts slices along it. */
+  readonly orientation: MprOrientation;
+}
+
+/** `renderVolume` throws this when the engine cannot draw a volume here (no WebGL, say), so the viewer shows the slices instead. */
+export class VolumeUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VolumeUnsupportedError';
+  }
+}
+
 /**
  * Everything the viewer needs from the rendering engine. Only `engine/` implements it, so nothing
  * above it touches Cornerstone and the public API never exposes Cornerstone types.
@@ -123,6 +137,19 @@ export interface RenderingPort {
     element: HTMLElement,
     stack: SeriesStack,
     options?: RenderStackOptions,
+  ): Promise<StackPort>;
+  /**
+   * Draws a reformatted plane of the volume made from a stack, into one element. The stack must be
+   * reconstructable (see `decideMpr`). The result behaves like a stack of slices along the plane:
+   * `imageCount` is the number of slices in that plane, and scrolling moves through them. Several
+   * planes of one stack share one volume, which is held until the last of them is destroyed.
+   * Measurements and SEGs are drawn on stacks; here they are ignored. Throws
+   * `VolumeUnsupportedError` when the engine cannot do it.
+   */
+  renderVolume(
+    element: HTMLElement,
+    stack: SeriesStack,
+    options: RenderVolumeOptions,
   ): Promise<StackPort>;
   /**
    * Draws one slice of a stack as a `size` by `size` picture (the image fitted, on black) without

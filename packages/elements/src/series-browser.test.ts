@@ -3,6 +3,7 @@ import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@scope/viewer-core/
 import { afterEach, describe, expect, it } from 'vitest';
 import './define';
 import { describeSeries, isDisplayableModality } from './index';
+import { readSeriesDrag, SERIES_DRAG_TYPE } from './series-drag';
 import type { DvSeriesBrowserElement } from './series-browser';
 
 const open: FakeViewer[] = [];
@@ -145,7 +146,7 @@ describe('<dv-series-browser>', () => {
     const fake = createFakeViewer({
       initialState: {
         version: 1,
-        layout: '1x1',
+        layout: '1x2',
         viewports: [{ id: 'vp-0' }, { id: 'vp-1' }],
       },
     });
@@ -163,6 +164,66 @@ describe('<dv-series-browser>', () => {
       fake.viewer.getState().viewports.find((viewport) => viewport.id === 'vp-1')
         ?.seriesInstanceUID,
     ).toBe(FAKE_IDS.ct);
+  });
+
+  it('works on the active viewport when it is not told one, and follows it', async () => {
+    const fake = createFakeViewer({
+      initialState: {
+        version: 1,
+        layout: '1x2',
+        viewports: [{ id: 'vp-0' }, { id: 'vp-1' }],
+      },
+    });
+    open.push(fake);
+    fake.viewer.viewports.attach('vp-1', document.createElement('div'));
+    await fake.viewer.loadStudy(FAKE_IDS.study);
+    await fake.viewer.setViewportSeries('vp-0', FAKE_IDS.ctTwoStacks);
+    const browser = document.createElement('dv-series-browser') as DvSeriesBrowserElement;
+    browser.viewer = fake.viewer;
+    document.body.append(browser);
+    await settle(browser);
+    expect(row(browser, FAKE_IDS.ctTwoStacks).getAttribute('aria-selected')).toBe('true');
+
+    fake.viewer.viewports.setActive('vp-1');
+    await settle(browser);
+    // The series on the other viewport is not the one on screen where the person is working.
+    expect(row(browser, FAKE_IDS.ctTwoStacks).getAttribute('aria-selected')).toBe('false');
+    row(browser, FAKE_IDS.ct).click();
+    await settle(browser);
+    expect(
+      fake.viewer.getState().viewports.find((viewport) => viewport.id === 'vp-1')
+        ?.seriesInstanceUID,
+    ).toBe(FAKE_IDS.ct);
+    expect(fake.viewer.getState().viewports[0]?.seriesInstanceUID).toBe(FAKE_IDS.ctTwoStacks);
+  });
+
+  it('can be dragged from, with the series and its study', async () => {
+    const { browser, fake } = await mount();
+    const data = new Map<string, string>();
+    const dragstart = new Event('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(dragstart, 'dataTransfer', {
+      value: {
+        types: [] as string[],
+        effectAllowed: 'none',
+        setData: (type: string, value: string): void => {
+          data.set(type, value);
+        },
+      },
+    });
+    const source = row(browser, FAKE_IDS.ct);
+    expect(source.getAttribute('draggable')).toBe('true');
+    source.dispatchEvent(dragstart);
+    expect(readSeriesDrag(data.get(SERIES_DRAG_TYPE) ?? '')).toEqual({
+      studyInstanceUID: FAKE_IDS.study,
+      seriesInstanceUID: FAKE_IDS.ct,
+    });
+    expect([...data.keys()]).toEqual([SERIES_DRAG_TYPE]);
+    expect(fake.viewer.getState().studyInstanceUID).toBe(FAKE_IDS.study);
+  });
+
+  it('does not let a SEG be dragged, since there is nothing to show', async () => {
+    const { browser } = await mount();
+    expect(row(browser, FAKE_IDS.seg).getAttribute('draggable')).toBe('false');
   });
 
   it('shows a SEG as unavailable, does not draw it, and ignores a click on it', async () => {

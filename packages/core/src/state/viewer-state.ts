@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { isDicomUid } from '../data/uid';
+import { isLayout, type LayoutId, layoutViewportIds } from '../layouts';
+import { isMprOrientation, type MprOrientation } from '../mpr';
 import { MAX_ZOOM, MIN_ZOOM } from '../view';
 
 /** A window as DICOM defines it: the value at the middle of the grey scale, and the width around it. */
@@ -14,6 +16,12 @@ export interface ViewportStateV1 {
   readonly seriesInstanceUID?: string | undefined;
   /** Which stack of the series, when it splits into several. Default 0. */
   readonly stackIndex?: number | undefined;
+  /**
+   * A plane to reformat the series in. Absent: the slices as they were acquired. A series that
+   * cannot be reformatted is shown as slices whatever this says (see `viewport.mpr`).
+   */
+  readonly orientation?: MprOrientation | undefined;
+  /** The slice on screen: counted along the stack, or along the plane when there is an `orientation`. */
   readonly imageIndex?: number | undefined;
   /** Window and level. Absent: the one the images ask for. */
   readonly window?: WindowLevel | undefined;
@@ -30,8 +38,8 @@ export interface ViewportStateV1 {
 export interface ViewerStateV1 {
   readonly version: 1;
   readonly studyInstanceUID?: string | undefined;
-  /** Only `1x1` exists until M7. */
-  readonly layout: '1x1';
+  /** Which viewports there are: `viewports` has exactly the ids this layout shows. */
+  readonly layout: LayoutId;
   readonly viewports: readonly ViewportStateV1[];
 }
 
@@ -49,31 +57,57 @@ const viewportSchema: z.ZodType<ViewportStateV1> = z.object({
   id: z.string().regex(/^vp-[0-3]$/, 'Viewport ids are vp-0 to vp-3'),
   seriesInstanceUID: uid.optional(),
   stackIndex: z.number().int().min(0).optional(),
+  orientation: z
+    .custom<MprOrientation>((value) => isMprOrientation(value), 'Not an orientation')
+    .optional(),
   imageIndex: z.number().int().min(0).optional(),
   window: windowSchema.optional(),
   invert: z.boolean().optional(),
   zoom: z.number().min(MIN_ZOOM).max(MAX_ZOOM).optional(),
 });
 
-export const viewerStateV1Schema: z.ZodType<ViewerStateV1> = z.object({
-  version: z.literal(1),
-  studyInstanceUID: uid.optional(),
-  layout: z.literal('1x1').default('1x1'),
-  viewports: z
-    .array(viewportSchema)
-    .max(MAX_VIEWPORTS)
-    .refine(
-      (viewports) => new Set(viewports.map((viewport) => viewport.id)).size === viewports.length,
-      {
-        message: 'Viewport ids must be unique',
-      },
-    )
-    // The viewer attaches vp-0 first, and every layout has it.
-    .refine((viewports) => viewports.some((viewport) => viewport.id === 'vp-0'), {
-      message: 'A state needs the viewport vp-0',
-    })
-    .default(() => [{ id: 'vp-0' }]),
-});
+const layoutSchema: z.ZodType<LayoutId> = z
+  .custom<LayoutId>(isLayout, 'Not a layout')
+  .default('1x1');
+
+export const viewerStateV1Schema: z.ZodType<ViewerStateV1> = z
+  .object({
+    version: z.literal(1),
+    studyInstanceUID: uid.optional(),
+    layout: layoutSchema,
+    viewports: z
+      .array(viewportSchema)
+      .max(MAX_VIEWPORTS)
+      .refine(
+        (viewports) => new Set(viewports.map((viewport) => viewport.id)).size === viewports.length,
+        {
+          message: 'Viewport ids must be unique',
+        },
+      )
+      // The viewer attaches vp-0 first, and every layout has it.
+      .refine((viewports) => viewports.some((viewport) => viewport.id === 'vp-0'), {
+        message: 'A state needs the viewport vp-0',
+      })
+      .default(() => [{ id: 'vp-0' }]),
+  })
+  .superRefine((state, context) => {
+    const shown = layoutViewportIds(state.layout);
+    const stray = state.viewports.find((viewport) => !shown.includes(viewport.id));
+    if (stray !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['viewports'],
+        message: `The layout ${state.layout} has no viewport ${stray.id}`,
+      });
+    }
+  })
+  // The layout decides which viewports there are: the ones a link leaves out start empty.
+  .transform((state) => ({
+    ...state,
+    viewports: layoutViewportIds(state.layout).map(
+      (id) => state.viewports.find((viewport) => viewport.id === id) ?? { id },
+    ),
+  }));
 
 export type ParseResult =
   | { readonly ok: true; readonly state: ViewerStateV1 }
@@ -81,11 +115,13 @@ export type ParseResult =
 
 /** The same viewport without the fields that are `undefined`, so "not set" is one thing and not two. */
 export function compactViewport(viewport: ViewportStateV1): ViewportStateV1 {
-  const { id, seriesInstanceUID, stackIndex, imageIndex, window, invert, zoom } = viewport;
+  const { id, seriesInstanceUID, stackIndex, orientation, imageIndex, window, invert, zoom } =
+    viewport;
   return {
     id,
     ...(seriesInstanceUID === undefined ? {} : { seriesInstanceUID }),
     ...(stackIndex === undefined ? {} : { stackIndex }),
+    ...(orientation === undefined ? {} : { orientation }),
     ...(imageIndex === undefined ? {} : { imageIndex }),
     ...(window === undefined ? {} : { window }),
     ...(invert === undefined ? {} : { invert }),
@@ -102,4 +138,53 @@ export function parseViewerState(input: unknown): ParseResult {
   const parsed = viewerStateV1Schema.safeParse(input);
   if (parsed.success) return { ok: true, state: parsed.data };
   return { ok: false, error: z.prettifyError(parsed.error) };
+}
+
+/**
+ * What a state says about the view, as a patch for `viewer.setState`: the layout and every field of
+ * every viewport, named even when the state leaves it out, so applying it makes the viewer show
+ * exactly this. The study is not in it: a page says which study to show in its own way.
+ */
+export function viewStatePatch(state: ViewerStateV1): {
+  readonly layout: LayoutId;
+  readonly viewports: readonly ViewportStateV1[];
+} {
+  return {
+    layout: state.layout,
+    viewports: state.viewports.map((viewport) => ({
+      id: viewport.id,
+      seriesInstanceUID: viewport.seriesInstanceUID,
+      stackIndex: viewport.stackIndex,
+      orientation: viewport.orientation,
+      imageIndex: viewport.imageIndex,
+      window: viewport.window,
+      invert: viewport.invert,
+      zoom: viewport.zoom,
+    })),
+  };
+}
+
+function viewKey(state: ViewerStateV1): string {
+  return JSON.stringify([
+    state.layout,
+    state.viewports.map((viewport) => {
+      const { id, seriesInstanceUID, stackIndex, orientation, imageIndex, window, invert, zoom } =
+        compactViewport(viewport);
+      return [
+        id,
+        seriesInstanceUID,
+        stackIndex,
+        orientation,
+        imageIndex,
+        window === undefined ? undefined : [window.center, window.width],
+        invert,
+        zoom,
+      ];
+    }),
+  ]);
+}
+
+/** Whether two states show the same thing: the same layout and the same in every viewport. The study is not compared. */
+export function sameViewState(a: ViewerStateV1, b: ViewerStateV1): boolean {
+  return viewKey(a) === viewKey(b);
 }

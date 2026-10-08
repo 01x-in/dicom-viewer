@@ -2,7 +2,7 @@
 
 A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It is built on [Cornerstone3D](https://www.cornerstonejs.org/) and aims for OHIF-level tools. It ships with a styled default interface and a headless core (a core that has no interface of its own).
 
-> Status: milestones M0 to M6 and M6.5 (shell polish) are done. The package is not published yet. Package names use the `@scope/` placeholder until the npm scope is chosen.
+> Status: milestones M0 to M7 (with M6.5, shell polish, and M6.6, the config layer) are done. The package is not published yet. Package names use the `@scope/` placeholder until the npm scope is chosen.
 
 ## What works today
 
@@ -14,7 +14,9 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 - Interface: an icon toolbar, side panels that fold, slots for your own content, a light and a dark theme, and three palettes (`palette="navy"`, `palette="graphite"`, or the default). Any single colour is a `--dv-color-*` CSS property, so the viewer can take the colours of the page it sits in. The interface passes automated accessibility checks (axe) and works from the keyboard.
 - Frameworks: the same interface runs in plain HTML, React, Vue, Next.js (Turbopack and webpack), and Nuxt, with no bundler configuration.
 
-Not built yet: layouts and MPR (M7), and the 1.0 release (M8). The plan is in [docs/plan.md](docs/plan.md).
+- Layouts and planes: four layouts (`1x1`, `1x2`, `2x2`, and one large with three small), series dragged from the browser into any viewport, hanging protocols that lay a study out by rule, and reformatted planes (axial, sagittal, and coronal) of a volume with crosshairs, a shared window, and a SEG drawn over each plane. A series that is tilted, unevenly spaced, or too large for the memory budget is shown as slices, and the viewport says why.
+
+Not built yet: the 1.0 release (M8). The plan is in [docs/plan.md](docs/plan.md).
 
 ## Packages
 
@@ -305,7 +307,45 @@ const json = viewer.measurements.exportJson(); // and importJson(json)
 await viewer.segmentations.load(segSeries); // then setVisible, setSegmentColor, highlight, jumpToSegment
 ```
 
-The state of the viewer (series, slice, window, zoom) is `viewer.getState()`, and `viewer.subscribe` and `viewer.on(...)` tell you when it changes.
+The state of the viewer (layout, and in each viewport the series, plane, slice, window, and zoom) is `viewer.getState()`, and `viewer.subscribe` and `viewer.on(...)` tell you when it changes. React and Vue take it as a controlled `state` prop (with `onStateChange` in React and `@state-change` in Vue): the viewer shows the state it is given, and a state that is the one it is in changes nothing.
+
+### Layouts, planes, and hanging protocols
+
+```ts
+await viewer.setLayout('2x2'); // '1x1' | '1x2' | '2x2' | '1+3'; the viewports are vp-0 to vp-3
+await viewer.setViewportSeries('vp-1', seriesInstanceUID, { orientation: 'coronal' });
+await viewer.showMpr(); // axial, sagittal, coronal, and the slices, of the series on screen
+
+viewer.viewports.get('vp-1')?.mpr; // { requested: 'coronal', mode: 'volume' }, or mode: 'stack' with a reason
+await viewer.tools.setActive('crosshairs'); // click in one plane, and the others go to that point
+```
+
+A plane needs the slices to be evenly spaced and square to the direction they are stacked in, and its volume (about four bytes a voxel) must fit `memory: { maxCacheBytes }` (1 GiB, or 512 MiB on a small device). When it cannot, the viewport shows the slices, `viewport.mpr.reason` says why (`tilted`, `non-uniform-spacing`, `over-memory-budget`, and five more), and the shell writes it in the viewport. The window and the inversion are shared between the planes of one volume. Measurements are drawn on slices, not on planes.
+
+A hanging protocol is plain data. The best fit for the study is applied when the page asks for no series and none is restored:
+
+```ts
+import { DEFAULT_HANGING_PROTOCOLS } from '@scope/viewer-core';
+
+createViewer({
+  dataSource,
+  hangingProtocols: [
+    ...DEFAULT_HANGING_PROTOCOLS,
+    {
+      id: 'lung-and-bone',
+      layout: '1x2',
+      priority: 1,
+      viewports: [
+        { id: 'vp-0', series: { modality: 'CT', descriptionIncludes: 'lung' } },
+        { id: 'vp-1', series: { modality: 'CT', pick: 'largest' } },
+      ],
+    },
+  ],
+});
+// viewer.hangingProtocols.match() says which fits; apply(id?) lays the study out.
+```
+
+Drag a series from the series browser onto a viewport to put it there; choosing a row with the keyboard fills the active viewport (the last one you pressed or focused).
 
 ## Examples
 
@@ -335,7 +375,7 @@ pnpm check      # build, format check, lint, typecheck, test
 
 - [docs/plan.md](docs/plan.md): the plan, the architecture, and the milestones, with the outcome of each finished milestone.
 - [docs/adr](docs/adr): the architecture decisions, one file for each.
-- The reports `docs/m1-report.md` to `docs/m6-report.md`: what each milestone proved and what it left open.
+- The reports `docs/m1-report.md` to `docs/m7-report.md`: what each milestone proved and what it left open.
 
 ### Test data
 

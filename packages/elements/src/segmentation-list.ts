@@ -312,7 +312,7 @@ export class DvSegmentationListElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
-  declare viewportId: string;
+  declare viewportId: string | undefined;
   declare label: string;
   /** The SEG series of the study on screen. */
   declare series: readonly SeriesSummary[];
@@ -328,7 +328,7 @@ export class DvSegmentationListElement extends LitElement {
 
   constructor() {
     super();
-    this.viewportId = 'vp-0';
+    this.viewportId = undefined;
     this.label = 'Segmentations';
     this.series = [];
     this.loaded = [];
@@ -549,7 +549,7 @@ export class DvSegmentationListElement extends LitElement {
           if (empty) return;
           this.#call(() =>
             viewer?.segmentations.jumpToSegment(uid, segment.number, {
-              viewportId: this.viewportId,
+              viewportId: this.viewportId ?? viewer.viewports.active,
             }),
           );
         }}

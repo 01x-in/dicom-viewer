@@ -550,6 +550,115 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
         `after choosing a series the viewport looks blank (${(lit * 100).toFixed(1)}% lit)`,
       );
 
+    // Layouts: the Layout menu makes four viewports, a series dragged from the list fills one, the
+    // planes fill three, and the shell is as clean as before with all of them on screen.
+    const viewportIds = (): Promise<string[]> =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('dv-viewer [data-viewport-id]')].map((node) =>
+          String((node as HTMLElement).dataset['viewportId']),
+        ),
+      );
+    const chooseLayout = async (action: string): Promise<void> => {
+      await page.locator('dv-toolbar [data-menu-id="layout"]').click();
+      await page.locator(`dv-toolbar [data-action="${action}"]`).click();
+    };
+    await chooseLayout('layout-2x2');
+    await waitFor(
+      page,
+      'four viewports',
+      async () => (await viewportIds()).join() === 'vp-0,vp-1,vp-2,vp-3',
+      failures,
+    );
+    const marked = await page.evaluate(() =>
+      document
+        .querySelector('dv-viewer [data-viewport-id][data-active]')
+        ?.getAttribute('data-viewport-id'),
+    );
+    if (marked !== 'vp-0') failures.push(`the active viewport is ${String(marked)}, expected vp-0`);
+    await runAxe(page, 'a 2x2 layout', failures);
+
+    // Drag a series from the list onto the second viewport.
+    const dragged = page
+      .locator('dv-series-browser [role="option"]:not([aria-disabled="true"])')
+      .first();
+    const draggedUid = await dragged.getAttribute('data-series');
+    await dragged.dragTo(page.locator('dv-viewer').locator('.stage .cell').nth(1));
+    await waitFor(
+      page,
+      'the dropped series in vp-1',
+      async () =>
+        (
+          await page.locator('dv-viewer [data-viewport-id="vp-1"]').getAttribute('aria-label')
+        )?.includes('image') === true,
+      failures,
+    );
+    if (draggedUid === null) failures.push('the list has no series to drag');
+    const activeAfterDrop = await page.evaluate(() =>
+      document
+        .querySelector('dv-viewer [data-viewport-id][data-active]')
+        ?.getAttribute('data-viewport-id'),
+    );
+    if (activeAfterDrop !== 'vp-1')
+      failures.push(`after a drop the active viewport is ${String(activeAfterDrop)}`);
+
+    // Three planes and the slices.
+    await chooseLayout('layout-mpr');
+    await waitFor(
+      page,
+      'three planes',
+      async () => {
+        const labels = await page.evaluate(() =>
+          [0, 1, 2].map(
+            (at) =>
+              document
+                .querySelector(`dv-viewer [data-viewport-id="vp-${at.toString()}"]`)
+                ?.getAttribute('aria-label') ?? '',
+          ),
+        );
+        return (
+          labels[0]?.includes('axial plane') === true &&
+          labels[1]?.includes('sagittal plane') === true &&
+          labels[2]?.includes('coronal plane') === true
+        );
+      },
+      failures,
+      60_000,
+    );
+    await page.waitForTimeout(1200);
+    for (const id of ['vp-0', 'vp-1', 'vp-2']) {
+      const planeLit = await page.evaluate((viewportId) => {
+        const canvas = document.querySelector(
+          `dv-viewer [data-viewport-id="${viewportId}"] canvas`,
+        );
+        if (!(canvas instanceof HTMLCanvasElement) || canvas.width === 0) return 0;
+        const copy = document.createElement('canvas');
+        copy.width = canvas.width;
+        copy.height = canvas.height;
+        const context = copy.getContext('2d');
+        if (context === null) return 0;
+        context.drawImage(canvas, 0, 0);
+        const { data } = context.getImageData(0, 0, copy.width, copy.height);
+        let lit = 0;
+        for (let at = 0; at < data.length; at += 4) if ((data[at] ?? 0) > 12) lit += 1;
+        return lit / (data.length / 4);
+      }, id);
+      if (planeLit < 0.05)
+        failures.push(`${id} looks blank as a plane (${(planeLit * 100).toFixed(1)}% lit)`);
+    }
+    const crosshairsDisabled = await page
+      .locator('dv-toolbar [data-tool="crosshairs"]')
+      .getAttribute('aria-disabled');
+    if (crosshairsDisabled !== null)
+      failures.push('the Crosshairs button is unavailable with three planes on screen');
+    await runAxe(page, 'three planes', failures);
+    await chooseLayout('layout-1x1');
+    await waitFor(
+      page,
+      'one viewport again',
+      async () => (await viewportIds()).join() === 'vp-0',
+      failures,
+    );
+
     // The light theme is as clean.
     await page.evaluate(() => {
       const element = document.querySelector('dv-viewer');

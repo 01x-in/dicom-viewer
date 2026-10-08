@@ -292,3 +292,14 @@ Reference files:
 - **The overlay is items.** Each corner is a list of lines (its own, or a DICOM tag with a label and a format), merged by id. A tag that can identify a patient never shows unless `showPatientInfo` is on.
 - **A bug the matrix found:** the engine did not report a change of invert alone, so the state, the overlay, and the toolbar's pressed state were stale. Fixed.
 - Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, a visual regression suite (M8), and a host's own icons for panels and toolbar buttons. M7 can use `viewer.config.apply` for layouts, and M9 for the OncoTrace profile.
+
+## M7 outcome
+
+**Done**, with the limits in [m7-report.md](m7-report.md); the decisions are in [ADR 0012](adr/0012-layouts-and-mpr.md). Changes to this plan that came out of the milestone:
+- **Four layouts, as data.** `1x1`, `1x2`, `2x2`, and `1+3` with stable `vp-0` to `vp-3`. `ViewerStateV1.layout` is one of them and `viewports` holds exactly the ids it shows. One viewport is *active*, and the toolbar, the commands, and the panels act on it.
+- **Series by drag and drop, and hanging protocols.** A row of the series browser is dragged onto a viewport under one custom data type. A protocol is plain data scored per modality; the shell applies the best fit when nothing was asked for. The keyboard route is choosing a row, which fills the active viewport.
+- **MPR as `renderVolume`.** A viewport asks for a plane (`orientation`) and the viewer decides in a pure function: the stack must be reconstructable and its volume must fit `memory.maxCacheBytes` (1 GiB, 512 MiB on small devices). Otherwise the viewport shows slices and says why, in one of eight reasons. The port returns a `StackPort`, so nothing above it knows a plane from a stack. Planes of one volume share a tool group (crosshairs), a window and an inversion (VOI sync), and a SEG is copied into a volume to be drawn over them.
+- **Two phantom series that cannot be reformatted,** a tilted one and one with a missing slice, in a study of their own.
+- **The controlled `state` prop** of React and Vue, deferred since M5, is in: the layout and every viewport; not the study, measurements, or SEGs.
+- **Two things the matrix found in Cornerstone:** the images of a volume share its buffer and cannot be dropped one by one, and a volume given up before it has loaded leaves a listener per image that keeps the page's WebGL context alive. The engine works around both.
+- Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, a visual regression suite (M8), a host's own icons for panels and toolbar buttons, measurements on planes, and jumping to a segment in a plane.

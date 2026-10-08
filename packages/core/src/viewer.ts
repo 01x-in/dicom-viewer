@@ -1,5 +1,6 @@
 import type { AssetsConfig } from './engine/assets';
 import { assertBrowserEnvironment } from './environment';
+import { resolveMaxCacheBytes } from './mpr';
 import type { RenderingPort } from './rendering-port';
 import { createViewerCore, type Viewer, type ViewerCoreOptions } from './viewer-core';
 
@@ -15,6 +16,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   assertBrowserEnvironment('createViewer');
   const assets: AssetsConfig = options.assets ?? { mode: 'inline' };
   const { dataSource } = options;
+  // Checked here too, so a bad budget is refused before the engine starts.
+  const maxCacheBytes = resolveMaxCacheBytes(options.memory?.maxCacheBytes);
 
   // Cornerstone is imported lazily so that importing this package on a server stays side-effect free.
   const loadEngine = (): Promise<RenderingPort> =>
@@ -22,6 +25,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       createEngine({
         assets,
         frameRequests: dataSource.frameRequests,
+        maxCacheBytes,
         ...(options.cpuRendering === undefined ? {} : { cpuRendering: options.cpuRendering }),
       }),
     );
@@ -31,6 +35,10 @@ export function createViewer(options: ViewerOptions): Viewer {
       ...(options.initialState === undefined ? {} : { initialState: options.initialState }),
       ...(options.config === undefined ? {} : { config: options.config }),
       ...(options.commands === undefined ? {} : { commands: options.commands }),
+      ...(options.hangingProtocols === undefined
+        ? {}
+        : { hangingProtocols: options.hangingProtocols }),
+      ...(options.memory === undefined ? {} : { memory: options.memory }),
       ...(options.prefetch === undefined ? {} : { prefetch: options.prefetch }),
       ...(options.overlay === undefined ? {} : { overlay: options.overlay }),
       ...(options.keybindings === undefined ? {} : { keybindings: options.keybindings }),

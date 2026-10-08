@@ -1,6 +1,32 @@
-import type { DataSource, LoadedSeriesData, SeriesStack, StudyData } from './data/types';
+import type {
+  DataSource,
+  LoadedSeriesData,
+  SeriesStack,
+  SeriesSummary,
+  StudyData,
+} from './data/types';
 import { assertDicomUid } from './data/uid';
-import type { RenderingPort, StackPort, ViewSnapshot, WindowLevel } from './rendering-port';
+import {
+  type HangingMatch,
+  type HangingProtocol,
+  matchHangingProtocol,
+  parseHangingProtocols,
+} from './hanging';
+import { assertLayout, type LayoutId, layoutViewportIds } from './layouts';
+import {
+  type RenderingPort,
+  type StackPort,
+  type ViewSnapshot,
+  VolumeUnsupportedError,
+  type WindowLevel,
+} from './rendering-port';
+import {
+  decideMpr,
+  isMprOrientation,
+  type MprFallbackReason,
+  type MprOrientation,
+  resolveMaxCacheBytes,
+} from './mpr';
 import { createEmitter, type Emitter, type Unsubscribe } from './state/events';
 import { createStore, type StateOrigin, type SubscribeOptions } from './state/store';
 import { type CommandsApi, createCommands, type CommandInput } from './commands';
@@ -12,6 +38,7 @@ import {
   compactViewport,
   createInitialState,
   parseViewerState,
+  sameViewState,
   type ViewerStateV1,
   type ViewportStateV1,
 } from './state/viewer-state';
@@ -71,6 +98,10 @@ export interface ViewerEvents extends MeasurementEvents, SegmentationEvents {
     readonly zoom: number;
     readonly origin: StateOrigin;
   };
+  /** A viewport that asked for a plane is drawn: as a volume, or as slices with the reason. */
+  'viewport:mpr': ViewportMprInfo & { readonly viewportId: string };
+  /** Another viewport became the one the toolbar and the commands act on. */
+  'viewport:active': { readonly viewportId: string; readonly previous: string };
   /** The tool the left mouse button drives changed. */
   'tool:active': { readonly tool: PrimaryTool; readonly previous: PrimaryTool };
   /** Cine started or stopped, or changed its rate. */
@@ -94,12 +125,20 @@ export interface ViewerEvents extends MeasurementEvents, SegmentationEvents {
 /** Fields to change. Viewports are matched by id; a field you leave out stays as it is. */
 export interface ViewerStatePatch {
   readonly studyInstanceUID?: string;
+  /** Changes which viewports there are. Those the new layout keeps stay as they are; new ones start empty. */
+  readonly layout?: LayoutId;
   readonly viewports?: readonly ViewportStateV1[];
 }
 
 export interface SetViewportSeriesOptions {
   /** Which stack of the series, when it splits into several. Default 0. */
   readonly stackIndex?: number;
+  /**
+   * A plane to reformat the series in. A series that cannot be (see `viewport.mpr`) is shown as
+   * slices. Without one the slices are shown as they were acquired. Then `imageIndex` counts slices
+   * along the plane.
+   */
+  readonly orientation?: MprOrientation;
   /** Default: the middle slice. */
   readonly imageIndex?: number;
 }
@@ -138,8 +177,18 @@ export interface NavigateResult {
   }[];
 }
 
+/** What a viewport that asked for a plane got. */
+export interface ViewportMprInfo {
+  readonly requested: MprOrientation;
+  /** `volume`: reformatted in the plane. `stack`: the slices are shown, and `reason` says why. */
+  readonly mode: 'volume' | 'stack';
+  readonly reason?: MprFallbackReason;
+}
+
 export interface ViewportApi {
   readonly id: string;
+  /** Set when the viewport asked for a plane: whether it got one. `undefined` for plain slices. */
+  readonly mpr: ViewportMprInfo | undefined;
   /** What the viewport shows now. `undefined` until a series is displayed. */
   readonly series: ViewportSeriesInfo | undefined;
   /** 0 when no series is displayed. */
@@ -169,6 +218,14 @@ export interface ViewportApi {
 }
 
 export interface ViewportsApi {
+  /**
+   * The viewport the toolbar, the commands, and the panels act on when they are not told another:
+   * `vp-0` at the start, then the last one the person pressed or focused. It is not part of the
+   * state: a link does not carry it.
+   */
+  readonly active: string;
+  /** Makes a viewport the active one. Throws for an id the layout does not have. */
+  setActive(viewportId: string): void;
   /** Draws the viewport into `element`, now or as soon as it has a series to show. */
   attach(viewportId: string, element: HTMLElement): void;
   /** Stops drawing. What the viewport should show stays in the state, so attaching again restores it. */
@@ -181,12 +238,40 @@ export interface ToolsApi {
   /** The tools the left mouse button can drive. The middle button always pans, the right zooms, and the wheel scrolls. */
   list(): readonly ToolInfo[];
   getActive(): PrimaryTool;
+  /**
+   * Whether the tool can do anything now. Every tool can, except crosshairs, which needs two planes
+   * of one volume on screen. A tool that is not available can still be chosen; it then does nothing.
+   */
+  isAvailable(tool: PrimaryTool): boolean;
   /** Rejects with a `RangeError` for a tool that does not exist. */
   setActive(tool: PrimaryTool): Promise<void>;
   /** The window presets of this viewer. */
   windowPresets(): readonly WindowPreset[];
   /** The keys that are bound, as chords such as `w` or `Shift+i`, so a toolbar can show the key of a button. Empty when the keyboard is off. */
   shortcuts(): readonly { readonly chord: string; readonly action: KeyAction }[];
+}
+
+export interface ShowMprOptions {
+  /** The series to reformat. Default: the one on screen in the active viewport. */
+  readonly seriesInstanceUID?: string;
+  /** Which stack of it, when it splits into several. Default: the one on screen, else 0. */
+  readonly stackIndex?: number;
+}
+
+/** How the study on screen can be hung: a layout, and a series for each viewport. */
+export interface HangingProtocolsApi {
+  /** The protocols the host gave, in order. Empty by default. */
+  list(): readonly HangingProtocol[];
+  /** The protocol that fits the current study best, or `undefined`. Changes nothing. */
+  match(): HangingMatch | undefined;
+  /**
+   * Sets the layout and shows a series in each viewport. Without an id it uses the best fit; with
+   * one, that protocol. A series that has no pictures is skipped for the next that fits. Resolves to
+   * what was applied, or `undefined` when nothing fits (the viewer is left as it was). Rejects with
+   * a `RangeError` for an unknown id, and with an `Error` before a study is loaded or when every
+   * series that fits fails to open.
+   */
+  apply(protocolId?: string): Promise<HangingMatch | undefined>;
 }
 
 export interface Viewer {
@@ -208,6 +293,8 @@ export interface Viewer {
   readonly segmentations: SegmentationsApi;
   /** The settings in force, and layers to put over them. */
   readonly config: ConfigApi;
+  /** Layouts and series chosen by rule, for a host that wants a study to open the way a reader expects. */
+  readonly hangingProtocols: HangingProtocolsApi;
   /** Named things the viewer can do: for a config, a toolbar button, or a host's own code. */
   readonly commands: CommandsApi;
   /** Resolves once the series is displayed, or, with no element attached yet, once it is recorded. */
@@ -222,6 +309,20 @@ export interface Viewer {
    * series does not have the instance.
    */
   navigateTo(target: NavigateTarget): Promise<NavigateResult>;
+  /**
+   * Changes the layout: `1x1`, `1x2` (a row of two), `2x2`, or `1+3` (one large, three small). A
+   * viewport that the new layout also has (`vp-0` always) keeps what it shows; new ones start empty;
+   * the others stop drawing and are dropped from the state, so going back to a bigger layout shows
+   * them empty. Rejects with a `RangeError` for any other value.
+   */
+  setLayout(layout: LayoutId): Promise<void>;
+  /**
+   * Shows a series in the three planes and as slices: a 2x2 layout with the axial plane in `vp-0`,
+   * the sagittal in `vp-1`, the coronal in `vp-2`, and the slices as they were acquired in `vp-3`.
+   * A series that cannot be reformatted is shown as slices in each, with the reason in `viewport.mpr`.
+   * Rejects when there is no series to show.
+   */
+  showMpr(options?: ShowMprOptions): Promise<void>;
   getState(): ViewerStateV1;
   /** Applies a patch and resolves once everything it asks for is displayed. Rejects if the result is not a valid state. */
   setState(patch: ViewerStatePatch, options?: { readonly origin?: 'api' | 'url' }): Promise<void>;
@@ -264,6 +365,12 @@ export interface ViewerCoreOptions {
   readonly commands?: Readonly<Record<string, CommandInput>>;
   /** A state to restore, for example one decoded from the URL. It is validated. */
   readonly initialState?: ViewerStateV1;
+  /**
+   * Rules for how to hang a study (`DEFAULT_HANGING_PROTOCOLS` is a start). Plain data, validated
+   * when the viewer is made. None by default: nothing is applied by itself, a host or the shell
+   * calls `viewer.hangingProtocols.apply()`.
+   */
+  readonly hangingProtocols?: readonly HangingProtocol[];
   readonly tools?: {
     /** The tool the left mouse button drives at the start. Default: window / level. */
     readonly active?: PrimaryTool;
@@ -284,6 +391,13 @@ export interface ViewerCoreOptions {
   readonly overlay?: false | OverlayOptions;
   /** Replaces the usual CT windows (lung, soft tissue, bone, brain, liver). */
   readonly windowLevelPresets?: readonly WindowPreset[];
+  readonly memory?: {
+    /**
+     * How much memory volumes (reformatted planes) may take in all. A series whose volume would not
+     * fit is shown as slices. Default 1 GiB, or 512 MiB on a device that reports 4 GiB or less.
+     */
+    readonly maxCacheBytes?: number;
+  };
 }
 
 interface Shown {
@@ -299,6 +413,10 @@ interface Shown {
   readonly modality: string;
   readonly description: string | undefined;
   overlay: OverlayView | undefined;
+  /** The plane the viewport asked for, and what it got. */
+  readonly mpr: ViewportMprInfo | undefined;
+  /** Set when the viewport draws a volume: the claim on its memory, given back with the viewport. */
+  readonly volumeKey: string | undefined;
 }
 
 interface Runtime {
@@ -312,6 +430,7 @@ interface Runtime {
   api: ViewportApi | undefined;
   cine: CineController | undefined;
   stopKeys: (() => void) | undefined;
+  stopActive: (() => void) | undefined;
 }
 
 const noop = (): void => undefined;
@@ -474,6 +593,30 @@ export function createViewerCore(
     },
   });
   const runtimes = new Map<string, Runtime>();
+  let activeViewport = 'vp-0';
+  const maxVolumeBytes = resolveMaxCacheBytes(options.memory?.maxCacheBytes);
+  /** The volumes drawn now, by series and stack, with how many viewports use each. */
+  const volumes = new Map<string, { readonly bytes: number; users: number }>();
+
+  function volumeBytesInUse(): number {
+    let total = 0;
+    for (const { bytes } of volumes.values()) total += bytes;
+    return total;
+  }
+
+  function claimVolume(key: string, bytes: number): void {
+    const held = volumes.get(key);
+    if (held === undefined) volumes.set(key, { bytes, users: 1 });
+    else held.users += 1;
+  }
+
+  function releaseVolume(key: string | undefined): void {
+    if (key === undefined) return;
+    const held = volumes.get(key);
+    if (held === undefined) return;
+    held.users -= 1;
+    if (held.users <= 0) volumes.delete(key);
+  }
   const seriesCache = new Map<string, Promise<LoadedSeriesData>>();
   let destroyed = false;
   let queue: Promise<void> = Promise.resolve();
@@ -513,7 +656,9 @@ export function createViewerCore(
     navigateNow: (target) => navigateNow(target),
     imageIndexOf: (viewportId, seriesInstanceUID, stackIndex) => {
       const shown = runtimes.get(viewportId)?.shown;
-      return shown?.seriesInstanceUID === seriesInstanceUID && shown.stack.index === stackIndex
+      return shown?.seriesInstanceUID === seriesInstanceUID &&
+        shown.stack.index === stackIndex &&
+        shown.volumeKey === undefined
         ? shown.port.getImageIndex()
         : undefined;
     },
@@ -560,12 +705,15 @@ export function createViewerCore(
     shown.overlay?.destroy();
     shown.off();
     shown.port.destroy();
+    releaseVolume(shown.volumeKey);
   }
 
   /** Redraws the text over the picture from what is on screen now. */
   function updateOverlay(shown: Shown): void {
     if (shown.overlay === undefined || overlayOptions === undefined || shown.lastIndex < 0) return;
-    const metadata = shown.stack.instances[shown.lastIndex]?.metadata;
+    // A plane is made of every slice: its headers are the first image's, whatever the index.
+    const metadata =
+      shown.stack.instances[shown.volumeKey === undefined ? shown.lastIndex : 0]?.metadata;
     if (metadata === undefined) return;
     shown.overlay.update(
       renderOverlay(
@@ -574,7 +722,7 @@ export function createViewerCore(
           seriesDescription: shown.description,
           metadata,
           imageIndex: shown.lastIndex,
-          imageCount: shown.stack.imageIds.length,
+          imageCount: shown.port.imageCount,
           view: shown.view,
         }),
         overlayOptions.corners,
@@ -597,8 +745,9 @@ export function createViewerCore(
     events.emit('viewport:image', {
       viewportId: runtime.id,
       imageIndex: index,
-      imageCount: shown.stack.imageIds.length,
-      sopInstanceUID: shown.stack.instances[index]?.sopInstanceUID,
+      imageCount: shown.port.imageCount,
+      sopInstanceUID:
+        shown.volumeKey === undefined ? shown.stack.instances[index]?.sopInstanceUID : undefined,
       origin,
     });
   }
@@ -626,6 +775,29 @@ export function createViewerCore(
     }
     if (!sameZoom(previous.zoom, view.zoom)) {
       events.emit('viewport:camera', { viewportId: runtime.id, zoom: view.zoom, origin });
+    }
+    if (!sameWindow(previous.window, view.window) || previous.invert !== view.invert) {
+      syncVoi(runtime, shown, view, origin);
+    }
+  }
+
+  /**
+   * The planes of one volume share a window and an inversion: what changes in one is set in the
+   * others, as the change it was (a person's drag stays a user change). Slices are not synced, and
+   * neither are two viewports that merely show the same series.
+   */
+  function syncVoi(source: Runtime, shown: Shown, view: ViewSnapshot, origin: StateOrigin): void {
+    if (shown.volumeKey === undefined) return;
+    for (const other of [...runtimes.values()]) {
+      if (other === source || other.shown?.volumeKey !== shown.volumeKey) continue;
+      const have = other.shown.port.getView();
+      const windowDiffers = !sameWindow(have.window, view.window);
+      const invertDiffers = have.invert !== view.invert;
+      if (!windowDiffers && !invertDiffers) continue;
+      changeView(other, origin, (port) => {
+        if (windowDiffers) port.setWindow(view.window);
+        if (invertDiffers) port.setInvert(view.invert);
+      });
     }
   }
 
@@ -690,6 +862,62 @@ export function createViewerCore(
     reportImage(runtime, shown, shown.port.getImageIndex(), origin);
   }
 
+  /**
+   * Draws a stack, or the plane of it that the viewport asked for. A plane needs a stack that can
+   * be reformatted and a volume that fits the budget; otherwise, or when the engine cannot, the
+   * slices are drawn and the reason is kept. Runs inside the queue.
+   */
+  async function drawPlane(
+    port: RenderingPort,
+    element: HTMLElement,
+    stack: SeriesStack,
+    seriesInstanceUID: string,
+    desired: ViewportStateV1,
+  ): Promise<{
+    readonly port: StackPort;
+    readonly mpr: ViewportMprInfo | undefined;
+    readonly volumeKey: string | undefined;
+  }> {
+    const renderOptions = { imageIndex: desired.imageIndex, prefetchRadius };
+    const requested = desired.orientation;
+    if (requested === undefined) {
+      return {
+        port: await port.renderStack(element, stack, renderOptions),
+        mpr: undefined,
+        volumeKey: undefined,
+      };
+    }
+    const key = `${seriesInstanceUID}/${stack.index.toString()}`;
+    const held = volumes.get(key);
+    // Planes of one volume share it, so a second plane costs nothing.
+    const decision =
+      held === undefined
+        ? decideMpr(stack, { maxBytes: maxVolumeBytes, inUseBytes: volumeBytesInUse() })
+        : ({ ok: true, bytes: held.bytes } as const);
+    let reason: MprFallbackReason;
+    if (decision.ok) {
+      claimVolume(key, decision.bytes);
+      try {
+        const volume = await port.renderVolume(element, stack, {
+          ...renderOptions,
+          orientation: requested,
+        });
+        return { port: volume, mpr: { requested, mode: 'volume' }, volumeKey: key };
+      } catch (error) {
+        releaseVolume(key);
+        if (!(error instanceof VolumeUnsupportedError)) throw error;
+        reason = 'engine-unsupported';
+      }
+    } else {
+      reason = decision.reason;
+    }
+    return {
+      port: await port.renderStack(element, stack, renderOptions),
+      mpr: { requested, mode: 'stack', reason },
+      volumeKey: undefined,
+    };
+  }
+
   /** Makes the engine show what the state says this viewport should show. Runs inside the queue. */
   async function syncViewport(id: string, origin: StateOrigin = 'api'): Promise<void> {
     const runtime = runtimes.get(id);
@@ -712,7 +940,8 @@ export function createViewerCore(
     if (
       shown?.seriesInstanceUID === seriesInstanceUID &&
       shown.stack.index === stackIndex &&
-      shown.element === element
+      shown.element === element &&
+      shown.mpr?.requested === desired.orientation
     ) {
       const wanted = desired.imageIndex;
       if (wanted !== undefined && wanted !== shown.port.getImageIndex()) {
@@ -736,13 +965,12 @@ export function createViewerCore(
         );
       }
       const port = await portPromise;
-      const stackPort = await port.renderStack(element, stack, {
-        imageIndex: desired.imageIndex,
-        prefetchRadius,
-      });
+      const drawn = await drawPlane(port, element, stack, seriesInstanceUID, desired);
+      const { port: stackPort, mpr, volumeKey } = drawn;
       if (destroyed || runtime.element !== element) {
         // Detached or destroyed while the render was in flight.
         stackPort.destroy();
+        releaseVolume(volumeKey);
         return;
       }
       const next: Shown = {
@@ -754,8 +982,13 @@ export function createViewerCore(
         lastIndex: -1,
         view: stackPort.getView(),
         modality: series.modality,
-        description: series.description,
+        description:
+          volumeKey === undefined
+            ? series.description
+            : `${series.description ?? series.modality} (${mpr?.requested ?? 'plane'})`,
         overlay: overlayOptions === undefined ? undefined : createOverlayView(element),
+        mpr,
+        volumeKey,
       };
       const offImage = stackPort.onImageChange((index) => {
         reportImage(
@@ -769,11 +1002,11 @@ export function createViewerCore(
         reportView(runtime, next, view, runtime.viewOrigin ?? 'user');
       });
       runtime.shown = next;
-      const detachMeasurements = measurements.attach({
-        seriesInstanceUID,
-        stack,
-        port: stackPort,
-      });
+      // Shapes are drawn on stacks of slices, not on a plane of a volume. A SEG is drawn on both.
+      const detachMeasurements =
+        volumeKey === undefined
+          ? measurements.attach({ seriesInstanceUID, stack, port: stackPort })
+          : noop;
       const detachSegmentations = segmentations.attach({
         seriesInstanceUID,
         stack,
@@ -786,6 +1019,14 @@ export function createViewerCore(
         detachSegmentations();
       };
       stackPort.setPrimaryTool(activeTool);
+      if (mpr !== undefined) {
+        events.emit('viewport:mpr', {
+          viewportId: id,
+          requested: mpr.requested,
+          mode: mpr.mode,
+          ...(mpr.reason === undefined ? {} : { reason: mpr.reason }),
+        });
+      }
       // The state describes what is on screen: the stack and the slice that are showing now.
       reportImage(runtime, next, stackPort.getImageIndex(), origin, { stackIndex: stack.index });
       applyView(runtime, viewportState(id) ?? desired, origin);
@@ -798,6 +1039,7 @@ export function createViewerCore(
           {
             seriesInstanceUID: undefined,
             stackIndex: undefined,
+            orientation: undefined,
             imageIndex: undefined,
             window: undefined,
             invert: undefined,
@@ -826,7 +1068,7 @@ export function createViewerCore(
         return enqueue(async () => {
           const { shown } = runtime;
           if (shown === undefined) return false;
-          const last = shown.stack.imageIds.length - 1;
+          const last = shown.port.imageCount - 1;
           const current = shown.port.getImageIndex();
           if (current >= last && !loop) return false;
           await moveTo(runtime, shown, current >= last ? 0 : current + 1, 'api');
@@ -858,15 +1100,18 @@ export function createViewerCore(
           : {
               seriesInstanceUID: shown.seriesInstanceUID,
               stackIndex: shown.stack.index,
-              imageCount: shown.stack.imageIds.length,
+              imageCount: shown.port.imageCount,
             };
       },
+      get mpr(): ViewportMprInfo | undefined {
+        return runtime.shown?.mpr;
+      },
       get imageCount(): number {
-        return runtime.shown?.stack.imageIds.length ?? 0;
+        return runtime.shown?.port.imageCount ?? 0;
       },
       getImageIndex: () => runtime.shown?.port.getImageIndex(),
       setImageIndex(index): Promise<void> {
-        const count = runtime.shown?.stack.imageIds.length ?? 0;
+        const count = runtime.shown?.port.imageCount ?? 0;
         if (
           runtime.shown !== undefined &&
           !(Number.isInteger(index) && index >= 0 && index < count)
@@ -884,7 +1129,7 @@ export function createViewerCore(
           const shown = requireShown();
           const target = Math.min(
             Math.max(0, shown.port.getImageIndex() + Math.trunc(delta)),
-            shown.stack.imageIds.length - 1,
+            shown.port.imageCount - 1,
           );
           return moveTo(runtime, shown, target, 'api');
         });
@@ -901,7 +1146,7 @@ export function createViewerCore(
           return enqueue(() => {
             const shown = requireShown();
             // A stop, or a later play, made after this call supersedes it, even though it is still queued.
-            if (mine === cineCalls && shown.stack.imageIds.length > 1) cine.play(cineOptions);
+            if (mine === cineCalls && shown.port.imageCount > 1) cine.play(cineOptions);
             return Promise.resolve();
           });
         },
@@ -979,6 +1224,205 @@ export function createViewerCore(
     return state.viewports.map((viewport) => ({ id: viewport.id }));
   }
 
+  /** The viewports of a layout: the ones already there are kept, and the rest start empty. */
+  function fitToLayout(
+    current: readonly ViewportStateV1[],
+    layout: LayoutId,
+  ): readonly ViewportStateV1[] {
+    return layoutViewportIds(layout).map(
+      (id) => current.find((viewport) => viewport.id === id) ?? { id },
+    );
+  }
+
+  /** Stops drawing the viewports that are not in the state any more. */
+  function dropRemovedViewports(): void {
+    for (const runtime of runtimes.values()) {
+      if (viewportState(runtime.id) === undefined) teardown(runtime);
+    }
+    if (viewportState(activeViewport) === undefined) makeActive('vp-0');
+  }
+
+  function setLayout(layout: LayoutId): Promise<void> {
+    try {
+      assertAlive();
+      assertLayout(layout);
+    } catch (error) {
+      return Promise.reject(toError(error));
+    }
+    return enqueue(() => {
+      applyLayoutNow(layout);
+      return Promise.resolve();
+    });
+  }
+
+  /** Changes the layout. Runs inside the queue. */
+  function applyLayoutNow(layout: LayoutId): void {
+    store.update((state) => {
+      if (state.layout === layout) return {};
+      return { layout, viewports: fitToLayout(state.viewports, layout) };
+    }, 'api');
+    dropRemovedViewports();
+  }
+
+  const MPR_VIEWPORTS: readonly (readonly [string, MprOrientation | undefined])[] = [
+    ['vp-0', 'axial'],
+    ['vp-1', 'sagittal'],
+    ['vp-2', 'coronal'],
+    ['vp-3', undefined],
+  ];
+
+  function showMpr(mprOptions: ShowMprOptions = {}): Promise<void> {
+    try {
+      assertAlive();
+      if (mprOptions.seriesInstanceUID !== undefined) {
+        assertDicomUid(mprOptions.seriesInstanceUID, 'SeriesInstanceUID');
+      }
+      const { stackIndex } = mprOptions;
+      if (stackIndex !== undefined && !(Number.isInteger(stackIndex) && stackIndex >= 0)) {
+        throw new RangeError(`A stack number is a whole number from 0, not ${String(stackIndex)}.`);
+      }
+    } catch (error) {
+      return Promise.reject(toError(error));
+    }
+    return enqueue(async () => {
+      if (store.getState().studyInstanceUID === undefined) {
+        throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+      }
+      const source = viewportState(activeViewport);
+      const seriesInstanceUID = mprOptions.seriesInstanceUID ?? source?.seriesInstanceUID;
+      if (seriesInstanceUID === undefined) {
+        throw new Error('Show a series first, or say which one to reformat.');
+      }
+      const stackIndex =
+        mprOptions.stackIndex ??
+        (source?.seriesInstanceUID === seriesInstanceUID ? source.stackIndex : undefined);
+      applyLayoutNow('2x2');
+      makeActive('vp-0');
+      for (const [viewportId, orientation] of MPR_VIEWPORTS) {
+        await applySeries(viewportId, seriesInstanceUID, {
+          ...(stackIndex === undefined ? {} : { stackIndex }),
+          ...(orientation === undefined ? {} : { orientation }),
+        });
+      }
+    });
+  }
+
+  const protocols = parseHangingProtocols(options.hangingProtocols ?? []);
+
+  function matchNow(
+    candidates: readonly SeriesSummary[],
+    only?: HangingProtocol,
+  ): HangingMatch | undefined {
+    return matchHangingProtocol(only === undefined ? protocols : [only], candidates);
+  }
+
+  /** Hangs the study: finds a protocol whose series can all be opened, then shows it. Runs inside the queue. */
+  async function applyHangingNow(
+    protocolId: string | undefined,
+  ): Promise<HangingMatch | undefined> {
+    const only =
+      protocolId === undefined
+        ? undefined
+        : protocols.find((candidate) => candidate.id === protocolId);
+    if (protocolId !== undefined && only === undefined) {
+      throw new RangeError(`There is no hanging protocol "${protocolId}".`);
+    }
+    const { studyInstanceUID } = store.getState();
+    const loaded = study;
+    if (studyInstanceUID === undefined || loaded?.studyInstanceUID !== studyInstanceUID) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    let candidates = loaded.series;
+    let lastFailure: Error | undefined;
+    for (;;) {
+      const match = matchNow(candidates, only);
+      if (match === undefined) {
+        if (lastFailure !== undefined) throw lastFailure;
+        return undefined;
+      }
+      // Open every series first, so a protocol is never half applied.
+      const failed = new Set<string>();
+      for (const { seriesInstanceUID } of match.assignments) {
+        try {
+          const data = await getSeries(studyInstanceUID, seriesInstanceUID);
+          assertAlive();
+          if (data.stacks.length === 0) {
+            throw new Error(
+              `Series ${seriesInstanceUID} (${data.modality}) has no images to display.`,
+            );
+          }
+        } catch (error) {
+          assertAlive();
+          failed.add(seriesInstanceUID);
+          lastFailure = toError(error);
+        }
+      }
+      if (failed.size > 0) {
+        candidates = candidates.filter((entry) => !failed.has(entry.seriesInstanceUID));
+        continue;
+      }
+      const before = store.getState();
+      const activeBefore = activeViewport;
+      try {
+        await hangNow(match);
+      } catch (error) {
+        // A hang that fails part way leaves the viewer as it was, not half done.
+        store.update({ layout: before.layout, viewports: before.viewports }, 'api');
+        dropRemovedViewports();
+        for (const viewport of before.viewports) await syncViewport(viewport.id).catch(noop);
+        if (viewportState(activeBefore) !== undefined) makeActive(activeBefore);
+        throw error;
+      }
+      return match;
+    }
+  }
+
+  /** Sets the layout and puts each assigned series in its viewport. Runs inside the queue. */
+  async function hangNow(match: HangingMatch): Promise<void> {
+    {
+      applyLayoutNow(match.protocol.layout);
+      for (const id of layoutViewportIds(match.protocol.layout)) {
+        const assigned = match.assignments.find((entry) => entry.viewportId === id);
+        if (assigned === undefined) {
+          updateViewport(
+            id,
+            {
+              seriesInstanceUID: undefined,
+              orientation: undefined,
+              stackIndex: undefined,
+              imageIndex: undefined,
+              window: undefined,
+              invert: undefined,
+              zoom: undefined,
+            },
+            'api',
+          );
+          await syncViewport(id);
+        } else {
+          await applySeries(id, assigned.seriesInstanceUID, {});
+        }
+      }
+    }
+  }
+
+  const hangingProtocols: HangingProtocolsApi = {
+    list: () => protocols,
+    match: () => {
+      const loaded = study;
+      return loaded === undefined || loaded.studyInstanceUID !== store.getState().studyInstanceUID
+        ? undefined
+        : matchNow(loaded.series);
+    },
+    apply(protocolId): Promise<HangingMatch | undefined> {
+      try {
+        assertAlive();
+      } catch (error) {
+        return Promise.reject(toError(error));
+      }
+      return enqueue(() => applyHangingNow(protocolId));
+    },
+  };
+
   async function loadStudy(studyInstanceUID: string): Promise<StudyData> {
     assertAlive();
     assertDicomUid(studyInstanceUID, 'StudyInstanceUID');
@@ -1015,18 +1459,25 @@ export function createViewerCore(
     const sameStack =
       shown?.seriesInstanceUID === seriesInstanceUID &&
       shown.stack.index === (seriesOptions.stackIndex ?? 0);
+    // Another plane of the same series keeps its window, but not its slice or its zoom.
+    const sameView = sameStack && shown.mpr?.requested === seriesOptions.orientation;
     updateViewport(
       viewportId,
       {
         seriesInstanceUID,
         stackIndex: seriesOptions.stackIndex,
-        imageIndex:
-          seriesOptions.imageIndex ?? (sameStack ? shown.port.getImageIndex() : undefined),
+        orientation: seriesOptions.orientation,
+        imageIndex: seriesOptions.imageIndex ?? (sameView ? shown.port.getImageIndex() : undefined),
         // Another series starts with its own window, no inversion, and fit to the viewport.
-        ...(sameStack ? {} : { window: undefined, invert: undefined, zoom: undefined }),
+        ...(sameStack ? {} : { window: undefined, invert: undefined }),
+        ...(sameView ? {} : { zoom: undefined }),
       },
       'api',
     );
+    // A viewport that fell back to slices tries for the plane again when it is asked again: memory
+    // may have been freed, or the engine may have changed, since it was decided.
+    const runtime = runtimes.get(viewportId);
+    if (shown?.mpr?.mode === 'stack' && runtime !== undefined) teardown(runtime);
     await syncViewport(viewportId);
   }
 
@@ -1041,6 +1492,12 @@ export function createViewerCore(
       const { imageIndex } = seriesOptions;
       if (imageIndex !== undefined && !Number.isInteger(imageIndex)) {
         throw new RangeError(`A slice number is a whole number, not ${String(imageIndex)}.`);
+      }
+      const { orientation } = seriesOptions;
+      if (orientation !== undefined && !isMprOrientation(orientation)) {
+        throw new RangeError(
+          `There is no plane ${String(orientation)}. The planes are axial, sagittal, and coronal.`,
+        );
       }
     } catch (error) {
       return Promise.reject(toError(error));
@@ -1136,7 +1593,9 @@ export function createViewerCore(
       const current = store.getState();
       const studyChanged =
         patch.studyInstanceUID !== undefined && patch.studyInstanceUID !== current.studyInstanceUID;
-      const base = studyChanged ? emptyViewports(current) : current.viewports;
+      if (patch.layout !== undefined) assertLayout(patch.layout);
+      const emptied = studyChanged ? emptyViewports(current) : current.viewports;
+      const base = patch.layout === undefined ? emptied : fitToLayout(emptied, patch.layout);
       const merged = base.map((viewport) => {
         const change = patch.viewports?.find((candidate) => candidate.id === viewport.id);
         if (change === undefined) return viewport;
@@ -1153,9 +1612,15 @@ export function createViewerCore(
       const unmatched = patch.viewports?.find(
         (change) => !merged.some((viewport) => viewport.id === change.id),
       );
-      if (unmatched !== undefined) requireViewport(unmatched.id);
+      if (unmatched !== undefined) {
+        const known = merged.map((viewport) => viewport.id).join(', ');
+        throw new Error(
+          `There is no viewport ${unmatched.id} in the layout ${patch.layout ?? current.layout}. It has: ${known}.`,
+        );
+      }
       const candidate = parseViewerState({
         ...current,
+        ...(patch.layout === undefined ? {} : { layout: patch.layout }),
         ...(patch.studyInstanceUID === undefined
           ? {}
           : { studyInstanceUID: patch.studyInstanceUID }),
@@ -1168,13 +1633,18 @@ export function createViewerCore(
         seriesCache.clear();
         thumbnails.clear();
       }
-      store.update(
-        {
-          studyInstanceUID: candidate.state.studyInstanceUID,
-          viewports: candidate.state.viewports,
-        },
-        origin,
-      );
+      // A patch that changes nothing announces nothing: a page that echoes the state it was given must not set off a round of changes.
+      if (studyChanged || !sameViewState(current, candidate.state)) {
+        store.update(
+          {
+            studyInstanceUID: candidate.state.studyInstanceUID,
+            layout: candidate.state.layout,
+            viewports: candidate.state.viewports,
+          },
+          origin,
+        );
+      }
+      dropRemovedViewports();
       for (const viewport of candidate.state.viewports) await syncViewport(viewport.id, origin);
     });
   }
@@ -1182,6 +1652,16 @@ export function createViewerCore(
   const tools: ToolsApi = {
     list: () => PRIMARY_TOOLS,
     getActive: () => activeTool,
+    isAvailable(tool): boolean {
+      if (tool !== 'crosshairs') return true;
+      // The planes of each volume on screen: crosshairs link those of one volume.
+      const planes = new Map<string, number>();
+      for (const runtime of runtimes.values()) {
+        const key = runtime.shown?.volumeKey;
+        if (key !== undefined) planes.set(key, (planes.get(key) ?? 0) + 1);
+      }
+      return [...planes.values()].some((count) => count >= 2);
+    },
     windowPresets: () => windowPresets,
     shortcuts: () =>
       keymap === undefined ? [] : [...keymap].map(([chord, action]) => ({ chord, action })),
@@ -1270,6 +1750,28 @@ export function createViewerCore(
     };
   }
 
+  /** Makes a viewport the active one, and says so when it was not. */
+  function makeActive(viewportId: string): void {
+    if (destroyed || viewportId === activeViewport) return;
+    const previous = activeViewport;
+    activeViewport = viewportId;
+    events.emit('viewport:active', { viewportId, previous });
+  }
+
+  /** Follows the person: a press or the focus on a viewport element makes that viewport the active one. */
+  function listenForActive(runtime: Runtime, element: HTMLElement): () => void {
+    const choose = (): void => {
+      // A viewport the layout has dropped is no longer anyone's to choose.
+      if (viewportState(runtime.id) !== undefined) makeActive(runtime.id);
+    };
+    element.addEventListener('pointerdown', choose, true);
+    element.addEventListener('focusin', choose);
+    return (): void => {
+      element.removeEventListener('pointerdown', choose, true);
+      element.removeEventListener('focusin', choose);
+    };
+  }
+
   /** Draws the overlay again for every stack on screen, or removes it where the config no longer has one. */
   function refreshOverlays(): void {
     for (const runtime of runtimes.values()) {
@@ -1351,13 +1853,16 @@ export function createViewerCore(
           api: undefined,
           cine: undefined,
           stopKeys: undefined,
+          stopActive: undefined,
         };
         runtimes.set(viewportId, runtime);
       }
       if (runtime.element === element) return;
       runtime.stopKeys?.();
+      runtime.stopActive?.();
       runtime.element = element;
       runtime.stopKeys = listenForKeys(runtime, element);
+      runtime.stopActive = listenForActive(runtime, element);
       runtime.api ??= apiFor(runtime);
       // Anything drawn into a previous element is replaced when this runs.
       enqueue(() => syncViewport(viewportId)).catch((error: unknown) => {
@@ -1370,6 +1875,8 @@ export function createViewerCore(
       runtimes.delete(viewportId);
       runtime.stopKeys?.();
       runtime.stopKeys = undefined;
+      runtime.stopActive?.();
+      runtime.stopActive = undefined;
       runtime.element = undefined;
       runtime.api = undefined;
       if (!destroyed) {
@@ -1378,6 +1885,14 @@ export function createViewerCore(
           return Promise.resolve();
         }).catch(noop);
       }
+    },
+    get active(): string {
+      return activeViewport;
+    },
+    setActive(viewportId): void {
+      assertAlive();
+      requireViewport(viewportId);
+      makeActive(viewportId);
     },
     get: (viewportId) => runtimes.get(viewportId)?.api,
     list: () =>
@@ -1397,6 +1912,7 @@ export function createViewerCore(
     measurements: measurements.api,
     segmentations: segmentations.api,
     config: configApi,
+    hangingProtocols,
     commands,
     ui: {
       registerPanel(panel): Unsubscribe {
@@ -1407,6 +1923,8 @@ export function createViewerCore(
     },
     setViewportSeries,
     navigateTo,
+    setLayout,
+    showMpr,
     getState: () => store.getState(),
     setState,
     subscribe: (selector, listener, subscribeOptions) =>
@@ -1417,6 +1935,7 @@ export function createViewerCore(
       destroyed = true;
       for (const runtime of runtimes.values()) {
         runtime.stopKeys?.();
+        runtime.stopActive?.();
         teardown(runtime);
       }
       runtimes.clear();
