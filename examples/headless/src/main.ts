@@ -289,7 +289,8 @@ async function settled(): Promise<void> {
         held.workers +
         held.renderingEngines +
         held.viewports +
-        held.activeEngines ===
+        held.activeEngines +
+        held.volumes ===
       0
     ) {
       return;
