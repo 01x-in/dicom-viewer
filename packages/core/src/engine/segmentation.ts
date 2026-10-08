@@ -400,32 +400,32 @@ export async function parseSegmentation(
 
 let volumeLayerCount = 0;
 
-function labelmapScalars(imageId: string | undefined): ArrayLike<number> | undefined {
-  return imageId === undefined ? undefined : cache.getImage(imageId)?.voxelManager?.getScalarData();
-}
-
 /**
  * Copies the labelmap images of a layer into a volume with the shape of the volume of the stack,
  * and registers it with Cornerstone as a segmentation of its own (and a second, for outlines). A
  * plane of the volume can draw a labelmap only as a volume. Slice by slice: the volume orders its
  * images along the slice normal, which need not be the order of the stack.
  */
-function makeVolumeLayer(
-  layer: Layer,
-  referencedImageIds: readonly string[],
-  volumeId: string,
-): VolumeLayer {
+function makeVolumeLayer(layer: Layer, volumeId: string): VolumeLayer {
   volumeLayerCount += 1;
   const labelmapVolumeId = `dv-seg-volume-${volumeLayerCount.toString()}`;
   const labelmap = volumeLoader.createAndCacheDerivedLabelmapVolume(volumeId, {
     volumeId: labelmapVolumeId,
   });
   const base = cache.getVolume(volumeId);
-  const stackPosition = new Map(referencedImageIds.map((imageId, at) => [imageId, at]));
+  // The labelmap image of each image of the stack. A layer from the adapters has images only where
+  // the SEG has pixels, so they are found by the image they name, not by position.
+  const scalarsByImage = new Map<string, ArrayLike<number>>();
+  for (const imageId of layer.imageIds) {
+    const image = cache.getImage(imageId);
+    const scalars = image?.voxelManager?.getScalarData();
+    if (image?.referencedImageId !== undefined && scalars !== undefined) {
+      scalarsByImage.set(image.referencedImageId, scalars);
+    }
+  }
   try {
     for (const [slice, labelmapImageId] of labelmap.imageIds.entries()) {
-      const position = stackPosition.get(base?.imageIds[slice] ?? '');
-      const source = labelmapScalars(position === undefined ? undefined : layer.imageIds[position]);
+      const source = scalarsByImage.get(base?.imageIds[slice] ?? '');
       const target = cache.getImage(labelmapImageId)?.voxelManager?.getWritableScalarData();
       if (source === undefined || target === undefined) continue;
       if (source.length === target.length) target.set(source);
@@ -570,7 +570,7 @@ export function trackSegmentations(options: {
     const key = `${layerIndex.toString()}|${volumeId}`;
     let entry = loaded.volumeLayers.get(key);
     if (entry === undefined) {
-      entry = makeVolumeLayer(layer, loaded.referencedImageIds, volumeId);
+      entry = makeVolumeLayer(layer, volumeId);
       loaded.volumeLayers.set(key, entry);
     }
     const mine = claims.get(handle) ?? [];

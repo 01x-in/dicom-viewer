@@ -1,3 +1,4 @@
+import { firstNumber } from './data/dicom-json';
 import type { NotReconstructable, SeriesStack } from './data/types';
 
 /** The three planes of a reformatted view. A viewport without one shows the slices as they were acquired. */
@@ -27,9 +28,10 @@ const BYTES_PER_VOXEL = 4;
  */
 export function estimateVolumeBytes(stack: SeriesStack): number {
   const first = stack.instances[0]?.metadata;
-  const rows = first?.['00280010']?.Value?.[0];
-  const columns = first?.['00280011']?.Value?.[0];
-  if (typeof rows !== 'number' || typeof columns !== 'number') return Number.POSITIVE_INFINITY;
+  // Read as the data layer reads them, so a size it accepted (a number written as text) is a size here too.
+  const rows = first === undefined ? undefined : firstNumber(first, '00280010');
+  const columns = first === undefined ? undefined : firstNumber(first, '00280011');
+  if (rows === undefined || columns === undefined) return Number.POSITIVE_INFINITY;
   return rows * columns * stack.imageIds.length * BYTES_PER_VOXEL;
 }
 

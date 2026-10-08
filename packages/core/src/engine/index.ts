@@ -171,6 +171,11 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
   const renderingEngineId = renderingEngine.id;
   let viewportCount = 0;
   let destroyed = false;
+  // Settles on destroy(), for the waits that would otherwise outlive the engine.
+  let signalDestroyed: () => void = () => undefined;
+  const destroyedSignal = new Promise<void>((resolve) => {
+    signalDestroyed = resolve;
+  });
   // Renders still being set up. destroy() waits for them, so a viewport is never half-built on a disposed engine.
   const pending = new Set<Promise<unknown>>();
 
@@ -478,7 +483,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
 
       // The images ask for a window; without one, the range of the pixels, once they are in.
       let defaultWindow = windowOfStack(stack);
-      defaultWindow ??= await windowOfLoadedRange(volume, acquired.id);
+      defaultWindow ??= await windowOfLoadedRange(volume, acquired.id, destroyedSignal);
       const startWindow = defaultWindow;
       const applyWindow = (window: WindowLevel): void => {
         viewport.setProperties({
@@ -699,6 +704,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      signalDestroyed();
       Promise.allSettled([...pending]).then(
         () => {
           unregisterFrameRequests?.();

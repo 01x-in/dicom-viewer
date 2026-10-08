@@ -58,6 +58,21 @@ describe('estimateVolumeBytes', () => {
     );
   });
 
+  it('reads a size written as text, as the data layer does', () => {
+    const text = stack(10);
+    const written = {
+      ...text,
+      instances: text.instances.map((item) => ({
+        ...item,
+        metadata: {
+          '00280010': { vr: 'US', Value: ['128'] },
+          '00280011': { vr: 'US', Value: ['128'] },
+        },
+      })),
+    };
+    expect(estimateVolumeBytes(written)).toBe(128 * 128 * 10 * 4);
+  });
+
   it('is infinite when the image size is not known, so it can never pass a budget by accident', () => {
     expect(estimateVolumeBytes(stack(10, undefined, {}))).toBe(Number.POSITIVE_INFINITY);
   });

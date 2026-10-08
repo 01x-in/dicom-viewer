@@ -102,20 +102,35 @@ export function windowOfStack(stack: SeriesStack): WindowLevel | undefined {
  * The window that shows the whole range of the pixels of a volume, for images that ask for none.
  * Waits for every image to be in, so it is only used when there is nothing else to go on.
  */
-export async function windowOfLoadedRange(volume: Volume, volumeId: string): Promise<WindowLevel> {
+export async function windowOfLoadedRange(
+  volume: Volume,
+  volumeId: string,
+  /** Settles when the engine is destroyed, so the wait ends and the plane can let go. */
+  cancelled: Promise<void>,
+): Promise<WindowLevel> {
   const alreadyIn = volume.loadStatus?.['loaded'] === true;
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
     if (alreadyIn) {
       resolve();
       return;
     }
+    const stop = (): void => {
+      eventTarget.removeEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, done);
+    };
     const done = (event: Event): void => {
       const detail = (event as CustomEvent<{ volumeId?: string }>).detail;
       if (detail.volumeId !== volumeId) return;
-      eventTarget.removeEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, done);
+      stop();
       resolve();
     };
     eventTarget.addEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, done);
+    cancelled.then(
+      () => {
+        stop();
+        reject(new Error('The engine was destroyed.'));
+      },
+      () => undefined,
+    );
   });
   const [lower, upper] = volume.voxelManager?.getRange() ?? [0, 1];
   return { center: (lower + upper) / 2, width: Math.max(upper - lower, 1) };
