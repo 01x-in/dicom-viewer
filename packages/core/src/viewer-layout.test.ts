@@ -162,3 +162,15 @@ describe('setState with viewStatePatch', () => {
     expect(h.events['state:changed']).toHaveLength(before);
   });
 });
+
+describe('setState and the viewports of the target layout', () => {
+  it('refuses a viewport the layout it is changing to does not have, even if the current one does', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.setLayout('2x2');
+    await expect(
+      h.viewer.setState({ layout: '1x2', viewports: [{ id: 'vp-2', seriesInstanceUID: CT }] }),
+    ).rejects.toThrow(/no viewport vp-2 in the layout 1x2/);
+    expect(h.viewer.getState().layout).toBe('2x2');
+  });
+});

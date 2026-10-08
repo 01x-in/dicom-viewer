@@ -1361,6 +1361,23 @@ export function createViewerCore(
         candidates = candidates.filter((entry) => !failed.has(entry.seriesInstanceUID));
         continue;
       }
+      const before = store.getState();
+      try {
+        await hangNow(match);
+      } catch (error) {
+        // A hang that fails part way leaves the viewer as it was, not half done.
+        store.update({ layout: before.layout, viewports: before.viewports }, 'api');
+        dropRemovedViewports();
+        for (const viewport of before.viewports) await syncViewport(viewport.id).catch(noop);
+        throw error;
+      }
+      return match;
+    }
+  }
+
+  /** Sets the layout and puts each assigned series in its viewport. Runs inside the queue. */
+  async function hangNow(match: HangingMatch): Promise<void> {
+    {
       applyLayoutNow(match.protocol.layout);
       for (const id of layoutViewportIds(match.protocol.layout)) {
         const assigned = match.assignments.find((entry) => entry.viewportId === id);
@@ -1383,7 +1400,6 @@ export function createViewerCore(
           await applySeries(id, assigned.seriesInstanceUID, {});
         }
       }
-      return match;
     }
   }
 
@@ -1594,7 +1610,12 @@ export function createViewerCore(
       const unmatched = patch.viewports?.find(
         (change) => !merged.some((viewport) => viewport.id === change.id),
       );
-      if (unmatched !== undefined) requireViewport(unmatched.id);
+      if (unmatched !== undefined) {
+        const known = merged.map((viewport) => viewport.id).join(', ');
+        throw new Error(
+          `There is no viewport ${unmatched.id} in the layout ${patch.layout ?? current.layout}. It has: ${known}.`,
+        );
+      }
       const candidate = parseViewerState({
         ...current,
         ...(patch.layout === undefined ? {} : { layout: patch.layout }),

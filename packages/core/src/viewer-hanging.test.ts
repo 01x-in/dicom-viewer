@@ -135,4 +135,26 @@ describe('viewer.hangingProtocols', () => {
     await h.viewer.setViewportSeries('vp-1', CT_TWO_STACKS);
     expect(h.viewer.getState().viewports[1]?.orientation).toBeUndefined();
   });
+
+  it('leaves the viewer as it was when a viewport fails to draw', async () => {
+    const h = withProtocols([pair]);
+    h.viewer.viewports.attach('vp-0', h.element);
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.setViewportSeries('vp-0', CT_TWO_STACKS, { imageIndex: 2 });
+    await h.viewer.setLayout('1x2');
+    h.viewer.viewports.attach('vp-1', document.createElement('div'));
+    const before = h.viewer.getState();
+    const original = h.port.renderStack.bind(h.port);
+    let calls = 0;
+    h.port.renderStack = (element, stack, options) => {
+      calls += 1;
+      // The first viewport draws; the second does not; the drawing that puts things back does.
+      return calls === 2
+        ? Promise.reject(new Error('no picture'))
+        : original(element, stack, options);
+    };
+    await expect(h.viewer.hangingProtocols.apply()).rejects.toThrow('no picture');
+    expect(h.viewer.getState()).toEqual(before);
+    h.port.renderStack = original;
+  });
 });
