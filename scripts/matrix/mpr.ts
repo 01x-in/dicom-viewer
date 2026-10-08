@@ -181,6 +181,17 @@ export async function scenarioMpr(browser: Browser, input: HeadlessInput): Promi
       }
     }
     await settle(page);
+    // A volume streams in, and a slow machine is still drawing it after a fixed wait: look again
+    // until the three pictures stop changing.
+    let previous = '';
+    for (let tries = 0; tries < 60; tries += 1) {
+      const looks = JSON.stringify(
+        await Promise.all(PLANES.map(async (plane) => (await read(page, plane.selector)).box)),
+      );
+      if (looks === previous) break;
+      previous = looks;
+      await settle(page);
+    }
 
     // The shape of each plane. The voxels are 1.5 by 1.5 by 2.5 mm, so a body 168 mm across is 160 mm
     // tall in the sagittal and the coronal planes: a viewer that took the voxels for cubes would draw it 1.75 times as wide.
