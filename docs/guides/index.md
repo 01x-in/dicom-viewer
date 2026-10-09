@@ -15,5 +15,5 @@ comments by TypeDoc: run `pnpm docs:api` and open `.docs/api/index.html`.
 Other documents:
 
 - [docs/plan.md](../plan.md) holds the architecture and each milestone's outcome.
-- [docs/adr](../adr) holds the decisions and why they were made.
+- `docs/adr` holds the decisions and why they were made, one file each (for example [ADR 0001, the asset strategy](../adr/0001-asset-strategy.md)).
 - The milestone reports (`docs/m1-report.md` to `docs/m8-report.md`) say what each one proved and what it left open.
