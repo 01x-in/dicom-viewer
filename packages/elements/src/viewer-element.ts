@@ -123,6 +123,7 @@ export class DvViewerElement extends LitElement {
     notices: { state: true },
   };
 
+  /** @internal The component's own CSS. */
   static override styles: CSSResultGroup = [
     shellThemeStyles,
     baseStyles,

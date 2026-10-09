@@ -15,6 +15,8 @@ export default defineConfig(
       'examples/**',
       '.matrix/**',
       '.tarballs/**',
+      '.docs/**',
+      '.visual/**',
       'packages/core/assets/**',
       'packages/core/src/generated/**',
     ],

@@ -25,6 +25,8 @@ jobs:
       - run: pnpm package-check
       # Brotli budgets on the emitted files (.size-limit.json): a bigger bundle is a decision, not an accident.
       - run: pnpm size
+      # The API reference builds with warnings as errors: a broken link in a comment fails here.
+      - run: pnpm docs:api
 
   matrix:
     name: Installability matrix

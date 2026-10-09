@@ -20,6 +20,7 @@
     "release": "pnpm build && changeset publish",
     "size": "size-limit",
     "visual": "node scripts/visual/run.ts",
+    "docs:api": "typedoc",
     "package-check": "node scripts/package-check.ts",
     "matrix": "node scripts/matrix/run.ts"
   },

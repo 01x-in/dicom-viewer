@@ -29,3 +29,4 @@ packages/core/src/generated/
 .tarballs/
 .matrix/
 .visual
+.docs

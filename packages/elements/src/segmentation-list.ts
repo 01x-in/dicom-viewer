@@ -79,6 +79,7 @@ export class DvSegmentationListElement extends LitElement {
     loading: { state: true },
   };
 
+  /** @internal The component's own CSS. */
   static override styles: CSSResultGroup = [
     themeStyles,
     baseStyles,
