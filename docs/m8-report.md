@@ -33,7 +33,7 @@ What a page downloads is the eager chunks plus the engine chunk (the inline chun
 
 - `pnpm check`: build, format, lint, typecheck, and 1,501 unit tests (1,496 at the end of M7) pass.
 - `pnpm package-check`, `pnpm size`, and `pnpm docs:api` pass.
-- `pnpm matrix`: (result being recorded; see the next commit)
+- `pnpm matrix`: 64 rows (`inline` and `url`); 57 pass in the full run and 58 once the one flaky row is re-run. The failures are the same ones `main` has on this machine: five are a favicon 404 that the full Chromium used here requests (the CI's headless shell does not), and one is the two-layer SEG colour check in `url` mode (`overlap: the disc alone is 94,154,101`). The same colour check also failed in `inline` mode in the full run and passed when that scenario was run again, so it is timing-sensitive here; it passed in CI on every run of M7
 - `pnpm visual --update`, then `pnpm visual`: ten scenes, all within 0.000% of their own baselines; a baseline damaged on purpose fails with 2.3% differing.
 
 ## What running it found
