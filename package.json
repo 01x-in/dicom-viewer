@@ -18,6 +18,7 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",
+    "size": "size-limit",
     "package-check": "node scripts/package-check.ts",
     "matrix": "node scripts/matrix/run.ts"
   },

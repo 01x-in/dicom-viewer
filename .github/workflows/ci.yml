@@ -23,6 +23,8 @@ jobs:
       - run: pnpm check
       # What a consumer's tooling sees: publint and are-the-types-wrong on the packed tarballs.
       - run: pnpm package-check
+      # Brotli budgets on the emitted files (.size-limit.json): a bigger bundle is a decision, not an accident.
+      - run: pnpm size
 
   matrix:
     name: Installability matrix
