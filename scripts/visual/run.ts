@@ -30,12 +30,11 @@ const MOCK_PORT = 8052;
 const SIZE = { width: 1200, height: 800 } as const;
 
 /** The share of pixels that may differ (anti-aliasing and the like) before a scene fails. */
-const MAX_DIFF_RATIO = Number(process.env['DV_VISUAL_MAX_DIFF'] ?? '0.002');
+const MAX_DIFF_TEXT = process.env['DV_VISUAL_MAX_DIFF'] ?? '0.002';
+const MAX_DIFF_RATIO = MAX_DIFF_TEXT.trim() === '' ? Number.NaN : Number(MAX_DIFF_TEXT);
 // A threshold that is not a fraction would make every comparison pass (NaN) or fail: refuse it up front.
 if (!Number.isFinite(MAX_DIFF_RATIO) || MAX_DIFF_RATIO < 0 || MAX_DIFF_RATIO > 1) {
-  console.error(
-    `DV_VISUAL_MAX_DIFF must be a fraction from 0 to 1, not "${process.env['DV_VISUAL_MAX_DIFF'] ?? ''}".`,
-  );
+  console.error(`DV_VISUAL_MAX_DIFF must be a fraction from 0 to 1, not "${MAX_DIFF_TEXT}".`);
   process.exit(2);
 }
 const STRICT = process.env['DV_VISUAL_STRICT'] === '1';
