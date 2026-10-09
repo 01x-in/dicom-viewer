@@ -7,7 +7,7 @@
 | Plan item | Where | Evidence |
 |---|---|---|
 | Publint + are-the-types-wrong | [scripts/package-check.ts](../scripts/package-check.ts), `pnpm package-check`, CI | Packs each package as `npm publish` would, then runs publint (strict) and attw (profile `esm-only`, since the packages are ESM only) on the four tarballs. All eight checks pass. attw cannot resolve a CSS file, so `@scope/viewer-elements/styles.css` is excluded by name; every other entry point resolves, with types, for Node ESM and for bundlers |
-| Size-limit budgets | [.size-limit.json](../.size-limit.json), `pnpm size`, CI | One brotli budget for each emitted chunk, 10 to 15% above where they are now (table below). A budget that is exceeded exits 1 (checked by lowering one) |
+| Size-limit budgets | [.size-limit.json](../.size-limit.json), `pnpm size`, CI | One brotli budget for each emitted file (never a sum of several), 15 to 30% above where they are now (table below); the small files have a floor. A budget that is exceeded exits 1 (checked by lowering one) |
 | Visual regression suite | [scripts/visual](../scripts/visual), `pnpm visual`, [visual.yml](../.github/workflows/visual.yml) | Ten scenes (empty state, two themes, two palettes, a measurement, a SEG, four viewports, three planes, a fallback notice) against baselines, with pixelmatch. On the machine it was built on, two runs in a row are identical (0.000% of pixels differ) and a changed baseline fails the run. **No baselines are committed yet**: see the limits |
 | TypeDoc + guides | [typedoc.json](../typedoc.json), `pnpm docs:api`, [docs/guides](guides/index.md) | The API reference of all four packages builds with warnings as errors, in CI. Guides: installing in a framework (SSR, assets, CSP, what to do when it does not start), data sources, measurements and segmentations, visual regression, releasing |
 | `1.0.0` with provenance | [release.yml](../.github/workflows/release.yml), the changeset, each `package.json` | `changeset status` says all four go from 0.0.0 to 1.0.0. `publishConfig` has `provenance: true`, `repository` points at this repository (which provenance checks), and each package has a README and a LICENSE in its tarball. **Nothing was published** |
@@ -18,12 +18,12 @@ Brotli sizes of the emitted files, at the end of M8:
 
 | Chunk | Size | Budget |
 |---|---|---|
-| core: eager chunks (entry, state, data) | 27.6 kB | 32 kB |
+| core: entry, viewer, series, uid, diagnostics chunks (eager) | 3.3 kB, 22.5 kB, 1.3 kB, 387 B, 76 B | 4 kB, 26 kB, 2 kB, 1 kB, 500 B |
 | core: engine chunk (lazy: Cornerstone, vtk.js, tools, adapters) | 800 kB | 880 kB |
 | core: inline assets chunk (lazy: workers and WASM as text) | 959 kB | 1,050 kB |
 | core: dicom-parser chunk (lazy) | 6.6 kB | 8 kB |
 | core/local, core/testing | 1.4 kB, 3.1 kB | 2 kB, 4 kB |
-| elements: JavaScript | 23.6 kB | 28 kB |
+| elements: entry, define, viewer element chunk | 318 B, 275 B, 23.1 kB | 1 kB, 1 kB, 27 kB |
 | elements: styles.css | 621 B | 1 kB |
 | react, vue | 2.7 kB, 3.0 kB | 3.5 kB each |
 

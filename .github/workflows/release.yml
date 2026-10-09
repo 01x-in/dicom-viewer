@@ -37,6 +37,7 @@ jobs:
       - run: pnpm check
       - run: pnpm package-check
       - run: pnpm size
+      - run: pnpm docs:api
       - uses: changesets/action@v1
         with:
           version: pnpm version-packages

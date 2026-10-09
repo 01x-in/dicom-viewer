@@ -20,22 +20,25 @@ These are decisions for the maintainer, not things the workflow can do:
 1. Every pull request that changes a package adds a changeset: `pnpm changeset` (pick the packages, the bump, and write
    one sentence for the changelog). The 1.0.0 changeset is already in `.changeset/`.
 2. When pull requests with changesets reach `main`, the release workflow opens a *Version Packages* pull request that
-   bumps the versions and writes the changelogs. It also runs the gates below.
+   bumps the versions and writes the changelogs. The release workflow runs the first four gates below before it does either.
 3. Merging that pull request publishes: `pnpm release` runs `pnpm build` and `changeset publish`, which publishes the
    packages whose version is not yet on npm, tags them, and (with `NPM_CONFIG_PROVENANCE`) signs the build.
 
 ## Gates
 
-A change cannot reach a release without passing, in the order the workflow runs them:
+The release workflow runs the first four gates itself, in this order, before it versions or publishes. The last two are
+workflows of their own that run on every pull request: the release workflow does not wait for them, so **protect `main`
+with them as required checks** (Settings > Branches), and a pull request that fails either cannot be merged into a
+release.
 
-| Gate | Command | What it catches |
-|---|---|---|
-| Everything | `pnpm check` | build, format, lint, strict TypeScript, and the unit tests |
-| Packed packages | `pnpm package-check` | publint (strict) and are-the-types-wrong on the real tarballs: a wrong `exports` map, a missing type, a file that is not in the package |
-| Size budgets | `pnpm size` | a chunk that grew past its brotli budget in `.size-limit.json` |
-| API reference | `pnpm docs:api` | a broken link or a bad tag in a doc comment (TypeDoc, warnings are errors) |
-| Installability | `pnpm matrix` | the packed tarballs install, build, and draw in Vite, Next.js (both bundlers), Nuxt, and a plain page; runs in CI on every pull request |
-| Visual regression | `pnpm visual` | the look of the shell, in the pinned Playwright image (see [visual regression](visual-regression.md)) |
+| Gate | Command | Where it runs | What it catches |
+|---|---|---|---|
+| Everything | `pnpm check` | CI and the release workflow | build, format, lint, strict TypeScript, and the unit tests |
+| Packed packages | `pnpm package-check` | CI and the release workflow | publint (strict) and are-the-types-wrong on the real tarballs: a wrong `exports` map, a missing type, a file that is not in the package |
+| Size budgets | `pnpm size` | CI and the release workflow | a chunk that grew past its brotli budget in `.size-limit.json` |
+| API reference | `pnpm docs:api` | CI and the release workflow | a broken link or a bad tag in a doc comment (TypeDoc, warnings are errors) |
+| Installability | `pnpm matrix` | the *CI* workflow, on every pull request | the packed tarballs install, build, and draw in Vite, Next.js (both bundlers), Nuxt, and a plain page |
+| Visual regression | `pnpm visual` | the *Visual regression* workflow, on every pull request | the look of the shell, in the pinned Playwright image (see [visual regression](visual-regression.md)) |
 
 ## Provenance
 
@@ -45,5 +48,5 @@ in each `package.json` must be the repository that runs the workflow (it is).
 
 ## Raising a budget
 
-`.size-limit.json` has one budget per emitted chunk, about 10 to 15% above the size at 1.0. Raising one is a decision:
+`.size-limit.json` has one budget per emitted chunk, 15 to 30% above the size at 1.0 (more for the tiny files). Raising one is a decision:
 say why in the pull request (a new feature, a dependency), and change the number in the same commit.

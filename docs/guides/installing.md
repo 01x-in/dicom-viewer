@@ -59,7 +59,7 @@ one version and a viewer from another is not supported.
 | What you see | Likely cause |
 |---|---|
 | A blank box | The parent has no height. The viewer fills its parent. Give it `height: 100vh` or a fixed height |
-| `dv-error` event, or the error panel, with a CSP message in the console | The CSP blocks `blob:` workers or WASM. Allow them, or use `url` mode |
+| `dv-error` event, or the error panel, with a CSP message in the console | The CSP blocks `blob:` workers: allow `worker-src blob:`, or use `url` mode. If it blocks WebAssembly, allow `'wasm-unsafe-eval'` in `script-src`: `url` mode compiles the same WASM and needs it too |
 | 404s for `decode.worker.js` or `.wasm` files in `url` mode | `baseUrl` does not match where the files are served, or `viewer-assets copy` was not run |
 | The viewer restarts on every render in React | `options` is created inside the component. Define it outside, or memoize it |
 | "Unsupported" or missing image data for one series | The server does not hand out the instance the series needs. See [data sources](data-sources.md) |

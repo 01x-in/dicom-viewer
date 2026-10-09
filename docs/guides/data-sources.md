@@ -67,7 +67,7 @@ const dataSource = createLocalFileDataSource([...input.files]); // File[] from a
 The headers are read when the study is first used; pixel data is read later, when a slice is shown. A file that is not
 DICOM, is unreadable, or repeats an instance is skipped rather than failing the rest, and `await dataSource.skipped()`
 lists them. `await dataSource.studyInstanceUIDs()` lists the studies found. The files stay on the machine: nothing is
-uploaded. The viewer calls the source's `dispose()` when it is destroyed, which lets the files go.
+uploaded. **Call the source's `dispose()` yourself** when you are done with it: destroying the viewer does not dispose its data source, so the source keeps its references to the files until you do.
 
 ## Your own source
 

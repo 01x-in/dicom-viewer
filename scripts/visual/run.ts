@@ -31,6 +31,13 @@ const SIZE = { width: 1200, height: 800 } as const;
 
 /** The share of pixels that may differ (anti-aliasing and the like) before a scene fails. */
 const MAX_DIFF_RATIO = Number(process.env['DV_VISUAL_MAX_DIFF'] ?? '0.002');
+// A threshold that is not a fraction would make every comparison pass (NaN) or fail: refuse it up front.
+if (!Number.isFinite(MAX_DIFF_RATIO) || MAX_DIFF_RATIO < 0 || MAX_DIFF_RATIO > 1) {
+  console.error(
+    `DV_VISUAL_MAX_DIFF must be a fraction from 0 to 1, not "${process.env['DV_VISUAL_MAX_DIFF'] ?? ''}".`,
+  );
+  process.exit(2);
+}
 const STRICT = process.env['DV_VISUAL_STRICT'] === '1';
 
 const { values } = parseArgs({
@@ -219,5 +226,11 @@ try {
 console.log('\n== Results');
 for (const result of results) {
   console.log(`${result.verdict.toUpperCase().padEnd(7)} ${result.scene}: ${result.detail}`);
+  // On GitHub Actions a scene with no baseline is an annotation on the run, not a silent pass.
+  if (result.verdict === 'new' && process.env['GITHUB_ACTIONS'] === 'true') {
+    console.log(
+      `::warning title=Visual baseline missing::${result.scene} has no baseline, so nothing was compared. See docs/guides/visual-regression.md.`,
+    );
+  }
 }
 process.exitCode = results.some((result) => result.verdict === 'fail') ? 1 : 0;

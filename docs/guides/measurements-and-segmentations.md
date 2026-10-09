@@ -29,9 +29,10 @@ await viewer.measurements.jumpTo(id);                         // show the image 
 await viewer.measurements.remove(id);
 ```
 
-Calls that can be wrong reject with a `RangeError` that says what (an id that is taken, points that do not fit the
-type, an id that is not there). `add` and `update` wait for the viewer's queue, so they come after the calls made before
-them.
+Calls that can be wrong reject with a `RangeError` that says what: `add` for an id that is taken or a measurement that is
+not valid, `update` and `select` for an id that is not there or points that do not fit. `remove` does not reject for an
+id that is not there: it resolves to `false` (and `true` when it removed one). All of them wait for the viewer's queue,
+so they come after the calls made before them.
 
 ### Saving and restoring
 

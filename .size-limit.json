@@ -1,14 +1,28 @@
 [
   {
-    "name": "core: eager chunks",
-    "path": [
-      "packages/core/dist/index.js",
-      "packages/core/dist/viewer-core-*.js",
-      "packages/core/dist/series-*.js",
-      "packages/core/dist/uid-*.js",
-      "packages/core/dist/diagnostics-*.js"
-    ],
-    "limit": "32 kB"
+    "name": "core: entry",
+    "path": "packages/core/dist/index.js",
+    "limit": "4 kB"
+  },
+  {
+    "name": "core: viewer chunk",
+    "path": "packages/core/dist/viewer-core-*.js",
+    "limit": "26 kB"
+  },
+  {
+    "name": "core: series chunk",
+    "path": "packages/core/dist/series-*.js",
+    "limit": "2 kB"
+  },
+  {
+    "name": "core: uid chunk",
+    "path": "packages/core/dist/uid-*.js",
+    "limit": "1 kB"
+  },
+  {
+    "name": "core: diagnostics chunk",
+    "path": "packages/core/dist/diagnostics-*.js",
+    "limit": "500 B"
   },
   {
     "name": "core: engine chunk (lazy)",
@@ -36,13 +50,19 @@
     "limit": "4 kB"
   },
   {
-    "name": "elements: JS",
-    "path": [
-      "packages/elements/dist/index.js",
-      "packages/elements/dist/define.js",
-      "packages/elements/dist/viewer-element-*.js"
-    ],
-    "limit": "28 kB"
+    "name": "elements: entry",
+    "path": "packages/elements/dist/index.js",
+    "limit": "1 kB"
+  },
+  {
+    "name": "elements: define",
+    "path": "packages/elements/dist/define.js",
+    "limit": "1 kB"
+  },
+  {
+    "name": "elements: viewer element chunk",
+    "path": "packages/elements/dist/viewer-element-*.js",
+    "limit": "27 kB"
   },
   {
     "name": "elements: styles.css",

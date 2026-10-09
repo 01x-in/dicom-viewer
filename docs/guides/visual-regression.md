@@ -36,7 +36,7 @@ The baselines are in `scripts/visual/baselines/<scene>.png`. Pixels depend on th
 - With Docker, from the repository root (keep the tag equal to `playwright` in `package.json`):
   `docker run --rm -v "$PWD":/work -w /work mcr.microsoft.com/playwright:v1.63.0-noble sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm build && pnpm visual --update"`
 
-A scene with no baseline is reported as `NEW`, and fails the run only with `DV_VISUAL_STRICT=1`. Set it in
+A scene with no baseline is reported as `NEW` (and, on GitHub Actions, as a warning annotation on the run), and fails the run only with `DV_VISUAL_STRICT=1`. Set it in
 `.github/workflows/visual.yml` once the baselines are committed, so a new scene cannot go unchecked.
 
 ## Without the pinned image
