@@ -21,6 +21,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      # What a consumer's tooling sees: publint and are-the-types-wrong on the packed tarballs.
+      - run: pnpm package-check
 
   matrix:
     name: Installability matrix
