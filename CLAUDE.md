@@ -37,5 +37,8 @@
 
 ## Commands
 - `pnpm check` runs everything (build, format check, lint, typecheck, test). Build comes first because packages resolve each other through `dist`.
+- `pnpm package-check` (publint and are-the-types-wrong on the packed tarballs), `pnpm size` (brotli budgets in `.size-limit.json`: raising one is a decision, say why in the PR), and `pnpm docs:api` (TypeDoc, warnings are errors) run in CI after `pnpm check`. Run `pnpm build` first.
+- `pnpm visual` compares screenshots with `scripts/visual/baselines`. Make baselines only in the pinned Playwright image (docs/guides/visual-regression.md), never on a laptop.
+- A change to a package needs a changeset (`pnpm changeset`). Never publish by hand: `.github/workflows/release.yml` does it, and only when `RELEASE_ENABLED` is `true` (docs/guides/releasing.md).
 - Phantom: `cd tools/phantom && uv run pytest -q`.
 - `pnpm matrix` packs the tarballs (it does not build: run `pnpm build` first), installs each example in `examples/` from them, builds it, and runs the browser smoke test (`--only <name>`, `--dev`). Needs Playwright's Chromium; set `DV_CHROMIUM` to use an existing one. The `headless` variant also generates the 300 MB SEG of the performance budget into `.matrix/perf-fixtures` (once, with uv, never committed); `DV_SEG_BUDGET_MS` changes its limit (3000 by default).

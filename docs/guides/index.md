@@ -10,6 +10,7 @@ comments by TypeDoc: run `pnpm docs:api` and open `.docs/api/index.html`.
 | [Data sources](data-sources.md) | You are connecting a DICOMweb server (tokens, retries, a server that limits what it hands out), or opening local files |
 | [Measurements and segmentations](measurements-and-segmentations.md) | You are drawing measurements from code, exporting them, or loading DICOM SEG overlays |
 | [Visual regression](visual-regression.md) | You are changing how the viewer looks and want to see what moved |
+| [Releasing](releasing.md) | You are cutting a version |
 
 Other documents:
 

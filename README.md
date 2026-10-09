@@ -2,7 +2,7 @@
 
 A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It is built on [Cornerstone3D](https://www.cornerstonejs.org/) and aims for OHIF-level tools. It ships with a styled default interface and a headless core (a core that has no interface of its own).
 
-> Status: milestones M0 to M7 (with M6.5, shell polish, and M6.6, the config layer) are done. The package is not published yet. Package names use the `@scope/` placeholder until the npm scope is chosen.
+> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.0.0` is ready to release. The package is not published yet: package names use the `@scope/` placeholder until the npm scope is chosen. See [docs/guides/releasing.md](docs/guides/releasing.md).
 
 ## What works today
 
@@ -16,7 +16,7 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 
 - Layouts and planes: four layouts (`1x1`, `1x2`, `2x2`, and one large with three small), series dragged from the browser into any viewport, hanging protocols that lay a study out by rule, and reformatted planes (axial, sagittal, and coronal) of a volume with crosshairs, a shared window, and a SEG drawn over each plane. A series that is tilted, unevenly spaced, or too large for the memory budget is shown as slices, and the viewport says why.
 
-Not built yet: the 1.0 release (M8). The plan is in [docs/plan.md](docs/plan.md).
+Not built yet: the OncoTrace-like example (M9). The plan is in [docs/plan.md](docs/plan.md).
 
 ## Packages
 
@@ -367,6 +367,10 @@ pnpm check      # build, format check, lint, typecheck, test
 | `pnpm typecheck` | `tsc` for every package and the configuration files |
 | `pnpm build` | tsdown builds and publint checks |
 | `pnpm format` | Biome formatting |
+| `pnpm package-check` | Packs the packages and runs publint and are-the-types-wrong on the tarballs |
+| `pnpm size` | Brotli size budgets for every emitted chunk (`.size-limit.json`) |
+| `pnpm docs:api` | Builds the API reference (TypeDoc) into `.docs/api`; a broken link in a comment fails it |
+| `pnpm visual` | Screenshots ten scenes of the shell and compares them with baselines (see [the guide](docs/guides/visual-regression.md)) |
 | `pnpm matrix` | Packs the packages (run `pnpm build` first), installs each example from the packs, builds it, and runs browser tests in Chromium. The `headless` example also generates a 300 MB SEG with uv for the performance check |
 
 `pnpm matrix` needs the Chromium that Playwright installs. To use another Chromium, set the `DV_CHROMIUM` environment variable to its path. Add `--only <name>` to run one example.
@@ -375,7 +379,8 @@ pnpm check      # build, format check, lint, typecheck, test
 
 - [docs/plan.md](docs/plan.md): the plan, the architecture, and the milestones, with the outcome of each finished milestone.
 - [docs/adr](docs/adr): the architecture decisions, one file for each.
-- The reports `docs/m1-report.md` to `docs/m7-report.md`: what each milestone proved and what it left open.
+- [docs/guides](docs/guides/index.md): guides for installing in a framework, data sources, measurements and segmentations, visual regression, and releasing. `pnpm docs:api` builds the API reference.
+- The reports `docs/m1-report.md` to `docs/m8-report.md`: what each milestone proved and what it left open.
 
 ### Test data
 

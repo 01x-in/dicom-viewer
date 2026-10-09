@@ -1,0 +1,49 @@
+name: Release
+
+# Opens (or updates) a "Version Packages" pull request from the changesets on main. When that pull request is
+# merged, publishes the packages to npm with provenance.
+#
+# Nothing here runs until the repository variable RELEASE_ENABLED is "true" (Settings > Secrets and variables >
+# Actions > Variables): the package names are the `@scope/` placeholder until the npm scope is chosen, and an
+# accidental publish cannot be taken back. See docs/guides/releasing.md.
+
+on:
+  push:
+    branches: [main]
+
+concurrency: release-${{ github.ref }}
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Version or publish
+    if: vars.RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the version commit and the tags
+      pull-requests: write # the "Version Packages" pull request
+      id-token: write # npm provenance: the build's identity, signed by GitHub
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm package-check
+      - run: pnpm size
+      - uses: changesets/action@v1
+        with:
+          version: pnpm version-packages
+          publish: pnpm release
+          title: 'Version Packages'
+          commit: 'Version Packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'

@@ -303,3 +303,11 @@ Reference files:
 - **The controlled `state` prop** of React and Vue, deferred since M5, is in: the layout and every viewport; not the study, measurements, or SEGs.
 - **Two things the matrix found in Cornerstone:** the images of a volume share its buffer and cannot be dropped one by one, and a volume given up before it has loaded leaves a listener per image that keeps the page's WebGL context alive. The engine works around both.
 - Still open: Safari and Firefox, React 18, the package name, touch input, whether the default keys should match OHIF exactly, a visual regression suite (M8), a host's own icons for panels and toolbar buttons, measurements on planes, and jumping to a segment in a plane.
+
+## M8 outcome
+
+**Ready to release; not released.** The gates and the documentation are built and run in CI, and the `1.0.0` changeset is in place; publishing waits for a decision (the npm scope) and a token. See [m8-report.md](m8-report.md) and [guides/releasing.md](guides/releasing.md). Changes to this plan that came out of the milestone:
+- **Four gates on what a consumer gets:** publint and are-the-types-wrong on the packed tarballs, brotli size budgets on every emitted chunk, an API reference that builds with warnings as errors, and a visual regression suite. All but the last pass in CI; the last needs its baselines made in the pinned Playwright image.
+- **Docs are Markdown guides plus a generated API reference** (`pnpm docs:api` writes `.docs/api`), not a VitePress site. A site is a hosting decision for later.
+- **A release is a changeset, a "Version Packages" pull request, and a publish with provenance,** all behind the repository variable `RELEASE_ENABLED`, because the package names are still the `@scope/` placeholder.
+- Still open: the package name and npm scope, committing the visual baselines, Safari and Firefox, React 18, touch input, and (for M9) the OncoTrace-like example.
