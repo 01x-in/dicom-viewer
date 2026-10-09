@@ -28,3 +28,4 @@ packages/core/src/generated/
 # Installability matrix (scripts/matrix)
 .tarballs/
 .matrix/
+.visual
