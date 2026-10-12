@@ -1,6 +1,6 @@
 # ADR 0003: Cornerstone is bundled into core's engine chunk
 
-Status: accepted (M1). Supersedes the rule in CLAUDE.md that Cornerstone packages are exact-pinned `dependencies` of `@scope/viewer-core`.
+Status: accepted (M1). Supersedes the rule in CLAUDE.md that Cornerstone packages are exact-pinned `dependencies` of `@tushar-im/dicom-viewer-core`.
 
 ## Context
 
@@ -15,7 +15,7 @@ Each fix would be host configuration, which contradicts the zero-config goal.
 ## Decision
 
 - `packages/core/src/engine/**` and everything it imports from `@cornerstonejs/*` is bundled by tsdown into one lazily loaded chunk (`dist/engine-*.js`). `viewer.ts` reaches it only through `import('./engine/index')`, so importing core on a server never evaluates Cornerstone or vtk.js.
-- The `@cornerstonejs/*` packages move from `dependencies` to exact-pinned `devDependencies` of `@scope/viewer-core`. Renovate still bumps them as a group; the browser matrix gates the bump.
+- The `@cornerstonejs/*` packages move from `dependencies` to exact-pinned `devDependencies` of `@tushar-im/dicom-viewer-core`. Renovate still bumps them as a group; the browser matrix gates the bump.
 - The engine build applies three fixes, all in [tsdown.config.ts](../../packages/core/tsdown.config.ts):
   - alias `events` to the `events` npm polyfill and `url` to a shim over the global `URL`;
   - alias `@babel/runtime` to the copy installed beside core;

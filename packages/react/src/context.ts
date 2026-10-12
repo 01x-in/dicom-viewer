@@ -1,4 +1,9 @@
-import type { Measurement, SegmentationInfo, Viewer, ViewerStateV1 } from '@scope/viewer-core';
+import type {
+  Measurement,
+  SegmentationInfo,
+  Viewer,
+  ViewerStateV1,
+} from '@tushar-im/dicom-viewer-core';
 import { type Context, createContext, useContext, useRef, useSyncExternalStore } from 'react';
 
 /** The viewer of the nearest `<DicomViewer>`, once it is ready. Set by the component, not by hosts. */

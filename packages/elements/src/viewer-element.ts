@@ -9,7 +9,7 @@ import {
   type ViewerConfigV1,
   type ViewerOptions,
   type ViewportApi,
-} from '@scope/viewer-core';
+} from '@tushar-im/dicom-viewer-core';
 import {
   css,
   type CSSResultGroup,

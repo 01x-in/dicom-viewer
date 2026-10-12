@@ -32,10 +32,10 @@ Findings that shape the design:
 
 ```
 dicom-viewer/ (MIT, pnpm workspaces, changesets fixed versioning)
-  packages/core      @scope/viewer-core      engine/ (only Cornerstone importer, RenderingPort), data/, services/, state/, workers/, bin/viewer-assets
-  packages/elements  @scope/viewer-elements  Lit: <dv-viewer>, toolbar, viewport grid, series/segments/measurements panels, styles.css, /define
-  packages/react     @scope/viewer-react     'use client' <DicomViewer>, <ViewerViewport>, useViewer, useViewerState
-  packages/vue       @scope/viewer-vue       <DicomViewer>, provideViewer/useViewer (shallowRef + markRaw), plugin
+  packages/core      @tushar-im/dicom-viewer-core      engine/ (only Cornerstone importer, RenderingPort), data/, services/, state/, workers/, bin/viewer-assets
+  packages/elements  @tushar-im/dicom-viewer-elements  Lit: <dv-viewer>, toolbar, viewport grid, series/segments/measurements panels, styles.css, /define
+  packages/react     @tushar-im/dicom-viewer-react     'use client' <DicomViewer>, <ViewerViewport>, useViewer, useViewerState
+  packages/vue       @tushar-im/dicom-viewer-vue       <DicomViewer>, provideViewer/useViewer (shallowRef + markRaw), plugin
   tools/phantom      Python: deterministic synthetic CT/MR/SEG (no licensed data)
   tools/dicomweb-mock  Node server; "oncotrace-proxy" mode reproduces the 403 and 16-frame rules
   examples/          vite-react, next-app (Turbopack + webpack), vite-vue, nuxt, vanilla, oncotrace-like
@@ -230,7 +230,7 @@ Reference files:
 - **`Viewer` so far** has `loadStudy`, `viewports` (`attach`, `detach`, `get`, `list`), `setViewportSeries`, `getState`, `setState`, `subscribe`, `on`, and `destroy`, plus `initialState` in the options. `setLayout`, `navigateTo`, `tools`, `measurements`, `segmentations`, and `ui` arrive with the milestones that own them. `ViewerStateV1.layout` is `'1x1'` until M7.
 - **A series is a list of stacks.** `getSeries` splits by orientation and by repeated positions, and each stack carries its own `reconstructable` reason (the plan said per series). SEG and SR series have no stacks.
 - **Capabilities** is `{ instanceRetrieve }` only. `studySearch` and `maxFramesPerRequest` return when something can act on them.
-- **Local files:** `createLocalFileDataSource(files)` lives at `@scope/viewer-core/local` and adds `studyInstanceUIDs()`, `skipped()`, and `dispose()`. The host disposes it.
+- **Local files:** `createLocalFileDataSource(files)` lives at `@tushar-im/dicom-viewer-core/local` and adds `studyInstanceUIDs()`, `skipped()`, and `dispose()`. The host disposes it.
 - **WebGL:** still ContextPool mode, with a pool of one context instead of Cornerstone's seven (ADR 0005). M7 revisits it for MPR.
 - **Multi-frame image series** are refused with an error until a fixture and per-frame geometry exist.
 - Still open: Safari and Firefox, React 18, the package name, the `compute` worker size, cancellation of superseded loads, and `<dv-viewer>` request headers (M4).
@@ -250,7 +250,7 @@ Reference files:
 **Done**, with the limits in [m4-report.md](m4-report.md); the decisions are in [ADR 0007](adr/0007-styled-shell.md). Changes to this plan that came out of the milestone:
 - **The shell is chrome in shadow DOM and viewports in light DOM, shown through slots.** The adapters wrap `<dv-viewer>`, so one UI codebase serves vanilla, React, and Vue.
 - **`viewer.ui.registerPanel` lives in the core**, as data, so a headless host can use it. `viewer.thumbnails.get` draws on the CPU through the rendering port.
-- **`@scope/viewer-core/testing`** is a real viewer on a fake engine, for tests of hosts and adapters.
+- **`@tushar-im/dicom-viewer-core/testing`** is a real viewer on a fake engine, for tests of hosts and adapters.
 - **The controlled `state` prop moves to M5 to M7**, with the state it controls. `Viewer.ui` has panels only; slots are the shell's.
 - Still open: Safari and Firefox, React 18, the package name, touch input, and whether the default keys should match OHIF exactly.
 
@@ -309,5 +309,5 @@ Reference files:
 **Ready to release; not released.** The gates and the documentation are built and run in CI, and the `1.0.0` changeset is in place; publishing waits for a decision (the npm scope) and a token. See [m8-report.md](m8-report.md) and [guides/releasing.md](guides/releasing.md). Changes to this plan that came out of the milestone:
 - **Four gates on what a consumer gets:** publint and are-the-types-wrong on the packed tarballs, brotli size budgets on every emitted chunk, an API reference that builds with warnings as errors, and a visual regression suite. All but the last pass in CI; the last needs its baselines made in the pinned Playwright image.
 - **Docs are Markdown guides plus a generated API reference** (`pnpm docs:api` writes `.docs/api`), not a VitePress site. A site is a hosting decision for later.
-- **A release is a changeset, a "Version Packages" pull request, and a publish with provenance,** all behind the repository variable `RELEASE_ENABLED`, because the package names are still the `@scope/` placeholder.
+- **A release is a changeset, a "Version Packages" pull request, and a publish with provenance,** all behind the repository variable `RELEASE_ENABLED`, because a publish cannot be taken back. The placeholder `@scope/viewer-*` names were replaced by `@tushar-im/dicom-viewer-*` after M8.
 - Still open: the package name and npm scope, committing the visual baselines, Safari and Firefox, React 18, touch input, and (for M9) the OncoTrace-like example.

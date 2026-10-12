@@ -7,7 +7,7 @@ import type {
   ViewerOptions,
   ViewerStateV1,
   ViewportApi,
-} from '@scope/viewer-core';
+} from '@tushar-im/dicom-viewer-core';
 import type {
   DvViewerElement,
   PaletteName,
@@ -16,7 +16,7 @@ import type {
   ToolbarItem,
   ViewerErrorDetail,
   ViewerReadyDetail,
-} from '@scope/viewer-elements';
+} from '@tushar-im/dicom-viewer-elements';
 import {
   type Component,
   defineComponent,
@@ -32,7 +32,7 @@ import {
   type VNodeChild,
   watch,
 } from 'vue';
-import { sameViewState, viewStatePatch } from '@scope/viewer-core';
+import { sameViewState, viewStatePatch } from '@tushar-im/dicom-viewer-core';
 import { provideViewer } from './context';
 
 /** A side panel of the host's own. Its content is the slot `panel-<id>`. */
@@ -238,7 +238,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     };
 
     onMounted(() => {
-      import('@scope/viewer-elements/define').then(
+      import('@tushar-im/dicom-viewer-elements/define').then(
         () => {
           if (unmounted) return;
           defined.value = true;

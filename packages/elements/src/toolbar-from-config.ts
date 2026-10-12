@@ -3,7 +3,7 @@ import type {
   ToolbarItemConfig,
   ToolbarMenuEntryConfig,
   Viewer,
-} from '@scope/viewer-core';
+} from '@tushar-im/dicom-viewer-core';
 import { type IconName, isIconName } from './icons';
 import type { MenuEntry, ToolbarContext, ToolbarItem } from './toolbar-config';
 

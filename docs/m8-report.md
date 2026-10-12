@@ -6,7 +6,7 @@
 
 | Plan item | Where | Evidence |
 |---|---|---|
-| Publint + are-the-types-wrong | [scripts/package-check.ts](../scripts/package-check.ts), `pnpm package-check`, CI | Packs each package as `npm publish` would, then runs publint (strict) and attw (profile `esm-only`, since the packages are ESM only) on the four tarballs. All eight checks pass. attw cannot resolve a CSS file, so `@scope/viewer-elements/styles.css` is excluded by name; every other entry point resolves, with types, for Node ESM and for bundlers |
+| Publint + are-the-types-wrong | [scripts/package-check.ts](../scripts/package-check.ts), `pnpm package-check`, CI | Packs each package as `npm publish` would, then runs publint (strict) and attw (profile `esm-only`, since the packages are ESM only) on the four tarballs. All eight checks pass. attw cannot resolve a CSS file, so `@tushar-im/dicom-viewer-elements/styles.css` is excluded by name; every other entry point resolves, with types, for Node ESM and for bundlers |
 | Size-limit budgets | [.size-limit.json](../.size-limit.json), `pnpm size`, CI | One brotli budget for each emitted file (never a sum of several), 15 to 30% above where they are now (table below); the small files have a floor. A budget that is exceeded exits 1 (checked by lowering one) |
 | Visual regression suite | [scripts/visual](../scripts/visual), `pnpm visual`, [visual.yml](../.github/workflows/visual.yml) | Ten scenes (empty state, two themes, two palettes, a measurement, a SEG, four viewports, three planes, a fallback notice) against baselines, with pixelmatch. On the machine it was built on, two runs in a row are identical (0.000% of pixels differ) and a changed baseline fails the run. **No baselines are committed yet**: see the limits |
 | TypeDoc + guides | [typedoc.json](../typedoc.json), `pnpm docs:api`, [docs/guides](guides/index.md) | The API reference of all four packages builds with warnings as errors, in CI. Guides: installing in a framework (SSR, assets, CSP, what to do when it does not start), data sources, measurements and segmentations, visual regression, releasing |
@@ -40,7 +40,7 @@ What a page downloads is the eager chunks plus the engine chunk (the inline chun
 
 | Problem | Cause | Fix |
 |---|---|---|
-| attw reported `@scope/viewer-elements/styles.css` as "resolution failed" | The checker only knows JavaScript and types; a CSS file has neither | The entry point is excluded by name in `package-check.ts`, with the reason |
+| attw reported `@tushar-im/dicom-viewer-elements/styles.css` as "resolution failed" | The checker only knows JavaScript and types; a CSS file has neither | The entry point is excluded by name in `package-check.ts`, with the reason |
 | TypeDoc failed with warnings about `{@link css}` in six elements | The `static styles` property inherits a comment from Lit that links to a symbol only Lit has | The property is marked `@internal` (it is not API), which is also correct |
 | TypeDoc listed 23 types "referenced but not exported" | They are real types of exported signatures, and not worth exporting for the reference | `validation.notExported` is off; broken links in comments still fail |
 | ESLint tried to lint the generated API reference | `.docs` is output, and the lint config did not know it | `.docs` and `.visual` are ignored by ESLint and Git |
@@ -53,7 +53,7 @@ What a page downloads is the eager chunks plus the engine chunk (the inline chun
 
 ## Not done, or not proven
 
-- **Nothing is published.** The packages are still `@scope/viewer-*`, and publishing needs a real scope and an npm token. `docs/guides/releasing.md` lists the steps, and the workflow is off until `RELEASE_ENABLED` is `true`. The provenance path is therefore written but has not run.
+- **Nothing is published.** The packages are still `@tushar-im/dicom-viewer-*`, and publishing needs a real scope and an npm token. `docs/guides/releasing.md` lists the steps, and the workflow is off until `RELEASE_ENABLED` is `true`. The provenance path is therefore written but has not run.
 - **The visual baselines are not committed.** Pixels depend on the browser build and the fonts, and the baselines have to be made in the pinned Playwright image, which could not be run where this was built (the sandbox has a different Chromium and no Docker). The suite runs in CI and reports every scene as `NEW` with its picture in the `visual` artifact; run the workflow with `update`, commit the pictures, and set `DV_VISUAL_STRICT=1`. Until then the suite checks only that every scene draws without a page error. The image tag (`v1.63.0-noble`) follows the `playwright` version and was not pulled here.
 - **No documentation site.** The plan's architecture sketch has VitePress; M8's done-when asks for TypeDoc and guides, and those are Markdown and generated HTML. A site is a hosting decision.
 - **Only Chromium** has run the matrix and the visual suite. Safari, Firefox, React 18, and touch input are still open.

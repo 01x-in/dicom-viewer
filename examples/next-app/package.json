@@ -9,8 +9,8 @@
     "dev:webpack": "viewer-assets copy public/viewer-assets && next dev --webpack --port ${PORT:-3000} --hostname 127.0.0.1"
   },
   "dependencies": {
-    "@scope/viewer-core": "0.0.0",
-    "@scope/viewer-react": "0.0.0",
+    "@tushar-im/dicom-viewer-core": "0.0.0",
+    "@tushar-im/dicom-viewer-react": "0.0.0",
     "next": "16.3.8",
     "react": "19.3.0",
     "react-dom": "19.3.0",

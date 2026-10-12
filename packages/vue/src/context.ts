@@ -1,4 +1,9 @@
-import type { Measurement, SegmentationInfo, Viewer, ViewerStateV1 } from '@scope/viewer-core';
+import type {
+  Measurement,
+  SegmentationInfo,
+  Viewer,
+  ViewerStateV1,
+} from '@tushar-im/dicom-viewer-core';
 import {
   type InjectionKey,
   inject,

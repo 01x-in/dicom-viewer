@@ -13,10 +13,10 @@ export interface Tarballs {
 }
 
 const PACKAGES = {
-  core: '@scope/viewer-core',
-  elements: '@scope/viewer-elements',
-  react: '@scope/viewer-react',
-  vue: '@scope/viewer-vue',
+  core: '@tushar-im/dicom-viewer-core',
+  elements: '@tushar-im/dicom-viewer-elements',
+  react: '@tushar-im/dicom-viewer-react',
+  vue: '@tushar-im/dicom-viewer-vue',
 } as const;
 
 /** Runs `pnpm pack` on every package, exactly as `npm publish` would see it. Returns absolute paths. */

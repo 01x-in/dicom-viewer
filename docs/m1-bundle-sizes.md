@@ -7,10 +7,10 @@ build each framework produces, with no bundler configuration. Do not edit by han
 
 | Package | Packed (.tgz) |
 |---|---|
-| @scope/viewer-core | 3444 KiB |
-| @scope/viewer-elements | 74 KiB |
-| @scope/viewer-react | 10 KiB |
-| @scope/viewer-vue | 10 KiB |
+| @tushar-im/dicom-viewer-core | 3444 KiB |
+| @tushar-im/dicom-viewer-elements | 74 KiB |
+| @tushar-im/dicom-viewer-react | 10 KiB |
+| @tushar-im/dicom-viewer-vue | 10 KiB |
 
 ## Client JavaScript per example
 

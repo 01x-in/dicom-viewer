@@ -3,8 +3,8 @@ import {
   type Viewer,
   type ViewportApi,
   type ViewerOptions,
-} from '@scope/viewer-core';
-import { DicomViewer } from '@scope/viewer-react';
+} from '@tushar-im/dicom-viewer-core';
+import { DicomViewer } from '@tushar-im/dicom-viewer-react';
 import { type JSX, StrictMode, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 

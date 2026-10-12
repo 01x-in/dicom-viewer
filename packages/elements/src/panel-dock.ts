@@ -1,4 +1,4 @@
-import type { PanelDefinition, PanelPlacement, Viewer } from '@scope/viewer-core';
+import type { PanelDefinition, PanelPlacement, Viewer } from '@tushar-im/dicom-viewer-core';
 import {
   css,
   type CSSResultGroup,

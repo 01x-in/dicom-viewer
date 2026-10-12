@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@scope/viewer-core/testing';
-import type { Measurement, Point3 } from '@scope/viewer-core';
+import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@tushar-im/dicom-viewer-core/testing';
+import type { Measurement, Point3 } from '@tushar-im/dicom-viewer-core';
 import { afterEach, describe, expect, it } from 'vitest';
 import './define';
 import { measurementName } from './index';

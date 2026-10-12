@@ -4,7 +4,7 @@ import {
   type Measurement,
   measurementLines,
   type Viewer,
-} from '@scope/viewer-core';
+} from '@tushar-im/dicom-viewer-core';
 import {
   css,
   type CSSResultGroup,

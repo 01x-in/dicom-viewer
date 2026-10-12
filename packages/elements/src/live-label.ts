@@ -1,4 +1,4 @@
-import type { WindowLevel } from '@scope/viewer-core';
+import type { WindowLevel } from '@tushar-im/dicom-viewer-core';
 
 export interface ViewportDescription {
   /** The series' description, or its modality. `undefined` when no series is shown. */
