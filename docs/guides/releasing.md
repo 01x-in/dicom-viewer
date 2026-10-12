@@ -14,28 +14,40 @@ package is published by hand, once, and the workflow takes over from then on.
    the name of an npm **user or organization you own**, and an npm user name is not always the GitHub one: check with
    `npm whoami` (or the organization page) before going on. If it is different, rename again with the same search:
    `grep -rIl "@tushar-im/" .`.
-2. **Publish the first version by hand**, from `main` at the version you mean to release, with your own npm login (and
-   your one-time password). Each package's `publishConfig` asks for provenance, which npm refuses to make outside CI,
-   so the commands below publish a copy of each package with that one line removed. That first version therefore has
-   no provenance badge; every later one has. The packed copy is the one whose `workspace:*` dependencies were turned
-   into real versions, which a plain `npm publish` of the folder would not do. Run it with `--dry-run` first.
+2. **Publish the first version by hand.** This is the one exception to "the workflow publishes" (the rule in
+   `CLAUDE.md`): trusted publishing only works for a package that already exists, so each package name has to be
+   published once with your own npm login (and your one-time password). Each package's `publishConfig` asks for
+   provenance, which npm refuses to make outside CI, so the script below publishes a copy of each package with that one
+   line removed. That first version therefore has no provenance badge; every later one has. It publishes the packed
+   copy, the one whose `workspace:*` dependencies were turned into real versions, which a plain `npm publish` of the
+   folder would not do.
+
+   Save this as a script (a script, not pasted lines, so that it stops at the first error and `npm` can ask for your
+   one-time password), and run it first with `DRY_RUN=1 bash first-publish.sh`. It is safe to run again after a failure:
+   it skips a package that is already on npm.
 
    ```bash
+   #!/usr/bin/env bash
+   set -euo pipefail
    git checkout main && git pull
    pnpm install --frozen-lockfile && pnpm build
-   rm -rf /tmp/dv-publish && mkdir /tmp/dv-publish
+   OUT=/tmp/dv-publish; rm -rf "$OUT" && mkdir "$OUT"
    for p in core elements react vue; do
-     pnpm --filter @tushar-im/dicom-viewer-$p pack --pack-destination /tmp/dv-publish
+     pnpm --filter "@tushar-im/dicom-viewer-$p" pack --pack-destination "$OUT"
    done
-   cd /tmp/dv-publish
+   cd "$OUT"
    for p in core elements react vue; do   # core first: the others depend on it
-     mkdir $p && tar xzf tushar-im-dicom-viewer-$p-*.tgz -C $p
-     (cd $p/package && npm pkg delete publishConfig.provenance && npm publish --access public)   # add --dry-run first
+     name="@tushar-im/dicom-viewer-$p"
+     if npm view "$name@1.0.0" version >/dev/null 2>&1; then echo "$name@1.0.0 is already on npm"; continue; fi
+     mkdir "$p" && tar xzf "tushar-im-dicom-viewer-$p"-*.tgz -C "$p"
+     (cd "$p/package" && npm pkg delete publishConfig.provenance && npm publish --access public ${DRY_RUN:+--dry-run})
    done
+   if [ -n "${DRY_RUN:-}" ]; then echo "dry run: nothing was published"; exit 0; fi
+   for p in core elements react vue; do npm view "@tushar-im/dicom-viewer-$p@1.0.0" version; done   # all four, or it stops
    ```
 
-   Then check that each one is on npm (`npm view @tushar-im/dicom-viewer-core version`), and, back in the repository,
-   tag what you published: `pnpm exec changeset tag && git push --tags`.
+   Change `1.0.0` to the version you are releasing. When it prints four versions, tag what you published, in the
+   repository: `pnpm exec changeset tag && git push --tags`.
 3. **Add a trusted publisher to each of the four packages** on npmjs.com (the package's Settings, then *Trusted
    Publisher*, then GitHub Actions):
    - Organization or user: `01x-in` (the owner of the GitHub repository, which is not the npm scope)
@@ -76,7 +88,7 @@ release.
 
 The workflow has the `id-token: write` permission and no npm token. npm checks that the request comes from the
 repository and workflow file you named as the trusted publisher, and records which repository, commit, and workflow
-built the tarball, and shows it on the package page. `publishConfig.provenance` in each `package.json` keeps that on.
+built the tarball, and shows it on the package page. `pnpm publish` (which changesets runs) packs the package and then runs the real `npm publish` on it, so it is the npm command that does the OIDC login. `publishConfig.provenance` in each `package.json` keeps that on.
 For it to verify, `repository.url` in each `package.json` must be the repository that runs the workflow (it is). The
 workflow stops early if the runner's npm is older than 11.5.1, which trusted publishing needs.
 
