@@ -80,20 +80,33 @@ const SENSITIVE = new Set([
   '00080090', // ReferringPhysicianName
   '00080092', // ReferringPhysicianAddress
   '00080094', // ReferringPhysicianTelephoneNumbers
+  '00080096', // ReferringPhysicianIdentificationSequence
   '0008009C', // ConsultingPhysicianName
+  '0008009D', // ConsultingPhysicianIdentificationSequence
   '00081048', // PhysiciansOfRecord
+  '00081049', // PhysiciansOfRecordIdentificationSequence
   '00081050', // PerformingPhysicianName
+  '00081052', // PerformingPhysicianIdentificationSequence
   '00081060', // NameOfPhysiciansReadingStudy
+  '00081062', // PhysiciansReadingStudyIdentificationSequence
   '00081070', // OperatorsName
+  '00081072', // OperatorIdentificationSequence
   '00200010', // StudyID
 ]);
 
 /**
- * Whether a tag (eight capital hex digits) can identify a patient: everything in group 0010, the
+ * Groups that are about the patient, the request, the visit, the procedure, or the report: names,
+ * dates, and places, all of them.
+ */
+const SENSITIVE_GROUPS = new Set([0x0010, 0x0032, 0x0038, 0x0040, 0x4008]);
+
+/**
+ * Whether a tag (eight capital hex digits) can identify a patient: every tag of the groups about the
+ * patient, the request, the visit, the procedure, and the report (0010, 0032, 0038, 0040, 4008), the
  * physicians, the institution, the accession number, and every private tag (an odd group), which
  * can hold anything. An overlay shows these only when it is asked to show patient information.
  */
 export function isSensitiveTag(tag: string): boolean {
   const group = Number.parseInt(tag.slice(0, 4), 16);
-  return group === 0x0010 || group % 2 === 1 || SENSITIVE.has(tag);
+  return SENSITIVE_GROUPS.has(group) || group % 2 === 1 || SENSITIVE.has(tag);
 }

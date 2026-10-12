@@ -180,4 +180,43 @@ describe('cine', () => {
     expect(h.events.error[0]).toMatchObject({ context: 'cine' });
     expect(h.events.error[0]?.error.message).toBe('lost context');
   });
+
+  it('toggles on what the last call asked for, so two quick toggles cancel each other', async () => {
+    const h = harness();
+    const api = await show(h, 2);
+    // Both are decided before the queue has run either.
+    await Promise.all([api.cine.toggle(), api.cine.toggle()]);
+    expect(api.cine.playing).toBe(false);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(api.getImageIndex()).toBe(2);
+    await Promise.all([api.cine.toggle(), api.cine.toggle(), api.cine.toggle()]);
+    expect(api.cine.playing).toBe(true);
+    await api.cine.toggle();
+    expect(api.cine.playing).toBe(false);
+  });
+
+  it('toggles on again after the playback ended by itself at the last slice', async () => {
+    const h = harness();
+    const api = await show(h, 8);
+    await api.cine.play({ fps: 10, loop: false });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.cine.playing).toBe(false);
+    // The playback is over, so the next toggle plays, and does not "stop" what is not playing.
+    await api.cine.toggle();
+    expect(api.cine.playing).toBe(true);
+  });
+
+  it('is the same for the key as for the call: two quick presses of the cine key cancel each other', async () => {
+    const h = harness();
+    const api = await show(h, 2);
+    document.body.append(h.element);
+    for (let press = 0; press < 2; press += 1) {
+      h.element.dispatchEvent(
+        new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+      );
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(api.cine.playing).toBe(false);
+    document.body.replaceChildren();
+  });
 });

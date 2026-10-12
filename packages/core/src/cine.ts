@@ -10,6 +10,11 @@ export interface CineApi {
   play(options?: CineOptions): Promise<void>;
   /** Does nothing if it is not playing. */
   stop(): void;
+  /**
+   * Stops if the last call asked for playing, and plays if it asked for stopping or nothing. It goes
+   * by what was asked, not by what the queue has run so far, so two quick calls cancel each other.
+   */
+  toggle(): Promise<void>;
   readonly playing: boolean;
   readonly fps: number;
 }

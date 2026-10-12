@@ -35,6 +35,16 @@ describe('isSensitiveTag', () => {
     '0008009C', // ConsultingPhysicianName
     '00081070', // OperatorsName
     '00200010', // StudyID
+    '00080096', // ReferringPhysicianIdentificationSequence
+    '0008009D', // ConsultingPhysicianIdentificationSequence
+    '00081049', // PhysiciansOfRecordIdentificationSequence
+    '00081052', // PerformingPhysicianIdentificationSequence
+    '00081062', // PhysiciansReadingStudyIdentificationSequence
+    '00081072', // OperatorIdentificationSequence
+    '00321032', // RequestingPhysician: group 0032 is about the request
+    '00380300', // CurrentPatientLocation: group 0038 is about the visit
+    '00400006', // ScheduledPerformingPhysicianName: group 0040 is about the procedure
+    '40080114', // PhysicianApprovingInterpretation: group 4008 is about the report
     '00091001', // a private tag: an odd group
     '7FE10010',
   ])('treats %s as one that can identify a patient', (tag) => {
