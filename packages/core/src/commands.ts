@@ -137,15 +137,8 @@ function builtins(): Readonly<Record<string, Command>> {
       keyMatcher: () => (action) => action.type === 'reset',
     },
     'cine.toggle': {
-      run: (context) => {
-        const viewport = viewportOf(context);
-        if (viewport === undefined) return undefined;
-        if (viewport.cine.playing) {
-          viewport.cine.stop();
-          return undefined;
-        }
-        return viewport.cine.play();
-      },
+      // One call that decides in the queue's order, so two quick toggles cancel each other.
+      run: (context) => viewportOf(context)?.cine.toggle(),
       pressed: (context) => viewportOf(context)?.cine.playing === true,
       check: (args) => {
         parse(noArgs, 'cine.toggle', args);

@@ -1060,8 +1060,60 @@ export function createViewerCore(
       }
       return runtime.shown;
     };
+    const cineApi: CineApi = {
+      play(cineOptions): Promise<void> {
+        try {
+          if (cineOptions?.fps !== undefined) assertCineFps(cineOptions.fps);
+        } catch (error) {
+          return Promise.reject(toError(error));
+        }
+        cineCalls += 1;
+        cineWanted = true;
+        cinePlaysQueued += 1;
+        const mine = cineCalls;
+        return enqueue(() => {
+          cinePlaysQueued -= 1;
+          try {
+            const shown = requireShown();
+            // A stop, or a later play, made after this call supersedes it, even though it is still queued.
+            if (mine === cineCalls) {
+              if (shown.port.imageCount > 1) {
+                cine.play(cineOptions);
+                // A series change ahead of this call in the queue stopped the old playback and cleared the wish.
+                cineWanted = true;
+              } else cineWanted = false; // One image has nothing to play, so nothing is wanted.
+            }
+          } catch (error) {
+            // It could not start (no series on screen), so it is not wanted, unless a later call says otherwise.
+            if (mine === cineCalls) cineWanted = false;
+            throw error;
+          }
+          return Promise.resolve();
+        });
+      },
+      stop: () => {
+        cineCalls += 1;
+        cineWanted = false;
+        cine.stop();
+      },
+      toggle(): Promise<void> {
+        if (!cineWanted) return cineApi.play();
+        cineApi.stop();
+        return Promise.resolve();
+      },
+      get playing(): boolean {
+        return cine.playing;
+      },
+      get fps(): number {
+        return cine.fps;
+      },
+    };
     const moveApiTo = (index: number): Promise<void> =>
       enqueue(() => moveTo(runtime, requireShown(), index, 'api'));
+    // Whether the last call to play or toggle asked for playing, which a call still in the queue has not made true yet.
+    let cineWanted = false;
+    // Plays that are still in the queue: playback that stops before they run does not end the wish for them.
+    let cinePlaysQueued = 0;
     const cine = createCine({
       async step(loop): Promise<boolean> {
         // Runs in the queue, like every call that moves the engine.
@@ -1076,6 +1128,8 @@ export function createViewerCore(
         });
       },
       changed: ({ playing, fps }) => {
+        // Playback that ended by itself (the last slice, a failed step) is no longer wanted.
+        if (!playing && cinePlaysQueued === 0) cineWanted = false;
         events.emit('viewport:cine', { viewportId: runtime.id, playing, fps });
       },
       failed: (error) => {
@@ -1134,33 +1188,7 @@ export function createViewerCore(
           return moveTo(runtime, shown, target, 'api');
         });
       },
-      cine: {
-        play(cineOptions): Promise<void> {
-          try {
-            if (cineOptions?.fps !== undefined) assertCineFps(cineOptions.fps);
-          } catch (error) {
-            return Promise.reject(toError(error));
-          }
-          cineCalls += 1;
-          const mine = cineCalls;
-          return enqueue(() => {
-            const shown = requireShown();
-            // A stop, or a later play, made after this call supersedes it, even though it is still queued.
-            if (mine === cineCalls && shown.port.imageCount > 1) cine.play(cineOptions);
-            return Promise.resolve();
-          });
-        },
-        stop: () => {
-          cineCalls += 1;
-          cine.stop();
-        },
-        get playing(): boolean {
-          return cine.playing;
-        },
-        get fps(): number {
-          return cine.fps;
-        },
-      },
+      cine: cineApi,
       getView: () => runtime.shown?.port.getView(),
       setWindow(center, width): Promise<void> {
         if (!Number.isFinite(center) || !Number.isFinite(width) || width <= 0) {
@@ -1693,11 +1721,7 @@ export function createViewerCore(
       case 'reset':
         return api.resetView();
       case 'cine':
-        if (api.cine.playing) {
-          api.cine.stop();
-          return Promise.resolve();
-        }
-        return api.cine.play();
+        return api.cine.toggle();
       case 'tool':
         return tools.setActive(action.tool);
       case 'preset':

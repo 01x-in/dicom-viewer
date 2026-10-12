@@ -180,4 +180,75 @@ describe('cine', () => {
     expect(h.events.error[0]).toMatchObject({ context: 'cine' });
     expect(h.events.error[0]?.error.message).toBe('lost context');
   });
+
+  it('toggles on what the last call asked for, so two quick toggles cancel each other', async () => {
+    const h = harness();
+    const api = await show(h, 2);
+    // Both are decided before the queue has run either.
+    await Promise.all([api.cine.toggle(), api.cine.toggle()]);
+    expect(api.cine.playing).toBe(false);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(api.getImageIndex()).toBe(2);
+    await Promise.all([api.cine.toggle(), api.cine.toggle(), api.cine.toggle()]);
+    expect(api.cine.playing).toBe(true);
+    await api.cine.toggle();
+    expect(api.cine.playing).toBe(false);
+  });
+
+  it('toggles on again after the playback ended by itself at the last slice', async () => {
+    const h = harness();
+    const api = await show(h, 8);
+    await api.cine.play({ fps: 10, loop: false });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(api.cine.playing).toBe(false);
+    // The playback is over, so the next toggle plays, and does not "stop" what is not playing.
+    await api.cine.toggle();
+    expect(api.cine.playing).toBe(true);
+  });
+
+  it('is the same for the key as for the call: two quick presses of the cine key cancel each other', async () => {
+    const h = harness();
+    const api = await show(h, 2);
+    document.body.append(h.element);
+    const handled: boolean[] = [];
+    for (let press = 0; press < 2; press += 1) {
+      // A key the viewer handled has its default prevented, so the page does not scroll.
+      handled.push(
+        !h.element.dispatchEvent(
+          new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+        ),
+      );
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handled).toEqual([true, true]);
+    expect(api.cine.playing).toBe(false);
+    expect(h.events['viewport:cine']).toEqual([]);
+    document.body.replaceChildren();
+  });
+
+  it('does not leave a wish behind when a play fails because no series is on screen', async () => {
+    const h = harness();
+    h.viewer.viewports.attach('vp-0', h.element);
+    const api = h.viewer.viewports.get('vp-0');
+    await expect(api?.cine.toggle()).rejects.toThrow(/shows no series/);
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.setViewportSeries('vp-0', CT, { imageIndex: 2 });
+    // The failed toggle asked for nothing that is still wanted, so this one starts playback.
+    await api?.cine.toggle();
+    expect(api?.cine.playing).toBe(true);
+    api?.cine.stop();
+  });
+
+  it('keeps a play that is queued behind a series change wanted, so the next toggle stops it', async () => {
+    const h = harness();
+    const api = await show(h, 2);
+    await api.cine.play();
+    // The series change stops the old playback while the play after it is still waiting.
+    const change = h.viewer.setViewportSeries('vp-0', CT_TWO_STACKS);
+    const again = api.cine.play();
+    await Promise.all([change, again]);
+    expect(api.cine.playing).toBe(true);
+    await api.cine.toggle();
+    expect(api.cine.playing).toBe(false);
+  });
 });

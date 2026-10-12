@@ -149,4 +149,16 @@ describe('viewer.commands', () => {
     ).toBe(true);
     expect(h.viewer.commands.keyMatcher('acme.fail')).toBeUndefined();
   });
+
+  it('runs two quick cine.toggle calls as a start and a stop', async () => {
+    const h = harness();
+    await show(h);
+    await Promise.all([h.viewer.commands.run('cine.toggle'), h.viewer.commands.run('cine.toggle')]);
+    expect(h.viewer.viewports.get('vp-0')?.cine.playing).toBe(false);
+    // The second call cancelled the first before it ran: playback never started.
+    expect(h.events['viewport:cine']).toEqual([]);
+    await h.viewer.commands.run('cine.toggle');
+    expect(h.viewer.viewports.get('vp-0')?.cine.playing).toBe(true);
+    await h.viewer.commands.run('cine.toggle');
+  });
 });

@@ -135,15 +135,7 @@ const CINE: ActionItem = {
   label: 'Cine',
   icon: 'cine',
   shortcut: (action) => action.type === 'cine',
-  run: (context) => {
-    const viewport = viewportOf(context);
-    if (viewport === undefined) return undefined;
-    if (viewport.cine.playing) {
-      viewport.cine.stop();
-      return undefined;
-    }
-    return viewport.cine.play();
-  },
+  run: (context) => viewportOf(context)?.cine.toggle(),
   pressed: (context) => viewportOf(context)?.cine.playing === true,
 };
 
