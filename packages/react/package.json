@@ -1,6 +1,6 @@
 {
   "name": "@tushar-im/dicom-viewer-react",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "React adapter for the DICOM viewer. Works in Vite and Next.js.",
   "license": "MIT",
   "repository": {
