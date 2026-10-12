@@ -210,13 +210,45 @@ describe('cine', () => {
     const h = harness();
     const api = await show(h, 2);
     document.body.append(h.element);
+    const handled: boolean[] = [];
     for (let press = 0; press < 2; press += 1) {
-      h.element.dispatchEvent(
-        new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+      // A key the viewer handled has its default prevented, so the page does not scroll.
+      handled.push(
+        !h.element.dispatchEvent(
+          new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }),
+        ),
       );
     }
     await vi.advanceTimersByTimeAsync(0);
+    expect(handled).toEqual([true, true]);
     expect(api.cine.playing).toBe(false);
+    expect(h.events['viewport:cine']).toEqual([]);
     document.body.replaceChildren();
+  });
+
+  it('does not leave a wish behind when a play fails because no series is on screen', async () => {
+    const h = harness();
+    h.viewer.viewports.attach('vp-0', h.element);
+    const api = h.viewer.viewports.get('vp-0');
+    await expect(api?.cine.toggle()).rejects.toThrow(/shows no series/);
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.setViewportSeries('vp-0', CT, { imageIndex: 2 });
+    // The failed toggle asked for nothing that is still wanted, so this one starts playback.
+    await api?.cine.toggle();
+    expect(api?.cine.playing).toBe(true);
+    api?.cine.stop();
+  });
+
+  it('keeps a play that is queued behind a series change wanted, so the next toggle stops it', async () => {
+    const h = harness();
+    const api = await show(h, 2);
+    await api.cine.play();
+    // The series change stops the old playback while the play after it is still waiting.
+    const change = h.viewer.setViewportSeries('vp-0', CT_TWO_STACKS);
+    const again = api.cine.play();
+    await Promise.all([change, again]);
+    expect(api.cine.playing).toBe(true);
+    await api.cine.toggle();
+    expect(api.cine.playing).toBe(false);
   });
 });

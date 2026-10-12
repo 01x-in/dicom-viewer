@@ -1069,14 +1069,24 @@ export function createViewerCore(
         }
         cineCalls += 1;
         cineWanted = true;
+        cinePlaysQueued += 1;
         const mine = cineCalls;
         return enqueue(() => {
-          const shown = requireShown();
-          // A stop, or a later play, made after this call supersedes it, even though it is still queued.
-          if (mine === cineCalls) {
-            if (shown.port.imageCount > 1) cine.play(cineOptions);
-            // One image has nothing to play, so nothing was started and nothing is wanted.
-            else cineWanted = false;
+          cinePlaysQueued -= 1;
+          try {
+            const shown = requireShown();
+            // A stop, or a later play, made after this call supersedes it, even though it is still queued.
+            if (mine === cineCalls) {
+              if (shown.port.imageCount > 1) {
+                cine.play(cineOptions);
+                // A series change ahead of this call in the queue stopped the old playback and cleared the wish.
+                cineWanted = true;
+              } else cineWanted = false; // One image has nothing to play, so nothing is wanted.
+            }
+          } catch (error) {
+            // It could not start (no series on screen), so it is not wanted, unless a later call says otherwise.
+            if (mine === cineCalls) cineWanted = false;
+            throw error;
           }
           return Promise.resolve();
         });
@@ -1102,6 +1112,8 @@ export function createViewerCore(
       enqueue(() => moveTo(runtime, requireShown(), index, 'api'));
     // Whether the last call to play or toggle asked for playing, which a call still in the queue has not made true yet.
     let cineWanted = false;
+    // Plays that are still in the queue: playback that stops before they run does not end the wish for them.
+    let cinePlaysQueued = 0;
     const cine = createCine({
       async step(loop): Promise<boolean> {
         // Runs in the queue, like every call that moves the engine.
@@ -1117,7 +1129,7 @@ export function createViewerCore(
       },
       changed: ({ playing, fps }) => {
         // Playback that ended by itself (the last slice, a failed step) is no longer wanted.
-        if (!playing) cineWanted = false;
+        if (!playing && cinePlaysQueued === 0) cineWanted = false;
         events.emit('viewport:cine', { viewportId: runtime.id, playing, fps });
       },
       failed: (error) => {
