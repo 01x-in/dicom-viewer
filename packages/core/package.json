@@ -62,7 +62,7 @@
     "rolldown": "1.2.12"
   },
   "bin": {
-    "viewer-assets": "./dist/bin/viewer-assets.js"
+    "viewer-assets": "dist/bin/viewer-assets.js"
   },
   "publishConfig": {
     "access": "public",
