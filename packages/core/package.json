@@ -3,6 +3,22 @@
   "version": "0.0.0",
   "description": "Headless DICOM viewer core built on Cornerstone3D.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/01x-in/dicom-viewer.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/01x-in/dicom-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/01x-in/dicom-viewer/issues"
+  },
+  "keywords": [
+    "dicom",
+    "cornerstone3d",
+    "medical-imaging",
+    "viewer",
+    "headless"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -47,5 +63,9 @@
   },
   "bin": {
     "viewer-assets": "./dist/bin/viewer-assets.js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

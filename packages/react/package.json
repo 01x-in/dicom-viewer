@@ -3,6 +3,21 @@
   "version": "0.0.0",
   "description": "React adapter for the DICOM viewer. Works in Vite and Next.js.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/01x-in/dicom-viewer.git",
+    "directory": "packages/react"
+  },
+  "homepage": "https://github.com/01x-in/dicom-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/01x-in/dicom-viewer/issues"
+  },
+  "keywords": [
+    "dicom",
+    "react",
+    "nextjs",
+    "viewer"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -32,5 +47,9 @@
   "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

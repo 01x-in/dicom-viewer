@@ -61,6 +61,7 @@ export class DvToolbarElement extends LitElement {
     tipsOff: { state: true },
   };
 
+  /** @internal The component's own CSS. */
   static override styles: CSSResultGroup = [
     themeStyles,
     baseStyles,

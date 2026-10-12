@@ -3,6 +3,21 @@
   "version": "0.0.0",
   "description": "Vue 3 adapter for the DICOM viewer. Works in Vite and Nuxt.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/01x-in/dicom-viewer.git",
+    "directory": "packages/vue"
+  },
+  "homepage": "https://github.com/01x-in/dicom-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/01x-in/dicom-viewer/issues"
+  },
+  "keywords": [
+    "dicom",
+    "vue",
+    "nuxt",
+    "viewer"
+  ],
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -28,5 +43,9 @@
   },
   "peerDependencies": {
     "vue": "^3.5.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

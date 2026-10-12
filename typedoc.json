@@ -1,0 +1,26 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "DICOM viewer API",
+  "entryPoints": ["packages/core", "packages/elements", "packages/react", "packages/vue"],
+  "entryPointStrategy": "packages",
+  "out": ".docs/api",
+  "readme": "docs/guides/index.md",
+  "githubPages": false,
+  "treatWarningsAsErrors": true,
+  "extends": ["./typedoc.base.json"],
+  "suppressCommentWarningsInDeclarationFiles": true,
+  "highlightLanguages": [
+    "bash",
+    "console",
+    "css",
+    "diff",
+    "html",
+    "javascript",
+    "json",
+    "jsonc",
+    "tsx",
+    "typescript",
+    "vue",
+    "yaml"
+  ]
+}

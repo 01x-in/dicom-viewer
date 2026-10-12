@@ -22,7 +22,7 @@ export interface LocalFileDataSource extends DataSource {
   studyInstanceUIDs(): Promise<readonly string[]>;
   /** Files that were not used: not DICOM, unreadable, or a second copy of an instance. */
   skipped(): Promise<readonly SkippedFile[]>;
-  /** Releases the files. The viewer calls this when it is destroyed. */
+  /** Releases the files. The host calls this when it is done with the source: destroying the viewer does not. */
   dispose(): void;
 }
 

@@ -61,6 +61,7 @@ export class DvMeasurementListElement extends LitElement {
     renamingId: { state: true },
   };
 
+  /** @internal The component's own CSS. */
   static override styles: CSSResultGroup = [
     themeStyles,
     baseStyles,

@@ -37,6 +37,7 @@ export class DvPanelDockElement extends LitElement {
     selectedId: { state: true },
   };
 
+  /** @internal The component's own CSS. */
   static override styles: CSSResultGroup = [
     themeStyles,
     baseStyles,

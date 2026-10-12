@@ -1,0 +1,46 @@
+name: Visual regression
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      update:
+        description: 'Write the baselines instead of comparing (download them from the run, commit them)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    name: Screenshots match their baselines
+    runs-on: ubuntu-latest
+    # The pinned image has the browser build and the fonts the baselines were made with. Keep its tag
+    # equal to the `playwright` version in package.json.
+    container: mcr.microsoft.com/playwright:v1.63.0-noble
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate && pnpm build
+      - name: Compare (or write) the screenshots
+        run: pnpm visual ${{ inputs.update && '--update' || '' }}
+        env:
+          # Set to 1 once the baselines are committed: a scene without one then fails instead of being reported.
+          DV_VISUAL_STRICT: '0'
+      - name: Keep the pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual
+          path: |
+            .visual
+            scripts/visual/baselines
+          if-no-files-found: ignore
