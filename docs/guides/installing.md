@@ -1,15 +1,13 @@
 # Installing in a framework
 
 The viewer is four packages. Install the ones for your framework, and Cornerstone comes along inside
-`@scope/viewer-core` (it is bundled, not a peer dependency, so you never install or pin it).
+`@tushar-im/dicom-viewer-core` (it is bundled, not a peer dependency, so you never install or pin it).
 
 | You use | Install | Import |
 |---|---|---|
-| Plain HTML or any framework | `@scope/viewer-core`, `@scope/viewer-elements` | `import '@scope/viewer-elements/define'` registers `<dv-viewer>` |
-| React 19, Next.js | `@scope/viewer-core`, `@scope/viewer-react` | `import { DicomViewer } from '@scope/viewer-react'` |
-| Vue 3, Nuxt | `@scope/viewer-core`, `@scope/viewer-vue` | `import { DicomViewer } from '@scope/viewer-vue'` |
-
-The package names use the `@scope/` placeholder until the npm scope is chosen.
+| Plain HTML or any framework | `@tushar-im/dicom-viewer-core`, `@tushar-im/dicom-viewer-elements` | `import '@tushar-im/dicom-viewer-elements/define'` registers `<dv-viewer>` |
+| React 19, Next.js | `@tushar-im/dicom-viewer-core`, `@tushar-im/dicom-viewer-react` | `import { DicomViewer } from '@tushar-im/dicom-viewer-react'` |
+| Vue 3, Nuxt | `@tushar-im/dicom-viewer-core`, `@tushar-im/dicom-viewer-vue` | `import { DicomViewer } from '@tushar-im/dicom-viewer-vue'` |
 
 ## No bundler setup
 
@@ -21,7 +19,7 @@ the component, and nothing else.
 Two things make it work:
 
 - The Cornerstone engine (Cornerstone, vtk.js, the tools, the DICOM SEG adapters) is prebundled into one chunk that
-  `@scope/viewer-core` loads on first use. Your bundler sees an ordinary dynamic import and does not try to
+  `@tushar-im/dicom-viewer-core` loads on first use. Your bundler sees an ordinary dynamic import and does not try to
   understand the engine's own worker and WASM references.
 - The decode and compute workers, and the codec WASM, ship prebuilt ([ADR 0001](../adr/0001-asset-strategy.md)).
 
@@ -29,7 +27,7 @@ Two things make it work:
 
 Nothing in the viewer runs on the server.
 
-- **React and Next.js.** `@scope/viewer-react` starts with `'use client'` and loads the core inside an effect, so a
+- **React and Next.js.** `@tushar-im/dicom-viewer-react` starts with `'use client'` and loads the core inside an effect, so a
   server component can render it, and you do not need `dynamic(..., { ssr: false })`. Keep the `options` object the
   same between renders (define it outside the component, or memoize it): a new object restarts the viewer.
 - **Vue and Nuxt.** The core loads in `onMounted`. If your own code builds the data source from `window` or

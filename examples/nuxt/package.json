@@ -8,8 +8,8 @@
     "dev": "viewer-assets copy public/viewer-assets && nuxt dev --port ${PORT:-3000} --host 127.0.0.1"
   },
   "dependencies": {
-    "@scope/viewer-core": "0.0.0",
-    "@scope/viewer-vue": "0.0.0",
+    "@tushar-im/dicom-viewer-core": "0.0.0",
+    "@tushar-im/dicom-viewer-vue": "0.0.0",
     "nuxt": "4.5.2",
     "vue": "3.5.43"
   }

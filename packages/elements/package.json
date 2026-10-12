@@ -1,5 +1,5 @@
 {
-  "name": "@scope/viewer-elements",
+  "name": "@tushar-im/dicom-viewer-elements",
   "version": "0.0.0",
   "description": "Styled DICOM viewer UI as framework-neutral web components.",
   "license": "MIT",
@@ -43,7 +43,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@scope/viewer-core": "workspace:*",
+    "@tushar-im/dicom-viewer-core": "workspace:*",
     "lit": "3.3.3"
   },
   "publishConfig": {

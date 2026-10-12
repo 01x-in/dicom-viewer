@@ -363,7 +363,7 @@ async function writeSizeReport(): Promise<void> {
     ['vue', tarballs.vue],
   ];
   for (const [name, path] of packed) {
-    lines.push(`| @scope/viewer-${name} | ${kib(await fileBytes(path))} |`);
+    lines.push(`| @tushar-im/dicom-viewer-${name} | ${kib(await fileBytes(path))} |`);
   }
   lines.push(
     '',

@@ -8,8 +8,8 @@
     "dev": "viewer-assets copy public/viewer-assets && vite --port ${PORT:-5173} --strictPort --host 127.0.0.1"
   },
   "dependencies": {
-    "@scope/viewer-core": "0.0.0",
-    "@scope/viewer-react": "0.0.0",
+    "@tushar-im/dicom-viewer-core": "0.0.0",
+    "@tushar-im/dicom-viewer-react": "0.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

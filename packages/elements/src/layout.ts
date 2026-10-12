@@ -1,8 +1,8 @@
 import {
   type LayoutCells as CoreLayoutCells,
   layoutCells as coreLayoutCells,
-} from '@scope/viewer-core';
-import type { ViewerStateV1 } from '@scope/viewer-core';
+} from '@tushar-im/dicom-viewer-core';
+import type { ViewerStateV1 } from '@tushar-im/dicom-viewer-core';
 
 export interface LayoutCells extends CoreLayoutCells {
   /** The viewports the layout shows, in reading order. */

@@ -5,8 +5,8 @@ import {
   type Viewer,
   type ViewportApi,
   type ViewerOptions,
-} from '@scope/viewer-core';
-import { DicomViewer } from '@scope/viewer-react';
+} from '@tushar-im/dicom-viewer-core';
+import { DicomViewer } from '@tushar-im/dicom-viewer-react';
 import { type JSX, useEffect, useState } from 'react';
 import { z } from 'zod';
 

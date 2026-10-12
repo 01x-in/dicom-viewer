@@ -3,7 +3,12 @@
  * `<dv-viewer>` (or on any ancestor, for the stylesheet) switches to the light set. Both sets must
  * define the same names, and the text pairs are tested against the WCAG contrast minimums.
  */
-import { PALETTE_NAMES, type PaletteName, THEME_NAMES, type ThemeName } from '@scope/viewer-core';
+import {
+  PALETTE_NAMES,
+  type PaletteName,
+  THEME_NAMES,
+  type ThemeName,
+} from '@tushar-im/dicom-viewer-core';
 
 // The names are the core's, because a config names them.
 export type { PaletteName, ThemeName };
@@ -198,9 +203,9 @@ export function lightTokenCss(lightHost: string): string {
   return `${lightHost} {\n${declarations(THEME_TOKENS.light)}\n}`;
 }
 
-/** The file shipped as `@scope/viewer-elements/styles.css`: the same tokens for a host's own page. */
+/** The file shipped as `@tushar-im/dicom-viewer-elements/styles.css`: the same tokens for a host's own page. */
 export function stylesheet(): string {
-  return `/* Design tokens of @scope/viewer-elements. Generated from src/tokens.ts. */\n${tokenCss(
+  return `/* Design tokens of @tushar-im/dicom-viewer-elements. Generated from src/tokens.ts. */\n${tokenCss(
     'dv-viewer',
     "[data-theme='light'] dv-viewer, dv-viewer[data-theme='light']",
   )}\n${paletteCss({

@@ -1,6 +1,6 @@
-import type { Viewer, ViewportApi } from '@scope/viewer-core';
-import '@scope/viewer-elements/define';
-import type { DvViewerElement } from '@scope/viewer-elements';
+import type { Viewer, ViewportApi } from '@tushar-im/dicom-viewer-core';
+import '@tushar-im/dicom-viewer-elements/define';
+import type { DvViewerElement } from '@tushar-im/dicom-viewer-elements';
 
 // The installability matrix drives this page through the query string and reads the result
 // back from `data-dv-status` and `window.__dv`.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@scope/viewer-core/testing';
-import type { ToolbarItemConfig } from '@scope/viewer-core';
+import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@tushar-im/dicom-viewer-core/testing';
+import type { ToolbarItemConfig } from '@tushar-im/dicom-viewer-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ActionItem, MenuItem, ToolbarContext } from './toolbar-config';
 import { toolbarFromConfig } from './toolbar-from-config';

@@ -4,7 +4,7 @@ import {
   type LayoutId,
   type PrimaryTool,
   type Viewer,
-} from '@scope/viewer-core';
+} from '@tushar-im/dicom-viewer-core';
 import type { TemplateResult } from 'lit';
 import type { IconName } from './icons';
 

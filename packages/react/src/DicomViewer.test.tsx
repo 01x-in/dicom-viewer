@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@scope/viewer-core/testing';
-import type { Viewer, ViewerOptions, ViewerStateV1 } from '@scope/viewer-core';
+import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@tushar-im/dicom-viewer-core/testing';
+import type { Viewer, ViewerOptions, ViewerStateV1 } from '@tushar-im/dicom-viewer-core';
 import { type JSX, type RefObject, StrictMode, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import type { DvViewerElement } from '@scope/viewer-elements';
+import type { DvViewerElement } from '@tushar-im/dicom-viewer-elements';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DicomViewer,
@@ -17,9 +17,9 @@ import {
 
 const made: FakeViewer[] = [];
 
-vi.mock('@scope/viewer-core', async (importOriginal) => {
+vi.mock('@tushar-im/dicom-viewer-core', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  const { createFakeViewer: make } = await import('@scope/viewer-core/testing');
+  const { createFakeViewer: make } = await import('@tushar-im/dicom-viewer-core/testing');
   return {
     ...actual,
     createViewer: (options: ViewerOptions): unknown => {

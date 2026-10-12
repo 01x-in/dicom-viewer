@@ -1,4 +1,4 @@
-import { isDicomUid } from '@scope/viewer-core';
+import { isDicomUid } from '@tushar-im/dicom-viewer-core';
 
 /** The one data type a dragged series carries, so a drop target can tell it from text and files. */
 export const SERIES_DRAG_TYPE = 'application/x-dv-series';

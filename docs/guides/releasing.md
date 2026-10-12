@@ -7,9 +7,11 @@ The four packages (`viewer-core`, `viewer-elements`, `viewer-react`, `viewer-vue
 
 These are decisions for the maintainer, not things the workflow can do:
 
-1. **Choose the npm scope.** Every package is `@scope/viewer-*` until then. Rename in each `package.json` (`name`, and
-   the `workspace:*` dependencies keep working), in the imports of `examples/`, `scripts/matrix`, `docs`, and the
-   `README`s, and in `.changeset/config.json` (`fixed: [["@scope/viewer-*"]]`). `grep -rn "@scope/"` finds them all.
+1. **The npm scope is `@tushar-im`** and the packages are `@tushar-im/dicom-viewer-core`, `-elements`, `-react`, and
+   `-vue` (already renamed in every `package.json`, import, doc, and in `.changeset/config.json`). The scope has to be
+   the name of an npm **user or organization you own**, and an npm user name is not always the GitHub one: check with
+   `npm whoami` (or the organization page) before going on. If it is different, rename again with the same search:
+   `grep -rIl "@tushar-im/" .`.
 2. **Create the scope on npm** (an organization, or your user name) and make an automation token with publish rights.
    Save it as the repository secret `NPM_TOKEN`.
 3. **Confirm the name `dv-`** for the elements, and the licence holder in `LICENSE`.

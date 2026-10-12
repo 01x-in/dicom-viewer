@@ -4,7 +4,7 @@ name: Release
 # merged, publishes the packages to npm with provenance.
 #
 # Nothing here runs until the repository variable RELEASE_ENABLED is "true" (Settings > Secrets and variables >
-# Actions > Variables): the package names are the `@scope/` placeholder until the npm scope is chosen, and an
+# Actions > Variables): nothing has been published yet, and an
 # accidental publish cannot be taken back. See docs/guides/releasing.md.
 
 on:

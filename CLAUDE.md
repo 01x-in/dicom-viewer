@@ -19,7 +19,7 @@
 ## Architecture rules
 - Only `packages/core/src/engine/**` and `packages/core/workers/**` may import `@cornerstonejs/*`. Everything else goes through `RenderingPort`. ESLint enforces this.
 - The public API never exposes Cornerstone types, except under `viewer.unsafe`.
-- Cornerstone packages are exact-pinned `devDependencies` of `@scope/viewer-core`, bundled into its lazily loaded engine chunk, and never peers (docs/adr/0003-prebundled-engine.md).
+- Cornerstone packages are exact-pinned `devDependencies` of `@tushar-im/dicom-viewer-core`, bundled into its lazily loaded engine chunk, and never peers (docs/adr/0003-prebundled-engine.md).
 - Vue code must keep Cornerstone and viewer objects out of reactivity (`shallowRef` + `markRaw`).
 - Viewer state is `ViewerStateV1`. Every change a host asks for, and every call that touches the engine, goes through the queue in `viewer-core.ts` (the one exception is `viewer.thumbnails`, which is read-only and has its own two-at-a-time limiter, so a slow picture never holds up the viewport; see docs/adr/0007-styled-shell.md) (docs/adr/0004-viewer-state-and-ordering.md). Only the engine's reports of user input (the mouse wheel, and dragging to change the window or zoom) update the state directly; pan is not part of `ViewportStateV1`.
 - What a viewport looks like (window, invert, zoom) is part of `ViewportStateV1`. Changes the host asks for (the API, keys, presets, cine, `navigateTo`) go through the queue and are tagged `api`; changes the user makes with the mouse are recorded from the engine's view report and tagged `user` (docs/adr/0006-view-state-and-input.md). Do not add a host-driven path that changes the engine without going through `viewer-core.ts`.

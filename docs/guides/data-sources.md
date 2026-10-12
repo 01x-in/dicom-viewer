@@ -1,12 +1,12 @@
 # Data sources
 
 A data source tells the viewer where studies, series, and images come from. Two are built in. You can also write
-your own: the `DataSource` interface in `@scope/viewer-core` is small.
+your own: the `DataSource` interface in `@tushar-im/dicom-viewer-core` is small.
 
 ## DICOMweb
 
 ```ts
-import { createDicomWebDataSource } from '@scope/viewer-core';
+import { createDicomWebDataSource } from '@tushar-im/dicom-viewer-core';
 
 const dataSource = createDicomWebDataSource({
   wadoRoot: 'https://pacs.example.org/dicom-web',
@@ -59,7 +59,7 @@ retrieval answers 403, frames are limited per request), and the installability m
 ## Local files
 
 ```ts
-import { createLocalFileDataSource } from '@scope/viewer-core/local';
+import { createLocalFileDataSource } from '@tushar-im/dicom-viewer-core/local';
 
 const dataSource = createLocalFileDataSource([...input.files]); // File[] from a picker or a drop
 ```

@@ -2,7 +2,7 @@
 
 A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It is built on [Cornerstone3D](https://www.cornerstonejs.org/) and aims for OHIF-level tools. It ships with a styled default interface and a headless core (a core that has no interface of its own).
 
-> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.0.0` is ready to release. The package is not published yet: package names use the `@scope/` placeholder until the npm scope is chosen. See [docs/guides/releasing.md](docs/guides/releasing.md).
+> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.0.0` is ready to release. The package is not published yet: the packages are named `@tushar-im/dicom-viewer-core`, `-elements`, `-react`, and `-vue`, and the npm scope `@tushar-im` must exist (as a user or an organization) before the first publish. See [docs/guides/releasing.md](docs/guides/releasing.md).
 
 ## What works today
 
@@ -22,10 +22,10 @@ Not built yet: the OncoTrace-like example (M9). The plan is in [docs/plan.md](do
 
 | Package | What it is |
 |---|---|
-| `@scope/viewer-core` | Headless core: Cornerstone engine, state store, tools, measurements, and the DICOMweb data source |
-| `@scope/viewer-elements` | Styled interface as Lit web components (`<dv-viewer>`, toolbar, panels) |
-| `@scope/viewer-react` | React adapter (Vite, Next.js App Router) |
-| `@scope/viewer-vue` | Vue 3 adapter (Vite, Nuxt) |
+| `@tushar-im/dicom-viewer-core` | Headless core: Cornerstone engine, state store, tools, measurements, and the DICOMweb data source |
+| `@tushar-im/dicom-viewer-elements` | Styled interface as Lit web components (`<dv-viewer>`, toolbar, panels) |
+| `@tushar-im/dicom-viewer-react` | React adapter (Vite, Next.js App Router) |
+| `@tushar-im/dicom-viewer-vue` | Vue 3 adapter (Vite, Nuxt) |
 
 ## Using it
 
@@ -36,8 +36,8 @@ Every setup needs two things: a data source (where the images come from) and a s
 ```html
 <dv-viewer id="viewer" style="display: block; height: 100vh"></dv-viewer>
 <script type="module">
-  import '@scope/viewer-elements/define';
-  import { createDicomWebDataSource } from '@scope/viewer-core';
+  import '@tushar-im/dicom-viewer-elements/define';
+  import { createDicomWebDataSource } from '@tushar-im/dicom-viewer-core';
 
   const viewer = document.querySelector('#viewer');
   viewer.options = {
@@ -53,8 +53,8 @@ For a quick test you can also use attributes: `<dv-viewer wado-root="..." study-
 
 ```tsx
 'use client';
-import { createDicomWebDataSource, type ViewerOptions } from '@scope/viewer-core';
-import { DicomViewer } from '@scope/viewer-react';
+import { createDicomWebDataSource, type ViewerOptions } from '@tushar-im/dicom-viewer-core';
+import { DicomViewer } from '@tushar-im/dicom-viewer-react';
 import type { JSX } from 'react';
 
 // Keep the options object the same between renders. A new object restarts the viewer.
@@ -75,8 +75,8 @@ export function Viewer(): JSX.Element {
 
 ```vue
 <script setup lang="ts">
-import { createDicomWebDataSource, type ViewerOptions } from '@scope/viewer-core';
-import { DicomViewer } from '@scope/viewer-vue';
+import { createDicomWebDataSource, type ViewerOptions } from '@tushar-im/dicom-viewer-core';
+import { DicomViewer } from '@tushar-im/dicom-viewer-vue';
 
 const options: ViewerOptions = {
   dataSource: createDicomWebDataSource({ wadoRoot: 'https://pacs.example.org/dicom-web' }),
@@ -101,7 +101,7 @@ Everything below is optional. The viewer works with the data source and the stud
 A window preset is a brightness and contrast setting for CT, such as "Lung" or "Bone". The menu with the sliders icon in the toolbar lists them, and the number keys `1` to `9` choose the first nine. Pass your own list in `windowLevelPresets`. The list replaces the built-in one, so to add to it, start with `DEFAULT_WINDOW_PRESETS`:
 
 ```ts
-import { DEFAULT_WINDOW_PRESETS, type ViewerOptions } from '@scope/viewer-core';
+import { DEFAULT_WINDOW_PRESETS, type ViewerOptions } from '@tushar-im/dicom-viewer-core';
 
 const options: ViewerOptions = {
   dataSource,
@@ -129,7 +129,7 @@ const options: ViewerOptions = {
 };
 ```
 
-An action is one of `scroll`, `scroll-to`, `zoom`, `invert`, `reset`, `cine`, `tool`, `preset`, and `delete-measurement`. The type `KeyAction` in `@scope/viewer-core` lists the fields of each.
+An action is one of `scroll`, `scroll-to`, `zoom`, `invert`, `reset`, `cine`, `tool`, `preset`, and `delete-measurement`. The type `KeyAction` in `@tushar-im/dicom-viewer-core` lists the fields of each.
 
 ### Other options
 
@@ -180,7 +180,7 @@ In HTML, write `theme="light" palette="navy"`. In React and Vue, pass `theme` an
 `toolbar-labels="inline"` (the `toolbarLabels` prop in React and Vue) puts the name of each button beside its icon. `hide-toolbar` (or `toolbar={false}`) removes the toolbar. To choose the buttons yourself, pass a list of items. Each item is a `tool`, an `action`, a `menu`, a `separator`, or `custom`. The built-in actions are in `TOOLBAR_ACTIONS`.
 
 ```ts
-import { TOOLBAR_ACTIONS, type ToolbarItem } from '@scope/viewer-elements';
+import { TOOLBAR_ACTIONS, type ToolbarItem } from '@tushar-im/dicom-viewer-elements';
 
 const toolbar: ToolbarItem[] = [
   { type: 'tool', tool: 'window-level' },
@@ -222,11 +222,11 @@ You can also put your own content in these slots of `<dv-viewer>`: `banner` (a s
 
 ### Settings as a config file
 
-Most of the settings above can also be written as data, in one JSON file that you can keep apart from your code, edit without a build, and share between pages. The file has a `version` and any of these keys: `theme`, `palette`, `toolbar`, `keybindings`, `overlay`, `panels`, `windowLevelPresets`, and `tools`. An editor completes and checks it if you point it at the schema that ships with the package (`@scope/viewer-core/viewer-config.schema.json`):
+Most of the settings above can also be written as data, in one JSON file that you can keep apart from your code, edit without a build, and share between pages. The file has a `version` and any of these keys: `theme`, `palette`, `toolbar`, `keybindings`, `overlay`, `panels`, `windowLevelPresets`, and `tools`. An editor completes and checks it if you point it at the schema that ships with the package (`@tushar-im/dicom-viewer-core/viewer-config.schema.json`):
 
 ```json
 {
-  "$schema": "./node_modules/@scope/viewer-core/schema/viewer-config.schema.json",
+  "$schema": "./node_modules/@tushar-im/dicom-viewer-core/schema/viewer-config.schema.json",
   "version": 1,
   "palette": "navy",
   "toolbar": {
@@ -325,7 +325,7 @@ A plane needs the slices to be evenly spaced and square to the direction they ar
 A hanging protocol is plain data. The best fit for the study is applied when the page asks for no series and none is restored:
 
 ```ts
-import { DEFAULT_HANGING_PROTOCOLS } from '@scope/viewer-core';
+import { DEFAULT_HANGING_PROTOCOLS } from '@tushar-im/dicom-viewer-core';
 
 createViewer({
   dataSource,

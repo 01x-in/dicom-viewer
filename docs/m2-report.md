@@ -1,6 +1,6 @@
 # M2 report: core foundation
 
-**Done by the plan's criteria.** A headless example ([examples/headless](../examples/headless)) loads a study by UID, scrolls, restores a view from a link, refreshes an expired token, retries a failing server, reads local files, and survives 20 mount/unmount cycles without leaving anything behind. The data layer, store, events, `ViewerStateV1`, the URL codec, and the local-file source are in `@scope/viewer-core`, with 240 unit tests (48 at the end of M1).
+**Done by the plan's criteria.** A headless example ([examples/headless](../examples/headless)) loads a study by UID, scrolls, restores a view from a link, refreshes an expired token, retries a failing server, reads local files, and survives 20 mount/unmount cycles without leaving anything behind. The data layer, store, events, `ViewerStateV1`, the URL codec, and the local-file source are in `@tushar-im/dicom-viewer-core`, with 240 unit tests (48 at the end of M1).
 
 ## Done-when, item by item
 
@@ -13,7 +13,7 @@
 | Metadata, sort, split | [series.ts](../packages/core/src/data/series.ts) | Slices sort along the slice normal. A series splits by orientation and by repeated positions (multi-phase, dual energy) into stacks, largest first. Each stack says whether it can become a volume, or why not: missing geometry, too few slices, missing pixel spacing, inconsistent size, tilted, non-uniform spacing |
 | Store, events | [store.ts](../packages/core/src/state/store.ts), [events.ts](../packages/core/src/state/events.ts) | Selector subscriptions with equality, ordered nested updates, change origin; handler errors cannot break emitters |
 | `ViewerStateV1`, URL codec | [viewer-state.ts](../packages/core/src/state/viewer-state.ts), [url.ts](../packages/core/src/state/url.ts) | Zod schema; base64url JSON; every UID validated. The example keeps its address in sync, and a reload restores the series and the slice |
-| Local-file source | [local.ts](../packages/core/src/data/local.ts), subpath `@scope/viewer-core/local` | `local files` scenario: 64 J2K files plus a SEG plus a text file chosen through a real `<input type=file>`; exact HU values after decode, the SEG parses, the text file is reported as skipped, and no DICOMweb request is made |
+| Local-file source | [local.ts](../packages/core/src/data/local.ts), subpath `@tushar-im/dicom-viewer-core/local` | `local files` scenario: 64 J2K files plus a SEG plus a text file chosen through a real `<input type=file>`; exact HU values after decode, the SEG parses, the text file is reported as skipped, and no DICOMweb request is made |
 | 20 mount/unmount cycles leak nothing | [runtime.ts](../packages/core/src/engine/runtime.ts), [ADR 0005](adr/0005-engine-runtime-lifecycle.md) | `lifecycle` scenario, below |
 
 ## The lifecycle check

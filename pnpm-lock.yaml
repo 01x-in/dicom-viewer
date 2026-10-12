@@ -108,7 +108,7 @@ importers:
 
   packages/elements:
     dependencies:
-      '@scope/viewer-core':
+      '@tushar-im/dicom-viewer-core':
         specifier: workspace:*
         version: link:../core
       lit:
@@ -117,10 +117,10 @@ importers:
 
   packages/react:
     dependencies:
-      '@scope/viewer-core':
+      '@tushar-im/dicom-viewer-core':
         specifier: workspace:*
         version: link:../core
-      '@scope/viewer-elements':
+      '@tushar-im/dicom-viewer-elements':
         specifier: workspace:*
         version: link:../elements
     devDependencies:
@@ -139,10 +139,10 @@ importers:
 
   packages/vue:
     dependencies:
-      '@scope/viewer-core':
+      '@tushar-im/dicom-viewer-core':
         specifier: workspace:*
         version: link:../core
-      '@scope/viewer-elements':
+      '@tushar-im/dicom-viewer-elements':
         specifier: workspace:*
         version: link:../elements
     devDependencies:
