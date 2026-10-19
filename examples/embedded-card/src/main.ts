@@ -112,16 +112,15 @@ element.addEventListener('dv-ready', () => {
   const viewer = element.viewer;
   if (viewer === undefined) return;
   drawSeries(viewer, viewer.getState().viewports[0]?.seriesInstanceUID);
-  let shownStudy = studies.value;
   studies.onchange = () => {
-    // A switch that fails puts the dropdown back, so it never names a study that is not on screen.
+    // One switch at a time: the dropdown is locked until the viewer has answered.
+    studies.disabled = true;
     switchStudy(viewer, studies.value)
-      .then(() => {
-        shownStudy = studies.value;
-      })
-      .catch((error: unknown) => {
-        studies.value = shownStudy;
-        fail(error);
+      .catch(fail)
+      .finally(() => {
+        // Whatever happened, the dropdown names the study the viewer holds, so it never lies.
+        studies.value = viewer.getState().studyInstanceUID ?? studies.value;
+        studies.disabled = false;
       });
   };
 });
