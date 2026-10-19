@@ -1,7 +1,13 @@
 import type { DicomWebRequest } from './request';
 
-/** One instance as DICOMweb JSON: tag (upper-case hex) to value representation and values. */
-export type DicomJsonInstance = Record<string, { vr: string; Value?: unknown[] | undefined }>;
+/**
+ * One instance as DICOMweb JSON: tag (upper-case hex) to value representation and values. The
+ * `vr` is missing from what static WADO servers send, so a reader must not rely on it.
+ */
+export type DicomJsonInstance = Record<
+  string,
+  { vr?: string | undefined; Value?: unknown[] | undefined }
+>;
 
 export interface SeriesInstance {
   readonly sopInstanceUID: string;

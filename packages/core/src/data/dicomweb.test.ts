@@ -128,6 +128,33 @@ describe('createDicomWebDataSource', () => {
     await expect(source.getSeries(STUDY, SERIES)).rejects.toBeInstanceOf(DataSourceError);
   });
 
+  it('accepts DICOM JSON without a VR on its elements, as static WADO servers send it', async () => {
+    const withoutVr = (element: Record<string, unknown>): Record<string, { Value: unknown }> =>
+      Object.fromEntries(
+        Object.entries(element).map(([tag, value]) => [
+          tag,
+          { Value: (value as { Value: unknown }).Value },
+        ]),
+      );
+    const metadata = [withoutVr(instance('9.1', [0, 0, 0], 1))];
+    const list = [withoutVr(instance('9.1', [0, 0, 0], 1))];
+    const source = createDicomWebDataSource({
+      wadoRoot: 'http://pacs',
+      fetch: (input) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              String(input instanceof Request ? input.url : input).endsWith('/series')
+                ? list
+                : metadata,
+            ),
+          ),
+        ),
+    });
+    expect((await source.getSeries(STUDY, SERIES)).instances).toHaveLength(1);
+    expect((await source.getStudy(STUDY)).series).toHaveLength(1);
+  });
+
   it('reports a 403 as a DataSourceError carrying the status, without retrying', async () => {
     let calls = 0;
     const source = createDicomWebDataSource({

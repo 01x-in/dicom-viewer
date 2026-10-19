@@ -21,7 +21,11 @@ export interface DicomWebDataSourceOptions extends RequesterOptions {
   readonly capabilities?: DataSourceCapabilities;
 }
 
-const dicomJsonElement = z.object({ vr: z.string(), Value: z.array(z.unknown()).optional() });
+// `vr` is optional: static WADO servers (such as OHIF's public one) leave it out, and nothing here reads it.
+const dicomJsonElement = z.object({
+  vr: z.string().optional(),
+  Value: z.array(z.unknown()).optional(),
+});
 const dicomJsonInstance = z.record(z.string(), dicomJsonElement);
 const seriesMetadata = z.array(dicomJsonInstance).min(1);
 const seriesList = z.array(dicomJsonInstance);

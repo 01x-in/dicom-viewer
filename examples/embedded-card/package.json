@@ -1,0 +1,18 @@
+{
+  "name": "example-embedded-card",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "viewer-assets copy public/viewer-assets && vite build",
+    "serve": "vite preview --port ${PORT:-5173} --strictPort --host 127.0.0.1",
+    "dev": "viewer-assets copy public/viewer-assets && vite --port ${PORT:-5173} --strictPort --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@tushar-im/dicom-viewer-core": "0.0.0",
+    "@tushar-im/dicom-viewer-elements": "0.0.0"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vite": "8.3.2"
+  }
+}
