@@ -38,7 +38,7 @@ element.commands = {
   'host.fullscreen': {
     run: () =>
       document.fullscreenElement === null ? element.requestFullscreen() : document.exitFullscreen(),
-    pressed: () => document.fullscreenElement === element,
+    // A host command has no event of its own to redraw a lit state, so the button is not a toggle.
     enabled: () => true,
   },
 };
@@ -53,11 +53,26 @@ const meta = document.querySelector<HTMLElement>('#meta');
 if (studies === null || seriesBar === null || title === null || meta === null)
   throw new Error('page');
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** The study UIDs of a QIDO-RS answer. Anything else than a list of DICOM JSON studies is an error. */
 async function studyUids(): Promise<string[]> {
-  const found = (await (await fetch(`${wadoRoot}/studies`)).json()) as Array<
-    Record<string, { Value?: string[] }>
-  >;
-  return found.flatMap((study) => study['0020000D']?.Value ?? []);
+  const response = await fetch(`${wadoRoot}/studies`);
+  if (!response.ok) throw new Error(`The server answered ${String(response.status)} for /studies.`);
+  const found: unknown = await response.json();
+  if (!Array.isArray(found)) throw new Error('The study list is not a list.');
+  return found.flatMap((study: unknown) => {
+    const value = isRecord(study) && isRecord(study['0020000D']) ? study['0020000D']['Value'] : [];
+    return Array.isArray(value)
+      ? value.filter((uid): uid is string => typeof uid === 'string')
+      : [];
+  });
+}
+
+/** Shows a failure where the host's own title is, so the card never stays on "Loading". */
+function fail(error: unknown): void {
+  title!.textContent = `Could not show the images: ${error instanceof Error ? error.message : String(error)}`;
 }
 
 function drawSeries(viewer: Viewer, activeUid?: string): void {
@@ -70,9 +85,13 @@ function drawSeries(viewer: Viewer, activeUid?: string): void {
       button.textContent = `CT ${String(at + 1)}`;
       button.title = s.description ?? '';
       button.setAttribute('aria-pressed', String(s.seriesInstanceUID === activeUid));
-      button.onclick = async () => {
-        await viewer.setViewportSeries('vp-0', s.seriesInstanceUID);
-        drawSeries(viewer, s.seriesInstanceUID);
+      button.onclick = () => {
+        viewer
+          .setViewportSeries('vp-0', s.seriesInstanceUID)
+          .then(() => {
+            drawSeries(viewer, s.seriesInstanceUID);
+          })
+          .catch(fail);
       };
       return button;
     }),
@@ -89,22 +108,40 @@ async function switchStudy(viewer: Viewer, uid: string): Promise<void> {
   drawSeries(viewer, first?.seriesInstanceUID);
 }
 
-// `?study=` shows one study, so a public server with many studies is not listed.
-const only = params.get('study');
-const uids = only === null ? await studyUids() : [only];
-studies.replaceChildren(
-  ...uids.map((uid, at) => new Option(`Study ${String(at + 1)} of ${String(uids.length)}`, uid)),
-);
+element.addEventListener('dv-error', (event) => {
+  fail((event as CustomEvent<{ error: Error }>).detail.error);
+});
 element.addEventListener('dv-ready', () => {
   const viewer = element.viewer;
   if (viewer === undefined) return;
   drawSeries(viewer, viewer.getState().viewports[0]?.seriesInstanceUID);
-  studies.onchange = () => void switchStudy(viewer, studies.value);
+  let shownStudy = studies.value;
+  studies.onchange = () => {
+    // A switch that fails puts the dropdown back, so it never names a study that is not on screen.
+    switchStudy(viewer, studies.value)
+      .then(() => {
+        shownStudy = studies.value;
+      })
+      .catch((error: unknown) => {
+        studies.value = shownStudy;
+        fail(error);
+      });
+  };
 });
-element.addEventListener('dv-error', (event) => {
-  title.textContent = `Could not show the images: ${(event as CustomEvent<{ error: Error }>).detail.error.message}`;
-});
-// Redraw the lit buttons when the browser enters or leaves full screen.
-document.addEventListener('fullscreenchange', () => element.requestUpdate());
-element.wadoRoot = wadoRoot;
-element.studyInstanceUid = uids[0];
+
+// `?study=` shows one study, so a public server with many studies is not listed.
+let uids: string[];
+try {
+  const only = params.get('study');
+  uids = only === null ? await studyUids() : [only];
+} catch (error) {
+  fail(error);
+  uids = [];
+}
+studies.replaceChildren(
+  ...uids.map((uid, at) => new Option(`Study ${String(at + 1)} of ${String(uids.length)}`, uid)),
+);
+if (uids[0] !== undefined) {
+  element.wadoRoot = wadoRoot;
+  element.studyInstanceUid = uids[0];
+}
