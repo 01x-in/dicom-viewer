@@ -1,0 +1,72 @@
+{
+  "$schema": "../../packages/core/schema/viewer-config.schema.json",
+  "version": 1,
+  "theme": "light",
+  "toolbar": {
+    "labels": "inline",
+    "items": [
+      { "type": "tool", "tool": "stack-scroll", "label": "Scroll" },
+      { "type": "tool", "tool": "zoom" },
+      { "type": "tool", "tool": "pan" },
+      { "type": "tool", "tool": "window-level", "label": "W/L" },
+      { "type": "separator" },
+      {
+        "type": "command",
+        "id": "w-soft",
+        "label": "Soft Tissue",
+        "command": "host.window",
+        "args": { "id": "soft-tissue" }
+      },
+      {
+        "type": "command",
+        "id": "w-lung",
+        "label": "Lung",
+        "command": "host.window",
+        "args": { "id": "lung" }
+      },
+      {
+        "type": "command",
+        "id": "w-bone",
+        "label": "Bone",
+        "command": "host.window",
+        "args": { "id": "bone" }
+      },
+      {
+        "type": "command",
+        "id": "w-abdomen",
+        "label": "Abdomen",
+        "command": "host.window",
+        "args": { "id": "abdomen" }
+      },
+      { "type": "separator" },
+      {
+        "type": "command",
+        "id": "fullscreen",
+        "label": "Full Screen",
+        "command": "host.fullscreen"
+      },
+      {
+        "type": "command",
+        "id": "reset",
+        "label": "Reset",
+        "icon": "reset",
+        "command": "view.reset"
+      }
+    ]
+  },
+  "windowLevelPresets": [
+    { "id": "soft-tissue", "label": "Soft Tissue", "center": 40, "width": 400 },
+    { "id": "lung", "label": "Lung", "center": -600, "width": 1500 },
+    { "id": "bone", "label": "Bone", "center": 480, "width": 2500 },
+    { "id": "abdomen", "label": "Abdomen", "center": 60, "width": 400 }
+  ],
+  "panels": { "hide": ["series", "measurements", "segmentations"] },
+  "overlay": {
+    "corners": {
+      "topLeft": [
+        { "id": "image", "kind": "builtin", "name": "image" },
+        { "id": "window", "kind": "builtin", "name": "window" }
+      ]
+    }
+  }
+}
