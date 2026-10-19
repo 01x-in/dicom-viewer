@@ -1,6 +1,7 @@
 import type { Viewer, ViewerConfigV1 } from '@tushar-im/dicom-viewer-core';
 import '@tushar-im/dicom-viewer-elements/define';
 import type { DvViewerElement } from '@tushar-im/dicom-viewer-elements';
+import { z } from 'zod';
 import config from '../card.config.json';
 
 // A host page shaped like a patient record with a viewer card. What it shows of the package:
@@ -53,21 +54,17 @@ const meta = document.querySelector<HTMLElement>('#meta');
 if (studies === null || seriesBar === null || title === null || meta === null)
   throw new Error('page');
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
+// QIDO-RS answers with DICOM JSON: one object per study, the study UID under tag 0020000D.
+const studyList = z.array(
+  z.object({ '0020000D': z.object({ Value: z.array(z.string()).min(1) }).optional() }),
+);
 
-/** The study UIDs of a QIDO-RS answer. Anything else than a list of DICOM JSON studies is an error. */
+/** The study UIDs of a QIDO-RS answer. A failed request or an answer of another shape is an error. */
 async function studyUids(): Promise<string[]> {
   const response = await fetch(`${wadoRoot}/studies`);
   if (!response.ok) throw new Error(`The server answered ${String(response.status)} for /studies.`);
-  const found: unknown = await response.json();
-  if (!Array.isArray(found)) throw new Error('The study list is not a list.');
-  return found.flatMap((study: unknown) => {
-    const value = isRecord(study) && isRecord(study['0020000D']) ? study['0020000D']['Value'] : [];
-    return Array.isArray(value)
-      ? value.filter((uid): uid is string => typeof uid === 'string')
-      : [];
-  });
+  const found = studyList.parse(await response.json());
+  return found.flatMap((study) => study['0020000D']?.Value.slice(0, 1) ?? []);
 }
 
 /** Shows a failure where the host's own title is, so the card never stays on "Loading". */
