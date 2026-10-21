@@ -3,6 +3,11 @@ name: Release
 # Opens (or updates) a "Version Packages" pull request from the changesets on main. When that pull request is
 # merged, publishes the packages to npm with provenance.
 #
+# There is no npm token here. npm trusted publishing lets this workflow prove who it is to npm (an OIDC identity
+# from GitHub, which is what `id-token: write` is for), and each package lists this repository and this file as
+# its trusted publisher. It works only for a package that already exists on npm, so the first version of each
+# package was published by hand (docs/guides/releasing.md).
+#
 # Nothing here runs until the repository variable RELEASE_ENABLED is "true" (Settings > Secrets and variables >
 # Actions > Variables): nothing has been published yet, and an
 # accidental publish cannot be taken back. See docs/guides/releasing.md.
@@ -24,7 +29,7 @@ jobs:
     permissions:
       contents: write # the version commit and the tags
       pull-requests: write # the "Version Packages" pull request
-      id-token: write # npm provenance: the build's identity, signed by GitHub
+      id-token: write # npm trusted publishing and provenance: the build's identity, signed by GitHub
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -32,7 +37,14 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or newer. Fail here, with the reason, not at the publish.
+      - name: Check that npm supports trusted publishing
+        run: |
+          node -e "
+            const [major = 0, minor = 0, patch = 0] = process.argv[1].split('.').map(Number);
+            const ok = major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1)));
+            if (!ok) { console.error('npm ' + process.argv[1] + ' is too old: trusted publishing needs 11.5.1 or newer.'); process.exit(1); }
+          " "$(npm --version)"
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm package-check
@@ -46,5 +58,3 @@ jobs:
           commit: 'Version Packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: 'true'
