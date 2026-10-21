@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { promisify } from 'node:util';
 import { packTarballs } from './matrix/pack.ts';
 
@@ -32,6 +32,36 @@ async function exec(name: string, command: string, args: readonly string[]): Pro
 }
 
 /**
+ * `npm publish` of a folder rewrites a `bin` path that starts with `./` and drops one it does not accept,
+ * so the published package silently has no command. The tarball from `pnpm pack` keeps the `./`, so
+ * publint does not see it. A `bin` path must already be the form npm keeps, and its file must be in the package.
+ */
+async function binCheck(directory: string, tarball: string): Promise<Outcome> {
+  const name = `bin ${directory}`;
+  try {
+    const { stdout: manifestText } = await run('tar', ['-xOzf', tarball, 'package/package.json']);
+    const { stdout: listing } = await run('tar', ['-tzf', tarball]);
+    const files = new Set(listing.split('\n').filter((line) => line !== ''));
+    const manifest = JSON.parse(manifestText) as { bin?: string | Record<string, string> };
+    const bins =
+      typeof manifest.bin === 'string' ? { [directory]: manifest.bin } : (manifest.bin ?? {});
+    const problems = Object.entries(bins).flatMap(([command, path]) => {
+      if (path !== posix.normalize(path) || path.startsWith('/') || path.startsWith('../')) {
+        return [
+          `bin "${command}" is "${path}": write "${posix.normalize(path)}" (no leading "./"), or npm drops it when publishing`,
+        ];
+      }
+      return files.has(`package/${path}`)
+        ? []
+        : [`bin "${command}" points at "${path}", which is not in the package`];
+    });
+    return { name, ok: problems.length === 0, output: problems.join('\n') };
+  } catch (error) {
+    return { name, ok: false, output: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
  * M8: what a consumer's tooling sees. publint checks the manifest and the files against the exports map,
  * and "are the types wrong" checks that every entry point resolves, with types, the way Node (ESM) and a
  * bundler resolve it. The packages are ESM only, so the CommonJS resolutions are not part of the contract.
@@ -43,6 +73,7 @@ async function main(): Promise<void> {
     outcomes.push(
       await exec(`publint ${directory}`, 'pnpm', ['exec', 'publint', 'run', '--strict', tarball]),
     );
+    outcomes.push(await binCheck(directory, tarball));
     const excluded = ASSETS[directory] ?? [];
     outcomes.push(
       await exec(`attw ${directory}`, 'pnpm', [
