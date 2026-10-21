@@ -69,7 +69,7 @@ async function binCheck(directory: string, tarball: string): Promise<Outcome> {
 async function main(): Promise<void> {
   const tarballs = await packTarballs(root);
   const outcomes: Outcome[] = [];
-  for (const [directory, tarball] of Object.entries(tarballs)) {
+  for (const [directory, tarball] of Object.entries<string>(tarballs)) {
     outcomes.push(
       await exec(`publint ${directory}`, 'pnpm', ['exec', 'publint', 'run', '--strict', tarball]),
     );
