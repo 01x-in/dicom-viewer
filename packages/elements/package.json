@@ -1,6 +1,6 @@
 {
   "name": "@tushar-im/dicom-viewer-elements",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Styled DICOM viewer UI as framework-neutral web components.",
   "license": "MIT",
   "repository": {

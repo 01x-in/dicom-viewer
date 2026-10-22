@@ -1,5 +1,12 @@
 # @tushar-im/dicom-viewer-core
 
+## 1.0.1
+
+### Patch Changes
+
+- e53ea77: `viewport.cine.toggle()` decides on what the last call asked for, so two quick presses of the cine key, button, or command cancel each other. The overlay patient-tag guard also covers the request, visit, procedure, and report groups and the physician identification tags.
+- c675569: The DICOMweb source accepts DICOM JSON whose elements have no `vr`, as static WADO servers (such as OHIF's public one) send it. It never read the VR. The `vr` of `DicomJsonInstance` is now optional in the type, so code that reads it must allow `undefined`.
+
 ## 1.0.0
 
 ### Major Changes
