@@ -48,7 +48,8 @@ describe('releaseNotes', () => {
       '### Patch Changes\n\n- aaaaaaa: A fix.\n\n### Major Changes\n\n- bbbbbbb: A break.\n\n  More about it.\n',
     );
     const notes = releaseNotes({ core }, '2.0.0');
-    expect(notes.indexOf('### Major Changes')).toBeLessThan(notes.indexOf('### Patch Changes'));
+    // Both headings must be there, in this order: a missing major heading fails the match.
+    expect(notes).toMatch(/### Major Changes[\s\S]*### Patch Changes/);
     expect(notes).toMatch(/bbbbbbb: A break\. \(`core` only\)\n\n {2}More about it\./);
   });
 
