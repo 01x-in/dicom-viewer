@@ -1,6 +1,6 @@
 {
   "name": "@01x/dicom-viewer-core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Headless DICOM viewer core built on Cornerstone3D.",
   "license": "MIT",
   "repository": {
