@@ -170,7 +170,19 @@ In React and Vue, use `onError`. The `context` says where the error came from: `
 Error messages and request paths can contain Study, Series, and SOP Instance UIDs. If your rules count those as identifying, remove them before an error leaves the page:
 
 ```ts
-const scrub = (text: string): string => text.replace(/\b\d+(?:\.\d+){3,}\b/g, '<uid>');
+const scrub = (text: string): string => text.replace(/\b\d+(?:\.\d+){2,}\b/g, '<uid>');
+```
+
+The pattern hides every run of three or more numbers joined by dots. That covers every real UID, including the short `2.25.<number>` form. It also hides version numbers, which does no harm in a log.
+
+**Events are not everything.** An event reports what the viewer does by itself: loading from the attributes of `<dv-viewer>`, attaching, the keys, cine, and the panels. When your own code calls the API with `await`, a failure rejects that promise and is **not** sent as an event. This is true of `viewer.loadStudy()`, `viewer.setViewportSeries()`, `viewport.cine.play()`, and the other calls that return a promise, including an HTTP 401 or 403 from the server. Catch those yourself and send them to the same logger:
+
+```ts
+try {
+  await viewer.loadStudy(studyInstanceUid);
+} catch (error) {
+  myLogger.error({ context: 'loadStudy', message: scrub(String(error)) });
+}
 ```
 
 The viewer also shows the message of an error to the user, in its own error panel, and writes one `console.warn` when the compute worker cannot run and the work moves to the page.
