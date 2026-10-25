@@ -60,21 +60,20 @@ package is published by hand, once, and the workflow takes over from then on.
 ## How a release goes
 
 1. Every pull request that changes a package adds a changeset: `pnpm changeset` (pick the packages, the bump, and write
-   one sentence for the changelog).
-2. A release is not part of merging pull requests. Merging to `main` runs the usual checks and nothing else: it
-   never opens a release pull request and never publishes. You start the release workflow yourself, from
-   Actions > Release > Run workflow, on `main`, and choose a step.
-3. Step `version`: the workflow opens a *Version Packages* pull request that bumps the versions and writes the
-   changelogs from the changesets on `main`. It publishes nothing. If GitHub Actions cannot open the pull request,
-   turn on "Allow GitHub Actions to create and approve pull requests" (Settings > Actions > General > Workflow
-   permissions), or open the pull request from the branch `changeset-release/main` by hand. Review and merge it like
-   any other change.
-4. Step `publish`: run the workflow again with this step when you want the release. It runs the first four gates
-   below, stops if a changeset is still waiting (the *Version Packages* pull request was not merged), and then runs
-   `pnpm release`: `pnpm build` and `changeset publish`, which publishes the packages whose version is not yet on npm
-   and tags them. The job then pushes the tags. It authenticates with the workflow's OIDC identity (the trusted
-   publisher you set up), and npm signs the build as provenance. It runs only for `main`, one at a time, and only
-   when `RELEASE_ENABLED` is `true`.
+   one sentence for the changelog). Pull requests are how code gets into `main`. They never start a release.
+2. A release is a separate action. Open Actions > Release > Run workflow, choose `main`, and run it. Tick `dry_run`
+   first if you want to see what it would do: it runs the gates, applies the changesets in the runner, prints the
+   versions and the changelog changes, and publishes and pushes nothing.
+3. A real run does four things in order. It runs the first four gates below. It applies the waiting changesets (versions
+   and changelogs) in a commit named `Release`. It runs `pnpm release`: `pnpm build` and `changeset publish`, which
+   publishes the packages whose version is not yet on npm and tags them. Last, after the publish worked, it pushes the
+   release commit and the tags to `main`. It authenticates with the workflow's OIDC identity (the trusted publisher you
+   set up), and npm signs the build as provenance. It runs only for `main`, one run at a time, and only when
+   `RELEASE_ENABLED` is `true`.
+4. The release commit goes straight to `main` from the workflow, so `main` must not require a pull request for the
+   `github-actions[bot]` user (today it is not protected). If you protect `main` later, let that bot bypass the rule.
+   If the push fails after the publish (for example, `main` moved), the packages are on npm already: push the commit
+   and the tags by hand, and do not run the release again.
 
 ## Gates
 
