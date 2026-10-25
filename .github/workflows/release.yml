@@ -1,18 +1,21 @@
 name: Release
 
-# A release is its own action, apart from the development flow: nothing here runs when a pull request is merged or
-# when someone pushes to main. Start it by hand (Actions > Release > Run workflow, on main) and choose a step:
+# A release is its own action, apart from the development flow. Pull requests are how code gets into main; they do
+# not start a release, and a release does not need a pull request. Nothing here runs when a pull request is merged
+# or when someone pushes to main. Start it by hand (Actions > Release > Run workflow, on main). The run:
 #
-# - "version": opens or updates a "Version Packages" pull request from the changesets on main. It changes versions
-#   and changelogs, and publishes nothing. Review and merge that pull request like any other change.
-# - "publish": runs the gates, then publishes the packages whose version is not yet on npm, with provenance, and
-#   pushes the tags. It stops if a changeset is still waiting, so the versions must be merged first.
+# 1. runs the gates (`pnpm check`, `package-check`, `size`, `docs:api`),
+# 2. applies the changesets that are waiting in `.changeset/` (versions and changelogs) and commits that,
+# 3. publishes the packages whose version is not yet on npm, with provenance, and
+# 4. pushes the release commit and the tags to main.
+#
+# Nothing is pushed unless the publish worked, so a failed run leaves main as it was. With `dry_run`, the run stops
+# after step 2 and prints what it would release.
 #
 # There is no npm token here. npm trusted publishing lets this workflow prove who it is to npm (an OIDC identity
 # from GitHub, which is what `id-token: write` is for), and each package lists this repository and this file as
-# its trusted publisher. That is why both steps live in this file: npm checks the file name `release.yml`, whatever
-# starts the run. It works only for a package that already exists on npm, so the first version of each package was
-# published by hand (docs/guides/releasing.md).
+# its trusted publisher. It works only for a package that already exists on npm, so the first version of each
+# package was published by hand (docs/guides/releasing.md).
 #
 # Nothing here runs until the repository variable RELEASE_ENABLED is "true" (Settings > Secrets and variables >
 # Actions > Variables). A publish cannot be taken back. See docs/guides/releasing.md.
@@ -20,51 +23,25 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
-      step:
-        description: 'version: open the Version Packages pull request. publish: publish what is on main.'
-        type: choice
-        options: [version, publish]
-        default: version
+      dry_run:
+        description: 'Run the gates and show the versions and changelogs it would write. Publish and push nothing.'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
-  version:
-    name: Version Packages
-    if: inputs.step == 'version' && github.ref == 'refs/heads/main' && vars.RELEASE_ENABLED == 'true'
+  release:
+    name: Release
+    if: github.ref == 'refs/heads/main' && vars.RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
-    concurrency: release-version-${{ github.ref }}
-    permissions:
-      contents: write # the version commit, on its own branch
-      pull-requests: write # the "Version Packages" pull request
-    steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # No `publish` input: this action only opens or updates the pull request.
-      - uses: changesets/action@v1
-        with:
-          version: pnpm version-packages
-          title: 'Version Packages'
-          commit: 'Version Packages'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish:
-    name: Publish
-    if: inputs.step == 'publish' && github.ref == 'refs/heads/main' && vars.RELEASE_ENABLED == 'true'
-    runs-on: ubuntu-latest
-    # Two publishes at once would race to tag the same versions, and a started publish is never cancelled.
+    # Two releases at once would race to version and tag the same packages, and a started publish is never cancelled.
     concurrency:
-      group: release-publish
+      group: release
       cancel-in-progress: false
     permissions:
-      contents: write # the tags
+      contents: write # the release commit and the tags, pushed to main
       id-token: write # npm trusted publishing and provenance: the build's identity, signed by GitHub
     steps:
       - uses: actions/checkout@v5
@@ -86,17 +63,53 @@ jobs:
       - run: pnpm package-check
       - run: pnpm size
       - run: pnpm docs:api
-      # Publishes the packages whose version is not on npm yet, and tags them. Stops here, with the reason, if a
-      # changeset is still waiting: that means the "Version Packages" pull request was not merged.
-      - name: Make sure that no changeset is waiting
-        run: |
-          pending="$(find .changeset -name '*.md' ! -name 'README.md' | head -n 1)"
-          if [ -n "$pending" ]; then echo "A changeset is still waiting ($pending). Merge the Version Packages pull request first."; exit 1; fi
-      # `changeset publish` makes annotated tags, which need a tagger. The Changesets action used to set this up.
-      - name: Set the Git identity for the tags
+      # Commits and annotated tags need an author. The runner has none.
+      - name: Set the Git identity for the release commit and the tags
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-      - run: pnpm release
-      - name: Push the tags
-        run: git push origin --tags
+      - name: Apply the changesets
+        id: apply
+        run: |
+          pnpm version-packages
+          pnpm install --lockfile-only
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changeset is waiting: nothing to version. Publishing what is already versioned on main.'
+          else
+            git commit -m 'Release'
+            echo 'released=true' >> "$GITHUB_OUTPUT"
+          fi
+          git --no-pager show --stat --format='%h %s' HEAD
+      - name: Stop here for a dry run
+        if: inputs.dry_run
+        run: |
+          if [ '${{ steps.apply.outputs.released }}' = 'true' ]; then
+            echo 'The versions and changelogs this release would write:'
+            git --no-pager show --format= HEAD -- 'packages/*/package.json' 'packages/*/CHANGELOG.md'
+          fi
+          echo 'Dry run: nothing was published or pushed.'
+      # The release commit, fixed now. A rebase onto a newer main moves HEAD, and a rebase that stops on a conflict leaves
+      # HEAD on main's commit, so the recovery step below must not use HEAD.
+      - name: Remember the release commit
+        run: echo "RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      # Publishes the packages whose version is not on npm yet, and tags them.
+      - name: Publish
+        id: publish
+        if: '!inputs.dry_run'
+        run: pnpm release
+      # Only after the publish worked. If main moved while this ran, put the release commit on top of it.
+      - name: Push the release commit and the tags to main
+        if: '!inputs.dry_run'
+        run: |
+          git pull --rebase origin main
+          git push origin HEAD:main --follow-tags
+          git push origin --tags
+      # The runner is thrown away when the run ends, so a push that failed after a publish must not lose the commit and
+      # the tags. Park them on a branch and on the tags themselves, where they can be merged by hand.
+      - name: Keep the release commit if the push to main failed
+        if: failure() && steps.publish.outcome == 'success'
+        run: |
+          git push origin "$RELEASE_SHA:refs/heads/release-unpushed-${{ github.run_id }}" || true
+          git push origin --tags || true
+          echo "::error::The packages are on npm, but the push to main failed. The release commit is on the branch release-unpushed-${{ github.run_id }}. Merge it into main by hand. Do not run the release again."

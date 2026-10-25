@@ -5,7 +5,7 @@
 - Work milestones in order. M1 (packaging spike) is a go/no-go gate: don't build UI before it passes.
 
 ## Branches
-- Never commit to `main`. Work on `milestone/<n>-<slug>` or `task/<slug>` branches.
+- Never commit to `main`. Work on `milestone/<n>-<slug>` or `task/<slug>` branches. The one exception is the `Release` commit that the release workflow makes as `github-actions[bot]` (docs/guides/releasing.md); people and agents still use branches and pull requests.
 - Commit after each passing step, with the milestone ID in the message (for example `M1: ...`).
 
 ## Coding standards
@@ -39,6 +39,6 @@
 - `pnpm check` runs everything (build, format check, lint, typecheck, test). Build comes first because packages resolve each other through `dist`.
 - `pnpm package-check` (publint and are-the-types-wrong on the packed tarballs), `pnpm size` (brotli budgets in `.size-limit.json`: raising one is a decision, say why in the PR), and `pnpm docs:api` (TypeDoc, warnings are errors) run in CI after `pnpm check`. Run `pnpm build` first.
 - `pnpm visual` compares screenshots with `scripts/visual/baselines`. Make baselines only in the pinned Playwright image (docs/guides/visual-regression.md), never on a laptop.
-- A change to a package needs a changeset (`pnpm changeset`). Never publish by hand: the *Publish* job of `.github/workflows/release.yml` does it, started by hand from the Actions tab with `step: publish` (merging a pull request never starts a release), and only when `RELEASE_ENABLED` is `true`. The one exception is the first publish of a new package name, which the maintainer does once by hand because npm trusted publishing needs the package to exist (docs/guides/releasing.md).
+- A change to a package needs a changeset (`pnpm changeset`). Never publish by hand: the *Publish* job of `.github/workflows/release.yml` does it, started by hand from the Actions tab (merging a pull request never starts a release, and a release needs no pull request: it commits the versions to `main` itself), and only when `RELEASE_ENABLED` is `true`. The one exception is the first publish of a new package name, which the maintainer does once by hand because npm trusted publishing needs the package to exist (docs/guides/releasing.md).
 - Phantom: `cd tools/phantom && uv run pytest -q`.
 - `pnpm matrix` packs the tarballs (it does not build: run `pnpm build` first), installs each example in `examples/` from them, builds it, and runs the browser smoke test (`--only <name>`, `--dev`). Needs Playwright's Chromium; set `DV_CHROMIUM` to use an existing one. The `headless` variant also generates the 300 MB SEG of the performance budget into `.matrix/perf-fixtures` (once, with uv, never committed); `DV_SEG_BUDGET_MS` changes its limit (3000 by default).
