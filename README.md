@@ -17,6 +17,8 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 - Frameworks: the same interface runs in plain HTML, React, Vue, Next.js (Turbopack and webpack), and Nuxt, with no bundler configuration.
 - Layouts and planes: four layouts (`1x1`, `1x2`, `2x2`, and one large with three small), series dragged from the browser into any viewport, hanging protocols that lay a study out by rule, and reformatted planes (axial, sagittal, and coronal) of a volume with crosshairs, a shared window, and a SEG drawn over each plane. A series that is tilted, unevenly spaced, or too large for the memory budget is shown as slices, and the viewport says why.
 
+Which servers work, what you must provide for security, and how to log errors: [Servers, security, and errors](#servers-security-and-errors).
+
 Not built yet: the OncoTrace-like example (M9). The plan is in [docs/plan.md](docs/plan.md).
 
 ## Packages
@@ -104,6 +106,74 @@ const options: ViewerOptions = {
 ```
 
 In all three, the viewer starts on the first series that has pictures. Add `series-uid` (`seriesInstanceUID` in React, `seriesInstanceUid` in Vue) to start on a different one. The examples in [examples](examples) are complete, working versions of each setup.
+
+## Servers, security, and errors
+
+### Which servers work
+
+The viewer loads images from a **DICOMweb** server, or from local files. You give it a Study Instance UID (the `study-uid` attribute, or `studyInstanceUid` in code), and optionally a `series-uid`.
+
+- **QIDO-RS** lists the series of that one study: `GET {qidoRoot}/studies/{StudyInstanceUID}/series`. `qidoRoot` is the same as `wadoRoot` unless you set it.
+- **WADO-RS** gives the metadata of each series, the images (one frame request for each instance), and the whole instance of a SEG or SR object.
+- The answers are DICOM JSON. A server that leaves out the `vr` of an element, such as a static WADO server, is accepted. OHIF's public server works.
+- **Local files** work too, and they never leave the machine.
+
+Not supported:
+
+- WADO-URI (`?requestType=WADO`).
+- STOW-RS, which uploads images.
+- A study list or a search across studies (QIDO at the study level). The viewer shows the study you name. Your page finds the study.
+- A DIMSE connection (C-FIND, C-MOVE). Put a DICOMweb gateway in front of such a server.
+- OHIF's `?StudyInstanceUIDs=` address. The viewer does not read the page address: read it in your page, check it, and pass it as `study-uid`.
+
+The browser talks to the DICOMweb server directly. The server must **allow your page's origin (CORS)**, and it must accept the headers you send (such as `Authorization`), including the preflight request. If it cannot, put a proxy on your own origin and point `wadoRoot` at it.
+
+### Security: what the package does, and what you do
+
+**You** are responsible for who may see what. The package has no login and makes no access decisions:
+
+- Sign users in, and decide which studies each user may open.
+- Give the viewer a short-lived token that only allows what that user may see (see [Sign-in and tokens](#sign-in-and-tokens)), and make the server check it. A viewer in a browser can be changed by its user, so a rule that only the viewer follows is not a rule.
+- Serve the page and the images over HTTPS, set CORS, and set a Content Security Policy. [The installing guide](docs/guides/installing.md) lists what the viewer needs from it.
+- Keep patient data rules (privacy law, audit logs, retention) in your product. See also the notice at the top of this file.
+
+**The package** handles the data it is given with care:
+
+- It does not store your token. It asks your `getRequestHeaders` function for every request, and it never puts a token in a link.
+- A UID that comes from a link or from your code is checked before it reaches a request path.
+- What a server sends is checked against a schema, so a wrong answer is an error with a message.
+- The overlay hides every tag that can identify a patient (names, ids, dates of birth, accession numbers, institution, physicians, and private tags) while `showPatientInfo` is off, and it is off by default. A config can set `showPatientInfo`, but an overlay item that names such a tag shows nothing while it is off. Decide who may turn it on: it is a setting of the host.
+- Text from a DICOM file is shown as text, never as markup.
+- A config loaded from a URL must come from an origin you list, is fetched without cookies, is refused if the server redirects, and has a size limit.
+- The package sends no analytics and no usage data. Its requests go to your DICOMweb server, to the config URL if you set one, and to the worker and WASM files if you serve them yourself. Check this in the network panel of your browser.
+- A saved or shared viewer state (`encodeViewerState`) has UIDs, the layout, the slice, the window, and the zoom. It has no names and no token.
+
+To report a vulnerability, read [SECURITY.md](SECURITY.md). Do not post patient data in an issue.
+
+### Errors and logging
+
+The package does not log and does not send errors anywhere. It reports them as events, and your project decides what to do with them:
+
+```ts
+// <dv-viewer>
+element.addEventListener('dv-error', (event) => {
+  const { error, context } = (event as CustomEvent<{ error: Error; context: string }>).detail;
+  myLogger.error({ context, message: scrub(error.message), status: Reflect.get(error, 'status') });
+});
+
+// The viewer object (all frameworks)
+viewer.on('error', ({ error, context }) => myLogger.error({ context, message: scrub(error.message) }));
+```
+
+In React and Vue, use `onError`. The `context` says where the error came from: `load`, `config`, `drop`, `attach`, `series`, `toolbar`, `panel`, `cine`, `keyboard`, `measurement`, or `segmentation`. An error from the data source has the HTTP `status` of the answer (a 401 or 403 means the server refused). A 403 and a 404 are not tried again, and a 5xx is tried again twice.
+
+Error messages and request paths can contain Study, Series, and SOP Instance UIDs. If your rules count those as identifying, remove them before an error leaves the page:
+
+```ts
+const scrub = (text: string): string => text.replace(/\b\d+(?:\.\d+){3,}\b/g, '<uid>');
+```
+
+The viewer also shows the message of an error to the user, in its own error panel, and writes one `console.warn` when the compute worker cannot run and the work moves to the page.
 
 ## Customizing
 
