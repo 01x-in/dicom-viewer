@@ -1,4 +1,4 @@
-# @tushar-im/dicom-viewer-react
+# @01x/dicom-viewer-react
 
 ## 1.0.0
 
@@ -9,5 +9,5 @@
 ### Patch Changes
 
 - Updated dependencies [d21c400]
-  - @tushar-im/dicom-viewer-core@1.0.0
-  - @tushar-im/dicom-viewer-elements@1.0.0
+  - @01x/dicom-viewer-core@1.0.0
+  - @01x/dicom-viewer-elements@1.0.0

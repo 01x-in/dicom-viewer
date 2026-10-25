@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "pnpm -r --filter \"./packages/*\" build",
-    "generate": "pnpm --filter @tushar-im/dicom-viewer-core generate",
+    "generate": "pnpm --filter @01x/dicom-viewer-core generate",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json && pnpm -r --filter \"./packages/*\" --filter \"./tools/*\" typecheck",
     "lint": "eslint .",

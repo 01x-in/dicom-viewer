@@ -1,12 +1,12 @@
-# @tushar-im/dicom-viewer-react
+# @01x/dicom-viewer-react
 
 The React adapter of the DICOM viewer. It works in Vite and in the Next.js App Router (Turbopack and webpack), with no
 bundler configuration. React 19 or later.
 
 ```tsx
 'use client';
-import { createDicomWebDataSource, type ViewerOptions } from '@tushar-im/dicom-viewer-core';
-import { DicomViewer } from '@tushar-im/dicom-viewer-react';
+import { createDicomWebDataSource, type ViewerOptions } from '@01x/dicom-viewer-core';
+import { DicomViewer } from '@01x/dicom-viewer-react';
 
 // Keep the options object the same between renders. A new object restarts the viewer.
 const options: ViewerOptions = {
@@ -22,4 +22,4 @@ export function Viewer() {
 }
 ```
 
-Install `@tushar-im/dicom-viewer-core` next to it. See the [README](https://github.com/01x-in/dicom-viewer#readme). MIT licensed.
+Install `@01x/dicom-viewer-core` next to it. See the [README](https://github.com/01x-in/dicom-viewer#readme). MIT licensed.

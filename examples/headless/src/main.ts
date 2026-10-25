@@ -9,11 +9,8 @@ import {
   type Viewer,
   type ViewerStateV1,
   type ViewportApi,
-} from '@tushar-im/dicom-viewer-core';
-import {
-  createLocalFileDataSource,
-  type LocalFileDataSource,
-} from '@tushar-im/dicom-viewer-core/local';
+} from '@01x/dicom-viewer-core';
+import { createLocalFileDataSource, type LocalFileDataSource } from '@01x/dicom-viewer-core/local';
 
 // The installability matrix drives this page through the query string and reads the result back
 // from `data-dv-status` and `window.__dv*`. Everything else is a plain headless viewer: no

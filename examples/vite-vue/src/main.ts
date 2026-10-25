@@ -3,8 +3,8 @@ import {
   type Viewer,
   type ViewportApi,
   type ViewerOptions,
-} from '@tushar-im/dicom-viewer-core';
-import { DicomViewer } from '@tushar-im/dicom-viewer-vue';
+} from '@01x/dicom-viewer-core';
+import { DicomViewer } from '@01x/dicom-viewer-vue';
 import { createApp, h } from 'vue';
 
 // The installability matrix drives this page through the query string and reads the result

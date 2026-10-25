@@ -10,7 +10,7 @@ function schemaText(): string {
     ...viewerConfigJsonSchema(),
     title: 'ViewerConfigV1',
     description:
-      'Settings for @tushar-im/dicom-viewer-core and @tushar-im/dicom-viewer-elements (docs/adr/0011-config-layer.md).',
+      'Settings for @01x/dicom-viewer-core and @01x/dicom-viewer-elements (docs/adr/0011-config-layer.md).',
   };
   return `${JSON.stringify(schema, null, 2)}\n`;
 }

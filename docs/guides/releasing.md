@@ -9,11 +9,10 @@ These are decisions and steps for the maintainer, not things the workflow can do
 trusted publishing** (no token), which npm only allows for a package that already exists. So the first version of each
 package is published by hand, once, and the workflow takes over from then on.
 
-1. **The npm scope is `@tushar-im`** and the packages are `@tushar-im/dicom-viewer-core`, `-elements`, `-react`, and
+1. **The npm scope is `@01x`** and the packages are `@01x/dicom-viewer-core`, `-elements`, `-react`, and
    `-vue` (already renamed in every `package.json`, import, doc, and in `.changeset/config.json`). The scope has to be
-   the name of an npm **user or organization you own**, and an npm user name is not always the GitHub one: check with
-   `npm whoami` (or the organization page) before going on. If it is different, rename again with the same search:
-   `grep -rIl "@tushar-im/" .`.
+   the name of an npm **user or organization you own**, and the npm organization (`01x`) is not the GitHub one (`01x-in`), so check
+   that you are a member of it (`npm org ls 01x`) before going on. To rename again, search with `grep -rIl "@01x/" .`.
 2. **Publish the first version by hand.** This is the one exception to "the workflow publishes" (the rule in
    `CLAUDE.md`): trusted publishing only works for a package that already exists, so each package name has to be
    published once with your own npm login (and your one-time password). Each package's `publishConfig` asks for
@@ -33,17 +32,17 @@ package is published by hand, once, and the workflow takes over from then on.
    pnpm install --frozen-lockfile && pnpm build
    OUT=/tmp/dv-publish; rm -rf "$OUT" && mkdir "$OUT"
    for p in core elements react vue; do
-     pnpm --filter "@tushar-im/dicom-viewer-$p" pack --pack-destination "$OUT"
+     pnpm --filter "@01x/dicom-viewer-$p" pack --pack-destination "$OUT"
    done
    cd "$OUT"
    for p in core elements react vue; do   # core first: the others depend on it
-     name="@tushar-im/dicom-viewer-$p"
+     name="@01x/dicom-viewer-$p"
      if npm view "$name@1.0.0" version >/dev/null 2>&1; then echo "$name@1.0.0 is already on npm"; continue; fi
-     mkdir "$p" && tar xzf "tushar-im-dicom-viewer-$p"-*.tgz -C "$p"
+     mkdir "$p" && tar xzf "01x-dicom-viewer-$p"-*.tgz -C "$p"
      (cd "$p/package" && npm pkg delete publishConfig.provenance && npm publish --access public ${DRY_RUN:+--dry-run})
    done
    if [ -n "${DRY_RUN:-}" ]; then echo "dry run: nothing was published"; exit 0; fi
-   for p in core elements react vue; do npm view "@tushar-im/dicom-viewer-$p@1.0.0" version; done   # all four, or it stops
+   for p in core elements react vue; do npm view "@01x/dicom-viewer-$p@1.0.0" version; done   # all four, or it stops
    ```
 
    Change `1.0.0` to the version you are releasing. When it prints four versions, tag what you published, in the

@@ -1,6 +1,6 @@
-import type { Viewer, ViewerConfigV1 } from '@tushar-im/dicom-viewer-core';
-import '@tushar-im/dicom-viewer-elements/define';
-import type { DvViewerElement } from '@tushar-im/dicom-viewer-elements';
+import type { Viewer, ViewerConfigV1 } from '@01x/dicom-viewer-core';
+import '@01x/dicom-viewer-elements/define';
+import type { DvViewerElement } from '@01x/dicom-viewer-elements';
 import { z } from 'zod';
 import config from '../card.config.json';
 

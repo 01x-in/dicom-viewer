@@ -1,5 +1,5 @@
 {
-  "name": "@tushar-im/dicom-viewer-react",
+  "name": "@01x/dicom-viewer-react",
   "version": "1.0.0",
   "description": "React adapter for the DICOM viewer. Works in Vite and Next.js.",
   "license": "MIT",
@@ -35,8 +35,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@tushar-im/dicom-viewer-core": "workspace:*",
-    "@tushar-im/dicom-viewer-elements": "workspace:*"
+    "@01x/dicom-viewer-core": "workspace:*",
+    "@01x/dicom-viewer-elements": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

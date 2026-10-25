@@ -8,8 +8,8 @@
     "dev": "viewer-assets copy public/viewer-assets && vite --port ${PORT:-5173} --strictPort --host 127.0.0.1"
   },
   "dependencies": {
-    "@tushar-im/dicom-viewer-core": "0.0.0",
-    "@tushar-im/dicom-viewer-elements": "0.0.0",
+    "@01x/dicom-viewer-core": "0.0.0",
+    "@01x/dicom-viewer-elements": "0.0.0",
     "zod": "4.6.5"
   },
   "devDependencies": {

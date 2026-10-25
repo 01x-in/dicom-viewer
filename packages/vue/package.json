@@ -1,5 +1,5 @@
 {
-  "name": "@tushar-im/dicom-viewer-vue",
+  "name": "@01x/dicom-viewer-vue",
   "version": "1.0.0",
   "description": "Vue 3 adapter for the DICOM viewer. Works in Vite and Nuxt.",
   "license": "MIT",
@@ -35,8 +35,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@tushar-im/dicom-viewer-core": "workspace:*",
-    "@tushar-im/dicom-viewer-elements": "workspace:*"
+    "@01x/dicom-viewer-core": "workspace:*",
+    "@01x/dicom-viewer-elements": "workspace:*"
   },
   "devDependencies": {
     "vue": "3.5.43"

@@ -7,7 +7,7 @@ import type {
   ViewerOptions,
   ViewerStateV1,
   ViewportApi,
-} from '@tushar-im/dicom-viewer-core';
+} from '@01x/dicom-viewer-core';
 import type {
   DvViewerElement,
   PaletteName,
@@ -16,7 +16,7 @@ import type {
   ToolbarItem,
   ViewerErrorDetail,
   ViewerReadyDetail,
-} from '@tushar-im/dicom-viewer-elements';
+} from '@01x/dicom-viewer-elements';
 import {
   createElement,
   type CSSProperties,
@@ -28,7 +28,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { sameViewState, viewStatePatch } from '@tushar-im/dicom-viewer-core';
+import { sameViewState, viewStatePatch } from '@01x/dicom-viewer-core';
 import { ViewerContext } from './context';
 
 /** A side panel written in React. It is drawn into a portal, so it keeps the host's context. */
@@ -174,7 +174,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
-    import('@tushar-im/dicom-viewer-elements/define').then(
+    import('@01x/dicom-viewer-elements/define').then(
       () => {
         if (!cancelled) setDefined(true);
       },

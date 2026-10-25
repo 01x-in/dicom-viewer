@@ -1,4 +1,4 @@
-import type { Viewer } from '@tushar-im/dicom-viewer-core';
+import type { Viewer } from '@01x/dicom-viewer-core';
 import {
   html,
   LitElement,

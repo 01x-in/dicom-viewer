@@ -5,10 +5,10 @@ import type { Tarballs } from './pack.ts';
 
 export function tarballOverrides(tarballs: Tarballs): Record<string, string> {
   return {
-    '@tushar-im/dicom-viewer-core': `file:${tarballs.core}`,
-    '@tushar-im/dicom-viewer-elements': `file:${tarballs.elements}`,
-    '@tushar-im/dicom-viewer-react': `file:${tarballs.react}`,
-    '@tushar-im/dicom-viewer-vue': `file:${tarballs.vue}`,
+    '@01x/dicom-viewer-core': `file:${tarballs.core}`,
+    '@01x/dicom-viewer-elements': `file:${tarballs.elements}`,
+    '@01x/dicom-viewer-react': `file:${tarballs.react}`,
+    '@01x/dicom-viewer-vue': `file:${tarballs.vue}`,
   };
 }
 

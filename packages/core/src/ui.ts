@@ -10,7 +10,7 @@ export interface PanelDefinition {
   readonly title: string;
   /**
    * The name of one of the shell's pictures (`series`, `measure`, `segments`, and so on, from
-   * `@tushar-im/dicom-viewer-elements`), shown on the tab. A name the shell does not know is ignored. Without
+   * `@01x/dicom-viewer-elements`), shown on the tab. A name the shell does not know is ignored. Without
    * one, the tab shows its title only, whatever its id.
    */
   readonly icon?: string;
