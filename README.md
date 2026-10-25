@@ -2,7 +2,9 @@
 
 A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It is built on [Cornerstone3D](https://www.cornerstonejs.org/) and aims for OHIF-level tools. It ships with a styled default interface and a headless core (a core that has no interface of its own).
 
-> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.0.0` is ready to release. The packages are `@01x/dicom-viewer-core`, `-elements`, `-react`, and `-vue`, on npm under the `01x` organization. See [docs/guides/releasing.md](docs/guides/releasing.md).
+> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.0.0` is on npm under the `01x` organization. Releases are made by hand from GitHub Actions (see [docs/guides/releasing.md](docs/guides/releasing.md)).
+
+> **Not a medical device.** This is software for building viewers. It is not cleared or approved for diagnosis or any clinical decision, and it comes with no warranty (see [LICENSE](LICENSE)). Whoever uses it in a product is responsible for that product's regulatory and privacy duties. The viewer hides patient-identifying overlay tags unless you turn them on.
 
 ## What works today
 
@@ -13,7 +15,6 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 - Segmentations: DICOM SEG overlays. A SEG is loaded against the series it names, and each segment can be shown, hidden, recoloured, made more or less opaque, highlighted (the others fade, or the chosen ones get an outline), and gone to (the image with most of it, the one nearest its middle, or the one nearest the image on screen). The same state shows in every viewport. A SEG that does not lie on its images is drawn with a warning. A binary SEG of 512 by 512 by 300 pixels with 100 segments loads in about 2 seconds. A Segments panel lists the SEGs of the study.
 - Interface: an icon toolbar, side panels that fold, slots for your own content, a light and a dark theme, and three palettes (`palette="navy"`, `palette="graphite"`, or the default). Any single colour is a `--dv-color-*` CSS property, so the viewer can take the colours of the page it sits in. The interface passes automated accessibility checks (axe) and works from the keyboard.
 - Frameworks: the same interface runs in plain HTML, React, Vue, Next.js (Turbopack and webpack), and Nuxt, with no bundler configuration.
-
 - Layouts and planes: four layouts (`1x1`, `1x2`, `2x2`, and one large with three small), series dragged from the browser into any viewport, hanging protocols that lay a study out by rule, and reformatted planes (axial, sagittal, and coronal) of a volume with crosshairs, a shared window, and a SEG drawn over each plane. A series that is tilted, unevenly spaced, or too large for the memory budget is shown as slices, and the viewport says why.
 
 Not built yet: the OncoTrace-like example (M9). The plan is in [docs/plan.md](docs/plan.md).
@@ -26,6 +27,18 @@ Not built yet: the OncoTrace-like example (M9). The plan is in [docs/plan.md](do
 | `@01x/dicom-viewer-elements` | Styled interface as Lit web components (`<dv-viewer>`, toolbar, panels) |
 | `@01x/dicom-viewer-react` | React adapter (Vite, Next.js App Router) |
 | `@01x/dicom-viewer-vue` | Vue 3 adapter (Vite, Nuxt) |
+
+## Install
+
+Install the core and the package for your framework:
+
+```bash
+npm install @01x/dicom-viewer-core @01x/dicom-viewer-elements   # plain HTML or any other framework
+npm install @01x/dicom-viewer-core @01x/dicom-viewer-react       # React 19 and Next.js
+npm install @01x/dicom-viewer-core @01x/dicom-viewer-vue         # Vue 3.5 and Nuxt
+```
+
+Chromium is the browser the tests run in. Safari and Firefox have not been tested yet. See [the installing guide](docs/guides/installing.md) for what each setup needs.
 
 ## Using it
 
@@ -349,7 +362,7 @@ Drag a series from the series browser onto a viewport to put it there; choosing 
 
 ## Examples
 
-The `examples` folder has one project for each setup that the tests cover: `vanilla`, `headless` (the core with no interface), `vite-react`, `vite-vue`, `next-app`, and `nuxt`. Each one loads a study from a DICOMweb server. Read the source of an example to see how to wire the viewer into your own project.
+The `examples` folder has one project for each setup that the tests cover: `vanilla`, `headless` (the core with no interface), `vite-react`, `vite-vue`, `next-app`, and `nuxt`. Each one loads a study from a DICOMweb server. `embedded-card` is not part of the tests: it puts the viewer in a host page card with your own study dropdown, series buttons, window presets, and full screen, and it can read from any DICOMweb server (`?wadoRoot=` and `?study=`). Read the source of an example to see how to wire the viewer into your own project.
 
 ## Development
 
