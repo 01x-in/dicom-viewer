@@ -8,6 +8,7 @@ comments by TypeDoc: run `pnpm docs:api` and open `.docs/api/index.html`.
 |---|---|
 | [Installing in a framework](installing.md) | You are adding the viewer to Vite, Next.js, Nuxt, or a plain page, and want to know why it needs no bundler setup, and what to do if a page has a strict CSP |
 | [Data sources](data-sources.md) | You are connecting a DICOMweb server (tokens, retries, a server that limits what it hands out), or opening local files |
+| [Observability](observability.md) | You are sending the viewer's errors and events to your own logging and metrics, and want to know what you can and cannot see |
 | [Measurements and segmentations](measurements-and-segmentations.md) | You are drawing measurements from code, exporting them, or loading DICOM SEG overlays |
 | [Visual regression](visual-regression.md) | You are changing how the viewer looks and want to see what moved |
 | [Releasing](releasing.md) | You are cutting a version |

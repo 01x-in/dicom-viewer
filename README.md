@@ -165,7 +165,7 @@ element.addEventListener('dv-error', (event) => {
 viewer.on('error', ({ error, context }) => myLogger.error({ context, message: scrub(error.message) }));
 ```
 
-In React and Vue, use `onError`. The `context` says where the error came from: `load`, `config`, `drop`, `attach`, `series`, `toolbar`, `panel`, `cine`, `keyboard`, `measurement`, or `segmentation`. An error from the data source has the HTTP `status` of the answer (a 401 or 403 means the server refused). A 403 and a 404 are not tried again, and a 5xx is tried again twice.
+In React and Vue, use `onError`. The `context` says where the error came from. `<dv-viewer>` reports `load`, `config`, `drop`, `series`, `toolbar`, `panel`, `attach`, `cine`, `keyboard`, `measurement`, and `segmentation`. `viewer.on('error')` reports only `attach`, `cine`, `keyboard`, `measurement`, and `segmentation`. An error from the data source has the HTTP `status` of the answer (a 401 or 403 means the server refused). A 403 and a 404 are not tried again, and a 5xx is tried again twice.
 
 Error messages and request paths can contain Study, Series, and SOP Instance UIDs. If your rules count those as identifying, remove them before an error leaves the page:
 
@@ -184,6 +184,8 @@ try {
   myLogger.error({ context: 'loadStudy', message: scrub(String(error)) });
 }
 ```
+
+What else you can see (events about use, timing, requests) and what you cannot is in the [observability guide](docs/guides/observability.md).
 
 The viewer also shows the message of an error to the user, in its own error panel, and writes one `console.warn` when the compute worker cannot run and the work moves to the page.
 
