@@ -89,6 +89,9 @@ start a release, and a release does not need a pull request.
    (the trusted publisher set on each package), and it signs a provenance record of which repository, commit, and
    workflow built the package.
 5. **Pushes** the `Release` commit and the tags to `main`. This happens only after the publish worked.
+6. **Creates the GitHub Release** `v<version>` (one for the four packages, which share the version), with the changelog of
+   that version in `core` as the notes and links to the four packages on npm. If this step fails, nothing else is
+   affected: create the release by hand with `gh release create v<version> --notes-file <notes>`.
 
 Only one release runs at a time, and a run that has started is never cancelled.
 
