@@ -69,6 +69,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
       - name: Apply the changesets
+        id: apply
         run: |
           pnpm version-packages
           pnpm install --lockfile-only
@@ -77,15 +78,20 @@ jobs:
             echo 'No changeset is waiting: nothing to version. Publishing what is already versioned on main.'
           else
             git commit -m 'Release'
+            echo 'released=true' >> "$GITHUB_OUTPUT"
           fi
           git --no-pager show --stat --format='%h %s' HEAD
       - name: Stop here for a dry run
         if: inputs.dry_run
         run: |
-          pnpm exec changeset status || true
+          if [ '${{ steps.apply.outputs.released }}' = 'true' ]; then
+            echo 'The versions and changelogs this release would write:'
+            git --no-pager show --format= HEAD -- 'packages/*/package.json' 'packages/*/CHANGELOG.md'
+          fi
           echo 'Dry run: nothing was published or pushed.'
       # Publishes the packages whose version is not on npm yet, and tags them.
       - name: Publish
+        id: publish
         if: '!inputs.dry_run'
         run: pnpm release
       # Only after the publish worked. If main moved while this ran, put the release commit on top of it.
@@ -95,3 +101,11 @@ jobs:
           git pull --rebase origin main
           git push origin HEAD:main --follow-tags
           git push origin --tags
+      # The runner is thrown away when the run ends, so a push that failed after a publish must not lose the commit and
+      # the tags. Park them on a branch and on the tags themselves, where they can be merged by hand.
+      - name: Keep the release commit if the push to main failed
+        if: failure() && steps.publish.outcome == 'success'
+        run: |
+          git push origin "HEAD:refs/heads/release-unpushed-${{ github.run_id }}" || true
+          git push origin --tags || true
+          echo "::error::The packages are on npm, but the push to main failed. The release commit is on the branch release-unpushed-${{ github.run_id }}. Merge it into main by hand. Do not run the release again."

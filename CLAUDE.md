@@ -5,7 +5,7 @@
 - Work milestones in order. M1 (packaging spike) is a go/no-go gate: don't build UI before it passes.
 
 ## Branches
-- Never commit to `main`. Work on `milestone/<n>-<slug>` or `task/<slug>` branches.
+- Never commit to `main`. Work on `milestone/<n>-<slug>` or `task/<slug>` branches. The one exception is the `Release` commit that the release workflow makes as `github-actions[bot]` (docs/guides/releasing.md); people and agents still use branches and pull requests.
 - Commit after each passing step, with the milestone ID in the message (for example `M1: ...`).
 
 ## Coding standards

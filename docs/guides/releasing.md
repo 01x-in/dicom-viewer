@@ -63,7 +63,8 @@ package is published by hand, once, and the workflow takes over from then on.
    one sentence for the changelog). Pull requests are how code gets into `main`. They never start a release.
 2. A release is a separate action. Open Actions > Release > Run workflow, choose `main`, and run it. Tick `dry_run`
    first if you want to see what it would do: it runs the gates, applies the changesets in the runner, prints the
-   versions and the changelog changes, and publishes and pushes nothing.
+   version and changelog changes it would write (the diff of `package.json` and `CHANGELOG.md` of each package), and
+   publishes and pushes nothing.
 3. A real run does four things in order. It runs the first four gates below. It applies the waiting changesets (versions
    and changelogs) in a commit named `Release`. It runs `pnpm release`: `pnpm build` and `changeset publish`, which
    publishes the packages whose version is not yet on npm and tags them. Last, after the publish worked, it pushes the
@@ -72,8 +73,10 @@ package is published by hand, once, and the workflow takes over from then on.
    `RELEASE_ENABLED` is `true`.
 4. The release commit goes straight to `main` from the workflow, so `main` must not require a pull request for the
    `github-actions[bot]` user (today it is not protected). If you protect `main` later, let that bot bypass the rule.
-   If the push fails after the publish (for example, `main` moved), the packages are on npm already: push the commit
-   and the tags by hand, and do not run the release again.
+   If the push fails after the publish (for example, `main` moved), the packages are on npm already. The workflow
+   keeps the release commit on a branch named `release-unpushed-<run id>` and pushes the tags, and its last step prints
+   an error that names the branch. Merge that branch into `main` (a fast-forward or a rebase), delete it, and do not
+   run the release again.
 
 ## Gates
 
