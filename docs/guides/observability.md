@@ -53,7 +53,7 @@ const study = await logged('loadStudy', () => viewer.loadStudy(studyInstanceUid)
 | Event | Payload (fields) | Use it for |
 |---|---|---|
 | `study:loaded` | `study` | Counting studies opened. Do not send the whole `study`: it holds UIDs and series descriptions |
-| `viewport:image` | `viewportId`, `imageIndex`, `imageCount`, `origin` | Scroll depth, and time to the first image (see below) |
+| `viewport:image` | `viewportId`, `imageIndex`, `imageCount`, `sopInstanceUID`, `origin` | Scroll depth, and time to the first image (see below). Do not log or send `sopInstanceUID`: it is a UID of the instance on screen |
 | `viewport:voi` | `viewportId`, `window`, `invert`, `origin` | Window presets and inversion in use |
 | `viewport:camera` | `viewportId`, `zoom`, `origin` | Zoom use |
 | `viewport:cine` | `viewportId`, `playing`, `fps` | Cine use |
@@ -118,7 +118,7 @@ const dataSource = createDicomWebDataSource({ wadoRoot, fetch: timed, getRequest
 ## What to keep out of your logs
 
 - Study, Series, and SOP Instance UIDs, if your rules count them as identifying. They are in request paths and in many error messages.
-- The `study` of `study:loaded`, and any DICOM tag. Series descriptions are free text that a person typed.
+- The `study` of `study:loaded`, the `sopInstanceUID` of `viewport:image`, and any DICOM tag. Series descriptions are free text that a person typed.
 - Tokens and the headers from `getRequestHeaders`.
 - Patient names, ids, and dates, whether they come from an overlay, from measurements you export, or from a screenshot.
 
