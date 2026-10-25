@@ -89,6 +89,10 @@ jobs:
             git --no-pager show --format= HEAD -- 'packages/*/package.json' 'packages/*/CHANGELOG.md'
           fi
           echo 'Dry run: nothing was published or pushed.'
+      # The release commit, fixed now. A rebase onto a newer main moves HEAD, and a rebase that stops on a conflict leaves
+      # HEAD on main's commit, so the recovery step below must not use HEAD.
+      - name: Remember the release commit
+        run: echo "RELEASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       # Publishes the packages whose version is not on npm yet, and tags them.
       - name: Publish
         id: publish
@@ -106,6 +110,6 @@ jobs:
       - name: Keep the release commit if the push to main failed
         if: failure() && steps.publish.outcome == 'success'
         run: |
-          git push origin "HEAD:refs/heads/release-unpushed-${{ github.run_id }}" || true
+          git push origin "$RELEASE_SHA:refs/heads/release-unpushed-${{ github.run_id }}" || true
           git push origin --tags || true
           echo "::error::The packages are on npm, but the push to main failed. The release commit is on the branch release-unpushed-${{ github.run_id }}. Merge it into main by hand. Do not run the release again."
