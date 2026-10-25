@@ -70,7 +70,13 @@ export default defineConfig(
   },
   {
     // Tool configuration files must default-export by convention.
-    files: ['*.config.ts', '*.config.js', 'packages/*/*.config.ts', 'tools/*/*.config.ts'],
+    files: [
+      '*.config.ts',
+      '*.config.js',
+      'packages/*/*.config.ts',
+      'tools/*/*.config.ts',
+      'scripts/*.config.ts',
+    ],
     rules: { 'import-x/no-default-export': 'off' },
   },
 );

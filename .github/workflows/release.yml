@@ -7,7 +7,7 @@ name: Release
 # 1. runs the gates (`pnpm check`, `package-check`, `size`, `docs:api`),
 # 2. applies the changesets that are waiting in `.changeset/` (versions and changelogs) and commits that,
 # 3. publishes the packages whose version is not yet on npm, with provenance, and
-# 4. pushes the release commit and the tags to main.
+# 4. pushes the release commit and the tags to main, and creates the GitHub Release for the version.
 #
 # Nothing is pushed unless the publish worked, so a failed run leaves main as it was. With `dry_run`, the run stops
 # after step 2 and prints what it would release.
@@ -113,3 +113,17 @@ jobs:
           git push origin "$RELEASE_SHA:refs/heads/release-unpushed-${{ github.run_id }}" || true
           git push origin --tags || true
           echo "::error::The packages are on npm, but the push to main failed. The release commit is on the branch release-unpushed-${{ github.run_id }}. Merge it into main by hand. Do not run the release again."
+      # One GitHub Release for the version, because the four packages share it. The notes are the changelog entries of
+      # the version from all four packages (`scripts/release-notes.ts`), so a change to one adapter is in them. It is
+      # the last step, so a failure here is not mistaken for a failed push. It changes nothing on npm or on main:
+      # create the release by hand if it happens.
+      - name: Create the GitHub Release
+        if: '!inputs.dry_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="$(node -p "require('./packages/core/package.json').version")"
+          tag="v${version}"
+          if gh release view "$tag" >/dev/null 2>&1; then echo "The release $tag exists already."; exit 0; fi
+          node scripts/release-notes.ts "$version" > "$RUNNER_TEMP/notes.md"
+          gh release create "$tag" --title "$tag" --notes-file "$RUNNER_TEMP/notes.md" --target "$(git rev-parse HEAD)" --latest
