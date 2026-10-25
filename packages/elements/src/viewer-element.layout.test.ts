@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@tushar-im/dicom-viewer-core/testing';
-import type { HangingProtocol, ViewerOptions, ViewerStateV1 } from '@tushar-im/dicom-viewer-core';
+import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@01x/dicom-viewer-core/testing';
+import type { HangingProtocol, ViewerOptions, ViewerStateV1 } from '@01x/dicom-viewer-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SERIES_DRAG_TYPE, seriesDragData } from './series-drag';
 import type { DvViewerElement, ViewerErrorDetail } from './viewer-element';
@@ -9,9 +9,9 @@ const made: FakeViewer[] = [];
 /** Makes every series the fake source serves one that cannot be reformatted. */
 let tilted = false;
 
-vi.mock('@tushar-im/dicom-viewer-core', async (importOriginal) => {
+vi.mock('@01x/dicom-viewer-core', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  const { createFakeViewer: make } = await import('@tushar-im/dicom-viewer-core/testing');
+  const { createFakeViewer: make } = await import('@01x/dicom-viewer-core/testing');
   return {
     ...actual,
     createViewer: (options: {

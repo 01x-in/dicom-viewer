@@ -29,7 +29,7 @@ The thumbnail renderer and the slot boundary worked in the real engine the first
 ## Decisions
 
 - [ADR 0007](adr/0007-styled-shell.md): chrome in shadow DOM, viewports in light DOM shown through named slots; adapters wrap the element; panels are data in the core; tokens written once.
-- `@tushar-im/dicom-viewer-core/testing` exports a real viewer on a fake engine, so the elements and adapters are tested without WebGL. It is outside the semver contract.
+- `@01x/dicom-viewer-core/testing` exports a real viewer on a fake engine, so the elements and adapters are tested without WebGL. It is outside the semver contract.
 - The `<dv-viewer>` of M1 changed shape: it renders into a shadow root, takes `options` or `wado-root`, and a `series-uid` is optional. `dv-ready` now carries `{ viewer, viewport }`, and `dv-teardown` is new.
 
 ## Changes to the API

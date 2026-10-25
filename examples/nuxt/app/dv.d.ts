@@ -1,4 +1,4 @@
-import type { Viewer, ViewportApi } from '@tushar-im/dicom-viewer-core';
+import type { Viewer, ViewportApi } from '@01x/dicom-viewer-core';
 
 declare global {
   interface Window {

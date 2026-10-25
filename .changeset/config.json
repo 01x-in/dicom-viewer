@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "fixed": [["@tushar-im/dicom-viewer-*"]],
+  "fixed": [["@01x/dicom-viewer-*"]],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@tushar-im/dicom-viewer-core/testing';
+import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@01x/dicom-viewer-core/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 import './define';
 import { describeSeries, isDisplayableModality } from './index';

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { createFakeViewer, type FakeViewer } from '@tushar-im/dicom-viewer-core/testing';
-import type { PanelDefinition } from '@tushar-im/dicom-viewer-core';
+import { createFakeViewer, type FakeViewer } from '@01x/dicom-viewer-core/testing';
+import type { PanelDefinition } from '@01x/dicom-viewer-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import './define';
 import type { DvPanelDockElement } from './panel-dock';

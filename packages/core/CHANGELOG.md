@@ -1,4 +1,4 @@
-# @tushar-im/dicom-viewer-core
+# @01x/dicom-viewer-core
 
 ## 1.0.0
 

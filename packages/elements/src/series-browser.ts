@@ -2,7 +2,7 @@ import {
   isDisplayableModality as coreIsDisplayableModality,
   type SeriesSummary,
   type Viewer,
-} from '@tushar-im/dicom-viewer-core';
+} from '@01x/dicom-viewer-core';
 import {
   css,
   type CSSResultGroup,
