@@ -113,9 +113,10 @@ jobs:
           git push origin "$RELEASE_SHA:refs/heads/release-unpushed-${{ github.run_id }}" || true
           git push origin --tags || true
           echo "::error::The packages are on npm, but the push to main failed. The release commit is on the branch release-unpushed-${{ github.run_id }}. Merge it into main by hand. Do not run the release again."
-      # One GitHub Release for the version, because the four packages share it. The notes are the changelog of the
-      # version in `core`. It is the last step, so a failure here is not mistaken for a failed push. It changes nothing on npm or on main: create
-      # the release by hand if it happens.
+      # One GitHub Release for the version, because the four packages share it. The notes are the changelog entries of
+      # the version from all four packages (`scripts/release-notes.ts`), so a change to one adapter is in them. It is
+      # the last step, so a failure here is not mistaken for a failed push. It changes nothing on npm or on main:
+      # create the release by hand if it happens.
       - name: Create the GitHub Release
         if: '!inputs.dry_run'
         env:
@@ -124,12 +125,5 @@ jobs:
           version="$(node -p "require('./packages/core/package.json').version")"
           tag="v${version}"
           if gh release view "$tag" >/dev/null 2>&1; then echo "The release $tag exists already."; exit 0; fi
-          {
-            awk -v v="$version" '/^## /{ if (f) exit; if ($2 == v) f = 1; next } f' packages/core/CHANGELOG.md
-            echo
-            echo 'Packages on npm:'
-            for p in core elements react vue; do
-              echo "- [@01x/dicom-viewer-$p@${version}](https://www.npmjs.com/package/@01x/dicom-viewer-$p/v/${version})"
-            done
-          } > "$RUNNER_TEMP/notes.md"
+          node scripts/release-notes.ts "$version" > "$RUNNER_TEMP/notes.md"
           gh release create "$tag" --title "$tag" --notes-file "$RUNNER_TEMP/notes.md" --target "$(git rev-parse HEAD)" --latest
