@@ -1,34 +1,70 @@
 name: Release
 
-# Opens (or updates) a "Version Packages" pull request from the changesets on main. When that pull request is
-# merged, publishes the packages to npm with provenance.
+# A release is its own action, apart from the development flow: nothing here runs when a pull request is merged or
+# when someone pushes to main. Start it by hand (Actions > Release > Run workflow, on main) and choose a step:
+#
+# - "version": opens or updates a "Version Packages" pull request from the changesets on main. It changes versions
+#   and changelogs, and publishes nothing. Review and merge that pull request like any other change.
+# - "publish": runs the gates, then publishes the packages whose version is not yet on npm, with provenance, and
+#   pushes the tags. It stops if a changeset is still waiting, so the versions must be merged first.
 #
 # There is no npm token here. npm trusted publishing lets this workflow prove who it is to npm (an OIDC identity
 # from GitHub, which is what `id-token: write` is for), and each package lists this repository and this file as
-# its trusted publisher. It works only for a package that already exists on npm, so the first version of each
-# package was published by hand (docs/guides/releasing.md).
+# its trusted publisher. That is why both steps live in this file: npm checks the file name `release.yml`, whatever
+# starts the run. It works only for a package that already exists on npm, so the first version of each package was
+# published by hand (docs/guides/releasing.md).
 #
 # Nothing here runs until the repository variable RELEASE_ENABLED is "true" (Settings > Secrets and variables >
-# Actions > Variables): nothing has been published yet, and an
-# accidental publish cannot be taken back. See docs/guides/releasing.md.
+# Actions > Variables). A publish cannot be taken back. See docs/guides/releasing.md.
 
 on:
-  push:
-    branches: [main]
-
-concurrency: release-${{ github.ref }}
+  workflow_dispatch:
+    inputs:
+      step:
+        description: 'version: open the Version Packages pull request. publish: publish what is on main.'
+        type: choice
+        options: [version, publish]
+        default: version
 
 permissions:
   contents: read
 
 jobs:
-  release:
-    name: Version or publish
-    if: vars.RELEASE_ENABLED == 'true'
+  version:
+    name: Version Packages
+    if: inputs.step == 'version' && github.ref == 'refs/heads/main' && vars.RELEASE_ENABLED == 'true'
     runs-on: ubuntu-latest
+    concurrency: release-version-${{ github.ref }}
     permissions:
-      contents: write # the version commit and the tags
+      contents: write # the version commit, on its own branch
       pull-requests: write # the "Version Packages" pull request
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # No `publish` input: this action only opens or updates the pull request.
+      - uses: changesets/action@v1
+        with:
+          version: pnpm version-packages
+          title: 'Version Packages'
+          commit: 'Version Packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish
+    if: inputs.step == 'publish' && github.ref == 'refs/heads/main' && vars.RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    # Two publishes at once would race to tag the same versions, and a started publish is never cancelled.
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write # the tags
       id-token: write # npm trusted publishing and provenance: the build's identity, signed by GitHub
     steps:
       - uses: actions/checkout@v5
@@ -50,11 +86,12 @@ jobs:
       - run: pnpm package-check
       - run: pnpm size
       - run: pnpm docs:api
-      - uses: changesets/action@v1
-        with:
-          version: pnpm version-packages
-          publish: pnpm release
-          title: 'Version Packages'
-          commit: 'Version Packages'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Publishes the packages whose version is not on npm yet, and tags them. Stops here, with the reason, if a
+      # changeset is still waiting: that means the "Version Packages" pull request was not merged.
+      - name: Make sure that no changeset is waiting
+        run: |
+          pending="$(find .changeset -name '*.md' ! -name 'README.md' | head -n 1)"
+          if [ -n "$pending" ]; then echo "A changeset is still waiting ($pending). Merge the Version Packages pull request first."; exit 1; fi
+      - run: pnpm release
+      - name: Push the tags
+        run: git push origin --tags

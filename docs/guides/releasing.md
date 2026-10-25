@@ -61,12 +61,21 @@ package is published by hand, once, and the workflow takes over from then on.
 ## How a release goes
 
 1. Every pull request that changes a package adds a changeset: `pnpm changeset` (pick the packages, the bump, and write
-   one sentence for the changelog). The 1.0.0 changeset is already in `.changeset/`.
-2. When pull requests with changesets reach `main`, the release workflow opens a *Version Packages* pull request that
-   bumps the versions and writes the changelogs. The release workflow runs the first four gates below before it does either.
-3. Merging that pull request publishes: `pnpm release` runs `pnpm build` and `changeset publish`, which publishes the
-   packages whose version is not yet on npm and tags them. It authenticates with the workflow's OIDC identity (the
-   trusted publisher you set up), and npm signs the build as provenance.
+   one sentence for the changelog).
+2. A release is not part of merging pull requests. Merging to `main` runs the usual checks and nothing else: it
+   never opens a release pull request and never publishes. You start the release workflow yourself, from
+   Actions > Release > Run workflow, on `main`, and choose a step.
+3. Step `version`: the workflow opens a *Version Packages* pull request that bumps the versions and writes the
+   changelogs from the changesets on `main`. It publishes nothing. If GitHub Actions cannot open the pull request,
+   turn on "Allow GitHub Actions to create and approve pull requests" (Settings > Actions > General > Workflow
+   permissions), or open the pull request from the branch `changeset-release/main` by hand. Review and merge it like
+   any other change.
+4. Step `publish`: run the workflow again with this step when you want the release. It runs the first four gates
+   below, stops if a changeset is still waiting (the *Version Packages* pull request was not merged), and then runs
+   `pnpm release`: `pnpm build` and `changeset publish`, which publishes the packages whose version is not yet on npm
+   and tags them. The job then pushes the tags. It authenticates with the workflow's OIDC identity (the trusted
+   publisher you set up), and npm signs the build as provenance. It runs only for `main`, one at a time, and only
+   when `RELEASE_ENABLED` is `true`.
 
 ## Gates
 
