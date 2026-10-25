@@ -92,6 +92,11 @@ jobs:
         run: |
           pending="$(find .changeset -name '*.md' ! -name 'README.md' | head -n 1)"
           if [ -n "$pending" ]; then echo "A changeset is still waiting ($pending). Merge the Version Packages pull request first."; exit 1; fi
+      # `changeset publish` makes annotated tags, which need a tagger. The Changesets action used to set this up.
+      - name: Set the Git identity for the tags
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
       - run: pnpm release
       - name: Push the tags
         run: git push origin --tags
