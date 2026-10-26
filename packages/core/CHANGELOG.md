@@ -1,5 +1,11 @@
 # @01x/dicom-viewer-core
 
+## 1.0.2
+
+### Patch Changes
+
+- ebdf4b6: Updates `zod` to 4.6.7. Earlier versions can run out of memory while checking a very large array that fails the check (GHSA-mrhx-c7xc-m3w5), and the viewer checks arrays that a server sends.
+
 ## 1.0.1
 
 ### Patch Changes

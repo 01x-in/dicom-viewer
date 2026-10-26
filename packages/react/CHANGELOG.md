@@ -1,5 +1,13 @@
 # @01x/dicom-viewer-react
 
+## 1.0.2
+
+### Patch Changes
+
+- Updated dependencies [ebdf4b6]
+  - @01x/dicom-viewer-core@1.0.2
+  - @01x/dicom-viewer-elements@1.0.2
+
 ## 1.0.1
 
 ### Patch Changes

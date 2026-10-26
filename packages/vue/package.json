@@ -1,6 +1,6 @@
 {
   "name": "@01x/dicom-viewer-vue",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Vue 3 adapter for the DICOM viewer. Works in Vite and Nuxt.",
   "license": "MIT",
   "repository": {
