@@ -40,7 +40,7 @@ npm install @01x/dicom-viewer-core @01x/dicom-viewer-react       # React 19 and 
 npm install @01x/dicom-viewer-core @01x/dicom-viewer-vue         # Vue 3.5 and Nuxt
 ```
 
-Chromium is the browser the tests run in. Safari and Firefox have not been tested yet. See [the installing guide](docs/guides/installing.md) for what each setup needs.
+The tests run in Chromium. The examples also pass in WebKit, the engine of Safari (`DV_BROWSER=webkit pnpm matrix`), and the demo has been checked by hand in Safari. Firefox has not been tested yet. See [the installing guide](docs/guides/installing.md) for what each setup needs.
 
 ## Using it
 
@@ -165,7 +165,7 @@ element.addEventListener('dv-error', (event) => {
 viewer.on('error', ({ error, context }) => myLogger.error({ context, message: scrub(error.message) }));
 ```
 
-In React and Vue, use `onError`. The `context` says where the error came from. `<dv-viewer>` reports `load`, `config`, `drop`, `series`, `toolbar`, `panel`, `attach`, `cine`, `keyboard`, `measurement`, and `segmentation`. `viewer.on('error')` reports only `attach`, `cine`, `keyboard`, `measurement`, and `segmentation`. An error from the data source has the HTTP `status` of the answer (a 401 or 403 means the server refused). A 403 and a 404 are not tried again, and a 5xx is tried again twice.
+In React and Vue, `onError` receives only the `Error`, not the `context` (the `status` of a data-source error is on the error, so you can read it). `dv-error` and `viewer.on('error')` carry the `context`. The `context` says where the error came from. `<dv-viewer>` reports `load`, `config`, `drop`, `series`, `toolbar`, `panel`, `attach`, `cine`, `keyboard`, `measurement`, and `segmentation`. `viewer.on('error')` reports only `attach`, `cine`, `keyboard`, `measurement`, and `segmentation`. An error from the data source has the HTTP `status` of the answer (a 401 or 403 means the server refused). A 403 and a 404 are not tried again, and a 5xx is tried again twice.
 
 Error messages and request paths can contain Study, Series, and SOP Instance UIDs. If your rules count those as identifying, remove them before an error leaves the page:
 
@@ -364,7 +364,7 @@ How to give it to the viewer:
 - **From a file:** `config-url` (`configUrl`). It works only for origins that you list in `config-origins` (`configOrigins`), so a URL that comes from outside cannot send the viewer to a server of someone else's choosing. Add `location.origin` to allow the page's own server. The file is read as data, is limited to 256 KB, and is never run. No cookies go with the request.
 - **Who wins:** a setting you write in code (a prop such as `theme`, `palette`, or `toolbar`, or an option such as `keybindings`) wins over the config, and a config you give in code wins over one from `config-url`. A layer put on later with `viewer.config.apply(...)` wins over all of them.
 
-A config that has a problem is refused as a whole, and the viewer starts without it. You get a `dv-error` (or `onError`) with the context `config`, and a message that names the path of each problem, such as `toolbar.items.2.command: There is no command "acme.export".` Check the file against the schema in your editor first, and you will rarely see one.
+A config that has a problem is refused as a whole, and the viewer starts without it. You get a `dv-error` (or `onError`, which has the error but not the context) for the `config` context, and a message that names the path of each problem, such as `toolbar.items.2.command: There is no command "acme.export".` Check the file against the schema in your editor first, and you will rarely see one.
 
 **What a toolbar button can run.** A button names a command. The built-in ones are `tool.set` (with `{ "tool": "pan" }`), `view.zoomIn`, `view.zoomOut`, `view.invert`, `view.reset`, `cine.toggle`, and `preset.apply` (with `{ "id": "bone" }`). To add one of your own, give it a name with a namespace, such as `acme.export`, in the `commands` option (or the `commands` prop), and the config can then name it. A config is data, so it cannot hold a function.
 
