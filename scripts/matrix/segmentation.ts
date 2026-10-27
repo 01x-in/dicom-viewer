@@ -413,6 +413,8 @@ export async function scenarioSegmentation(
     await unload(mismatch);
 
     // Segments that share pixels are two layers, and both show.
+    // The picture of the step before can still be on the canvas: wait for it to be drawn, then read the plain colours.
+    await settle(page);
     const [plainSlab, plainDisc] = await colours(page, run.selector, [SLAB, DISC]);
     const overlapInfo = await page.evaluate(
       (uid) => window.__dvViewer?.segmentations.load(uid),
@@ -434,6 +436,7 @@ export async function scenarioSegmentation(
     await unload(overlap);
 
     // A SEG of the fractional type goes through the Cornerstone adapters, and comes out the same.
+    await settle(page);
     const [plainWater, plainFat] = await colours(page, run.selector, [WATER, FAT]);
     const fraction = await page.evaluate(
       (uid) => window.__dvViewer?.segmentations.load(uid),

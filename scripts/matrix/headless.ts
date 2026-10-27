@@ -1355,6 +1355,13 @@ export async function smokeHeadless(
   const only = process.env['DV_SCENARIO']?.split(',');
   for (const [scenario, run] of scenarios) {
     if (only !== undefined && !only.includes(scenario)) continue;
+    // The leak check reads the page's heap and listener counts through the Chrome DevTools Protocol.
+    if (scenario === 'lifecycle' && browser.browserType().name() !== 'chromium') {
+      console.log(
+        '   scenario: lifecycle (skipped: it needs the Chrome DevTools Protocol, so run it in Chromium)',
+      );
+      continue;
+    }
     console.log(`   scenario: ${scenario}`);
     results.push({ scenario, failures: await run(browser, input) });
   }
