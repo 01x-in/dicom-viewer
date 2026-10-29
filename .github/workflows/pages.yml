@@ -1,0 +1,66 @@
+name: Pages
+
+# The landing page and live demo (site/) with the API reference under /api.
+# A pull request builds it to check it still builds. Only main, or a manual run, publishes it.
+on:
+  pull_request:
+    paths:
+      - site/**
+      - packages/**
+      - docs/guides/**
+      - typedoc*.json
+      - .github/workflows/pages.yml
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - packages/**
+      - docs/guides/**
+      - typedoc*.json
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site and the API reference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The site and the API reference both read the built packages.
+      - run: pnpm generate && pnpm build
+      - run: pnpm docs:api
+      - run: pnpm --filter dicom-viewer-site build
+      - name: Put the API reference under /api
+        run: cp -R .docs/api site/dist/api
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          path: site/dist
+
+  deploy:
+    name: Publish to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
