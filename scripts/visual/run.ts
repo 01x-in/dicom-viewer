@@ -158,6 +158,10 @@ try {
   const pageUrl = `http://127.0.0.1:${PORT.toString()}/`;
   await waitForServer(pageUrl, server);
 
+  // The baselines are Chromium's pixels, so another browser would only report differences that are not bugs.
+  if (process.env['DV_BROWSER'] !== undefined && process.env['DV_BROWSER'] !== 'chromium') {
+    throw new Error('pnpm visual compares with Chromium baselines: do not set DV_BROWSER.');
+  }
   const browser = await launchBrowser();
   try {
     for (const scene of scenes) {

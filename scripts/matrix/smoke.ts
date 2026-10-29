@@ -1,4 +1,4 @@
-import { type Browser, chromium, type ConsoleMessage, type Page } from 'playwright';
+import { type Browser, chromium, type ConsoleMessage, type Page, webkit } from 'playwright';
 import './page-types.ts';
 
 export type AssetsMode = 'inline' | 'url';
@@ -62,7 +62,13 @@ export const EXPECTED_HU: readonly { name: string; row: number; column: number; 
 ];
 export const MID_SLICE_INDEX = 31;
 
+/**
+ * Chromium by default. `DV_BROWSER=webkit` runs the same checks in Playwright's WebKit, the engine of Safari
+ * (install it with `pnpm exec playwright install webkit`). It is not Safari itself: the page is also worth
+ * opening in the real Safari by hand.
+ */
 export async function launchBrowser(): Promise<Browser> {
+  if (process.env['DV_BROWSER'] === 'webkit') return webkit.launch();
   const executablePath = process.env['DV_CHROMIUM'];
   return chromium.launch({
     ...(executablePath === undefined ? {} : { executablePath }),
