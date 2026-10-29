@@ -105,7 +105,7 @@ const options: ViewerOptions = {
 </template>
 ```
 
-In all three, the viewer starts on the first series that has pictures. Add `series-uid` (`seriesInstanceUID` in React, `seriesInstanceUid` in Vue) to start on a different one. The examples in [examples](examples) are complete, working versions of each setup.
+In all three, the viewer starts on the first series that has pictures. Add `series-uid` (`seriesInstanceUID` in React, `seriesInstanceUid` in Vue) to start on a different one. The examples in [examples](examples) are complete, working versions of each setup. For a step-by-step walk from an empty Next.js app to a study on screen, follow [the Next.js tutorial](docs/guides/nextjs-tutorial.md).
 
 ## Servers, security, and errors
 
