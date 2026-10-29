@@ -6,6 +6,7 @@ comments by TypeDoc: run `pnpm docs:api` and open `.docs/api/index.html`.
 
 | Guide | Read it when |
 |---|---|
+| [Tutorial: Next.js](nextjs-tutorial.md) | You are new to the viewer and want a working page in ten minutes, from an empty Next.js app to a study on screen |
 | [Installing in a framework](installing.md) | You are adding the viewer to Vite, Next.js, Nuxt, or a plain page, and want to know why it needs no bundler setup, and what to do if a page has a strict CSP |
 | [Data sources](data-sources.md) | You are connecting a DICOMweb server (tokens, retries, a server that limits what it hands out), or opening local files |
 | [Observability](observability.md) | You are sending the viewer's errors and events to your own logging and metrics, and want to know what you can and cannot see |
