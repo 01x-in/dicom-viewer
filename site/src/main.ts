@@ -22,19 +22,32 @@ function setStatus(text: string, state: 'loading' | 'error' | 'ready'): void {
   status.dataset['state'] = state;
 }
 
+// A server can accept the connection and then never answer, which raises no error.
+const DEMO_LOAD_TIMEOUT_MS = 45_000;
+
 function startDemo(): void {
   const viewer = requireElement('#viewer', DvViewerElement);
 
-  viewer.addEventListener('dv-ready', () => {
-    setStatus('', 'ready');
-  });
-  viewer.addEventListener('dv-error', (event) => {
-    const { error } = (event as CustomEvent<{ error: Error }>).detail;
-    console.error('The demo viewer reported an error:', error.message);
+  const showFailure = (): void => {
     setStatus(
       'The demo server did not answer. Try again later, or read the tutorial to run the viewer on your own machine.',
       'error',
     );
+  };
+  const timeout = window.setTimeout(() => {
+    console.error('The demo viewer was not ready after', DEMO_LOAD_TIMEOUT_MS, 'ms');
+    showFailure();
+  }, DEMO_LOAD_TIMEOUT_MS);
+
+  viewer.addEventListener('dv-ready', () => {
+    window.clearTimeout(timeout);
+    setStatus('', 'ready');
+  });
+  viewer.addEventListener('dv-error', (event) => {
+    window.clearTimeout(timeout);
+    const { error } = (event as CustomEvent<{ error: Error }>).detail;
+    console.error('The demo viewer reported an error:', error.message);
+    showFailure();
   });
 
   // A phone is too narrow for a side panel on each side of the image.
