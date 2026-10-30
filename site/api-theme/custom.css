@@ -1,0 +1,261 @@
+/* Dresses the TypeDoc API reference in the look of the landing page and the guides.
+   TypeDoc's own styles sit in a cascade layer, so rules here win without !important.
+   The fonts are copied next to this file (assets/fonts) by site/scripts/add-api.ts. */
+@font-face {
+  font-family: "Fraunces Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/fraunces-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+
+/* One dark theme, whatever the reader's setting is. */
+:root,
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  --bg: #0c0d0f;
+  --panel: #131518;
+  --raised: #1a1d21;
+  --line: #262a30;
+  --ink: #ece7dd;
+  --muted: #a39f95;
+  --amber: #f2b24a;
+  --display: "Fraunces Variable", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+  --color-scheme: dark;
+  --color-background: var(--bg);
+  --color-background-secondary: var(--panel);
+  --color-background-active: var(--raised);
+  --color-background-warning: #5c4310;
+  --color-warning-text: var(--ink);
+  --color-accent: var(--line);
+  --color-active-menu-item: var(--raised);
+  --color-text: var(--ink);
+  --color-contrast-text: #fff;
+  --color-text-aside: var(--muted);
+  --color-icon-background: var(--panel);
+  --color-icon-text: var(--ink);
+  --color-comment-tag-text: var(--ink);
+  --color-comment-tag: var(--raised);
+  --color-link: var(--amber);
+  --color-focus-outline: var(--amber);
+
+  --color-ts-keyword: #7fb4ff;
+  --color-ts-project: #c9a0ff;
+  --color-ts-module: #c9a0ff;
+  --color-ts-namespace: #c9a0ff;
+  --color-ts-enum: var(--amber);
+  --color-ts-enum-member: var(--amber);
+  --color-ts-variable: #8fb0ff;
+  --color-ts-function: #b9a0ff;
+  --color-ts-class: #8ac4ff;
+  --color-ts-interface: #7fd99a;
+  --color-ts-constructor: #8ac4ff;
+  --color-ts-property: #f0a472;
+  --color-ts-method: #f08cc0;
+  --color-ts-reference: #f08ca4;
+  --color-ts-call-signature: #f08cc0;
+  --color-ts-index-signature: #f0a472;
+  --color-ts-constructor-signature: #8ac4ff;
+  --color-ts-parameter: #8fb0ff;
+  --color-ts-type-parameter: #e0a050;
+  --color-ts-accessor: #f08c8c;
+  --color-ts-get-signature: #f08c8c;
+  --color-ts-set-signature: #f08c8c;
+  --color-ts-type-alias: #f08ca4;
+  --color-document: var(--ink);
+}
+
+/* The site has no light theme, so the choice is not offered. */
+.tsd-theme-toggle {
+  display: none;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background:
+    radial-gradient(900px 520px at 78% -8%, rgb(242 178 74 / 0.1), transparent 70%),
+    linear-gradient(rgb(255 255 255 / 0.018) 1px, transparent 1px) 0 0 / 100% 56px,
+    var(--bg);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+code,
+pre,
+.tsd-signature,
+.tsd-kind-icon + span {
+  font-family: var(--mono);
+}
+
+a {
+  text-decoration-color: rgb(242 178 74 / 0.5);
+  text-underline-offset: 3px;
+}
+
+/* The header: the crosshair mark, then the links of the rest of the site. */
+.tsd-page-toolbar {
+  background: rgb(12 13 15 / 0.88);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+
+.tsd-page-toolbar .title {
+  display: inline-flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font: 500 0.95rem / 1 var(--mono);
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+
+.tsd-page-toolbar .title::before {
+  content: "";
+  width: 22px;
+  height: 22px;
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='9' fill='none' stroke='%23f2b24a' stroke-width='2'/><path d='M16 3v6M16 23v6M3 16h6M23 16h6' stroke='%23f2b24a' stroke-width='2' stroke-linecap='round'/></svg>")
+    center / contain no-repeat;
+}
+
+/* TypeDoc hides these links on a phone and keeps the Menu button. */
+@media (min-width: 770px) {
+  #tsd-toolbar-links {
+    display: flex;
+    gap: 4px 22px;
+    margin-inline: auto 12px;
+    font: 400 0.82rem / 1 var(--mono);
+  }
+}
+
+#tsd-toolbar-links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+#tsd-toolbar-links a:hover {
+  color: var(--ink);
+}
+
+.tsd-widget,
+#tsd-search-trigger {
+  color: var(--muted);
+}
+
+/* Side lists and panels */
+.tsd-navigation a,
+.tsd-page-navigation a,
+.tsd-index-link {
+  text-decoration: none;
+}
+
+.tsd-navigation a.current,
+.tsd-page-navigation a.current {
+  color: var(--amber);
+}
+
+.tsd-panel,
+.tsd-accordion-details,
+.tsd-index-panel,
+details.tsd-accordion {
+  border-color: var(--line);
+}
+
+.tsd-panel,
+.tsd-signature {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+code {
+  padding: 0.12em 0.4em;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+table,
+th,
+td {
+  border-color: var(--line);
+}
+
+th {
+  background: var(--panel);
+  color: var(--muted);
+  font: 600 0.74rem / 1.3 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+footer {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font: 400 0.8rem / 1.6 var(--mono);
+}
+
+footer .tsd-generator {
+  color: var(--muted);
+}
+
+::selection {
+  background: rgb(242 178 74 / 0.3);
+}

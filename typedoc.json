@@ -4,7 +4,16 @@
   "entryPoints": ["packages/core", "packages/elements", "packages/react", "packages/vue"],
   "entryPointStrategy": "packages",
   "out": ".docs/api",
-  "readme": "docs/guides/index.md",
+  "readme": "site/api-theme/readme.md",
+  "customCss": "site/api-theme/custom.css",
+  "customJs": "site/api-theme/custom.js",
+  "navigationLinks": {
+    "Home": "https://01x-in.github.io/dicom-viewer/",
+    "Tutorial": "https://01x-in.github.io/dicom-viewer/guides/nextjs-tutorial.html",
+    "Guides": "https://01x-in.github.io/dicom-viewer/guides/",
+    "GitHub": "https://github.com/01x-in/dicom-viewer",
+    "npm": "https://www.npmjs.com/package/@01x/dicom-viewer-core"
+  },
   "githubPages": false,
   "treatWarningsAsErrors": true,
   "extends": ["./typedoc.base.json"],
