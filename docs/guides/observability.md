@@ -15,7 +15,7 @@ The viewer does not log, count, or send anything itself. It gives your code even
 
 ### Errors
 
-`dv-error`, `onError`, and `viewer.on('error')` carry `{ error, context }`. The `context` says where the error came from. The element reports more places than the viewer object, because the element also loads the study, the config, and the panels:
+`dv-error` and `viewer.on('error')` carry `{ error, context }`. The `onError` of the React and Vue components is called with the `error` only: the `context` is not passed to it. To get the `context` in React or Vue, use `viewer.on('error')` from `onReady` (it has the contexts `attach`, `cine`, `keyboard`, `measurement`, and `segmentation`), or add a `dv-error` listener on the component's `dv-viewer` element. The `context` says where the error came from. The element reports more places than the viewer object, because the element also loads the study, the config, and the panels:
 
 | `context` | Reported by | Meaning |
 |---|---|---|
