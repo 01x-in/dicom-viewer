@@ -76,6 +76,7 @@ export default defineConfig(
       'packages/*/*.config.ts',
       'tools/*/*.config.ts',
       'scripts/*.config.ts',
+      'site/*.config.ts',
     ],
     rules: { 'import-x/no-default-export': 'off' },
   },
