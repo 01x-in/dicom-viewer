@@ -2,6 +2,8 @@
 
 A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It is built on [Cornerstone3D](https://www.cornerstonejs.org/) and aims for OHIF-level tools. It ships with a styled default interface and a headless core (a core that has no interface of its own).
 
+**Live demo, tutorial, guides, and API reference: <https://01x-in.github.io/dicom-viewer/>**
+
 > Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.0.0` is on npm under the `01x` organization. Releases are made by hand from GitHub Actions (see [docs/guides/releasing.md](docs/guides/releasing.md)).
 
 > **Not a medical device.** This is software for building viewers. It is not cleared or approved for diagnosis or any clinical decision, and it comes with no warranty (see [LICENSE](LICENSE)). Whoever uses it in a product is responsible for that product's regulatory and privacy duties. The viewer hides patient-identifying overlay tags unless you turn them on.

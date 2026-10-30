@@ -1,0 +1,263 @@
+/* The guide pages: a list of guides beside one article. The header and footer come from style.css. */
+.top nav a[aria-current="page"] {
+  color: var(--ink);
+  box-shadow: 0 1px 0 var(--amber);
+}
+
+.doc-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: clamp(24px, 5vw, 64px);
+  width: min(100% - 2 * var(--gutter), var(--wrap));
+  margin-inline: auto;
+  padding-block: clamp(12px, 3vw, 32px) 64px;
+}
+
+.doc-list {
+  align-self: start;
+  position: sticky;
+  top: 24px;
+  font: 400 0.82rem / 1.4 var(--mono);
+}
+
+.doc-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--line);
+}
+
+.doc-list a {
+  display: block;
+  padding: 7px 0 7px 16px;
+  margin-left: -1px;
+  border-left: 1px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.doc-list a:hover {
+  color: var(--ink);
+}
+
+.doc-list a[aria-current="page"] {
+  color: var(--amber);
+  border-left-color: var(--amber);
+}
+
+.prose {
+  max-width: 74ch;
+  font-size: 1.02rem;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4 {
+  position: relative;
+  scroll-margin-top: 24px;
+  font-family: var(--display);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.prose h1 {
+  margin: 0 0 0.6em;
+  font-size: clamp(2rem, 4.5vw, 3rem);
+}
+
+.prose h2 {
+  margin: 2.2em 0 0.6em;
+  padding-top: 0.9em;
+  border-top: 1px solid var(--line);
+  font-size: 1.6rem;
+}
+
+.prose h3 {
+  margin: 1.8em 0 0.5em;
+  font-size: 1.25rem;
+}
+
+.prose h4 {
+  margin: 1.5em 0 0.4em;
+  font: 600 1rem / 1.3 var(--sans);
+  letter-spacing: 0;
+}
+
+.prose .anchor {
+  margin-left: 0.4em;
+  color: var(--muted);
+  font: 400 0.8em / 1 var(--mono);
+  text-decoration: none;
+  opacity: 0;
+}
+
+.prose :is(h1, h2, h3, h4):hover .anchor,
+.prose .anchor:focus-visible {
+  opacity: 1;
+}
+
+.prose p,
+.prose ul,
+.prose ol,
+.prose pre,
+.prose blockquote,
+.prose .table-wrap {
+  margin-block: 0 1.1em;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.4em;
+}
+
+.prose li {
+  margin-block: 0.3em;
+}
+
+.prose li::marker {
+  color: var(--amber);
+}
+
+.prose a {
+  color: var(--ink);
+  text-decoration-color: rgb(242 178 74 / 0.6);
+}
+
+.prose a:hover {
+  color: var(--amber);
+}
+
+.prose code {
+  padding: 0.12em 0.4em;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  font: 400 0.86em / 1 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.prose pre {
+  overflow-x: auto;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel) !important;
+  font: 400 0.84rem / 1.6 var(--mono);
+  tab-size: 2;
+}
+
+.prose pre code {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  overflow-wrap: normal;
+}
+
+.prose blockquote {
+  padding: 2px 0 2px 18px;
+  border-left: 2px solid var(--amber);
+  color: var(--muted);
+}
+
+.prose img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-block: 1.4em;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.prose hr {
+  margin-block: 2em;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.prose .table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.prose th,
+.prose td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.prose th {
+  background: var(--panel);
+  color: var(--muted);
+  font: 600 0.74rem / 1.3 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.doc-source {
+  max-width: 74ch;
+  margin: 3em 0 0;
+  padding-top: 1.2em;
+  border-top: 1px solid var(--line);
+  font: 400 0.8rem / 1.6 var(--mono);
+}
+
+.doc-source a {
+  color: var(--muted);
+}
+
+@media (max-width: 900px) {
+  .doc-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+
+  .doc-list {
+    position: static;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .doc-list ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 18px;
+    border-left: 0;
+  }
+
+  .doc-list a {
+    padding: 6px 0;
+    margin: 0;
+    border-left: 0;
+    border-bottom: 1px solid transparent;
+  }
+
+  .doc-list a[aria-current="page"] {
+    border-bottom-color: var(--amber);
+  }
+}
+
+.prose blockquote > :last-child {
+  margin-bottom: 0;
+}
