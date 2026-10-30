@@ -40,7 +40,7 @@ npm install @01x/dicom-viewer-core @01x/dicom-viewer-react       # React 19 and 
 npm install @01x/dicom-viewer-core @01x/dicom-viewer-vue         # Vue 3.5 and Nuxt
 ```
 
-The tests run in Chromium. The examples were also run in WebKit, the engine of Safari, by hand (the test scripts only drive Chromium), and the demo has been checked by hand in Safari. Firefox has not been tested yet. See [the installing guide](docs/guides/installing.md) for what each setup needs.
+The tests run in Chromium. The examples also pass in WebKit, the engine of Safari (`DV_BROWSER=webkit pnpm matrix`), and the demo has been checked by hand in Safari. Firefox has not been tested yet. See [the installing guide](docs/guides/installing.md) for what each setup needs.
 
 ## Using it
 
