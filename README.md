@@ -21,8 +21,6 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 
 Which servers work, what you must provide for security, and how to log errors: [Servers, security, and errors](#servers-security-and-errors).
 
-Not built yet: the OncoTrace-like example (M9). The plan is in [docs/plan.md](docs/plan.md).
-
 ## Packages
 
 | Package | What it is |
