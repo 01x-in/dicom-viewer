@@ -6,7 +6,8 @@ import './style.css';
 import { DvViewerElement } from '@01x/dicom-viewer-elements';
 import '@01x/dicom-viewer-elements/define';
 
-// A public sample server and one CT study on it. The browser talks to it directly.
+// The public sample server of the OHIF viewer demo (viewer.ohif.org) and one CT study on it. The
+// browser talks to it directly. It is not ours: if the study goes away, the demo shows its fallback.
 const DEMO_WADO_ROOT = 'https://d14fa38qiwhyfd.cloudfront.net/dicomweb';
 const DEMO_STUDY_UID = '2.16.840.1.114362.1.11972228.22789312658.616067305.306.2';
 
