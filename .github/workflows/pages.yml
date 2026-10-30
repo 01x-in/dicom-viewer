@@ -44,7 +44,7 @@ jobs:
       - run: pnpm docs:api
       - run: pnpm --filter dicom-viewer-site build
       - name: Put the API reference under /api
-        run: cp -R .docs/api site/dist/api
+        run: pnpm --filter dicom-viewer-site add-api
       - uses: actions/upload-pages-artifact@v4
         if: github.event_name != 'pull_request'
         with:

@@ -17,6 +17,8 @@ export default defineConfig(
       '.tarballs/**',
       '.docs/**',
       '.visual/**',
+      // Plain browser files that TypeDoc copies into the API reference.
+      'site/api-theme/**',
       'packages/core/assets/**',
       'packages/core/src/generated/**',
     ],
