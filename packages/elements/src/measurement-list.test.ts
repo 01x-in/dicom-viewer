@@ -381,7 +381,31 @@ describe('loading a report', () => {
     expect(fake.viewer.measurements.list()).toHaveLength(2);
     expect(rows(list)).toHaveLength(2);
     expect(reportStatus(list)).toBe('Report loaded: 2 added, 0 replaced.');
-    // The control is ready for another choice.
+    // The control says which report it is.
+    expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
+    expect(reportSelect(list)?.selectedOptions[0]?.text.trim()).toBe(`SR ${FAKE_IDS.sr}`);
+  });
+
+  it('shows the prompt again when the prompt is chosen, with the report still loaded', async () => {
+    const { list, fake } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    await choose(list, '');
+    expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
+    expect(fake.viewer.measurements.list()).toHaveLength(2);
+  });
+
+  it('goes back to the prompt when the report cannot be loaded', async () => {
+    const { list } = await mount();
+    await choose(list, FAKE_IDS.srNotAReport);
+    expect(reportSelect(list)?.value).toBe('');
+  });
+
+  it('goes back to the prompt when the study changes', async () => {
+    const { list, fake } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    await fake.viewer.loadStudy('1.2.5');
+    await fake.viewer.loadStudy(FAKE_IDS.study);
+    await settle(list);
     expect(reportSelect(list)?.value).toBe('');
   });
 

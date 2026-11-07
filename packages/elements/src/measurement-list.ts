@@ -63,6 +63,7 @@ export class DvMeasurementListElement extends LitElement {
     renamingId: { state: true },
     reports: { state: true },
     reportStatus: { state: true },
+    loadedReport: { state: true },
     loadingReport: { state: true },
   };
 
@@ -199,6 +200,8 @@ export class DvMeasurementListElement extends LitElement {
   /** What the last attempt to load a report did, in words. */
   declare reportStatus: ReportStatus | undefined;
   declare loadingReport: boolean;
+  /** The report the list shows as chosen: the one loaded last, so the control says which one it is. */
+  declare loadedReport: string | undefined;
 
   #off: (() => void)[] = [];
   #listeningTo: Viewer | undefined;
@@ -220,6 +223,7 @@ export class DvMeasurementListElement extends LitElement {
     this.reports = [];
     this.reportStatus = undefined;
     this.loadingReport = false;
+    this.loadedReport = undefined;
   }
 
   override connectedCallback(): void {
@@ -352,6 +356,7 @@ export class DvMeasurementListElement extends LitElement {
     this.#reportRequest += 1;
     this.loadingReport = false;
     this.reportStatus = undefined;
+    this.loadedReport = undefined;
   }
 
   #loadReport(seriesInstanceUID: string): void {
@@ -362,6 +367,8 @@ export class DvMeasurementListElement extends LitElement {
     // Another viewer or another study since the request started: its answer is not about this list.
     const current = (): boolean => this.#reportRequest === request;
     this.loadingReport = true;
+    // The control shows the report at once, and goes back to its prompt if the load fails.
+    this.loadedReport = seriesInstanceUID;
     viewer.measurements
       .loadSr(seriesInstanceUID)
       .then(
@@ -372,6 +379,7 @@ export class DvMeasurementListElement extends LitElement {
           if (!current()) return;
           const failure = toError(error);
           this.reportStatus = { kind: 'failed', message: failure.message };
+          this.loadedReport = undefined;
           this.#fail(failure);
         },
       )
@@ -581,14 +589,18 @@ export class DvMeasurementListElement extends LitElement {
             @change=${(event: Event): void => {
               const select = event.currentTarget as HTMLSelectElement;
               const chosen = select.value;
-              select.value = '';
+              // The prompt is not a report: the control goes back to the one that is loaded.
+              if (chosen === '') select.value = this.loadedReport ?? '';
               this.#loadReport(chosen);
             }}
           >
-            <option value="">Load report…</option>
+            <option value="" ?selected=${this.loadedReport === undefined}>Load report…</option>
             ${this.reports.map(
               (report) =>
-                html`<option value=${report.seriesInstanceUID}>
+                html`<option
+                  value=${report.seriesInstanceUID}
+                  ?selected=${this.loadedReport === report.seriesInstanceUID}
+                >
                   ${report.description ?? `SR ${report.seriesInstanceUID}`}
                 </option>`,
             )}
