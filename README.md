@@ -4,7 +4,7 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 
 **Live demo, tutorial, guides, and API reference: <https://01x-in.github.io/dicom-viewer/>**
 
-> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.0.0` is on npm under the `01x` organization. Releases are made by hand from GitHub Actions (see [docs/guides/releasing.md](docs/guides/releasing.md)).
+> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.1.0` is on npm under the `01x` organization. Releases are made by hand from GitHub Actions (see [docs/guides/releasing.md](docs/guides/releasing.md)).
 
 > **Not a medical device.** This is software for building viewers. It is not cleared or approved for diagnosis or any clinical decision, and it comes with no warranty (see [LICENSE](LICENSE)). Whoever uses it in a product is responsible for that product's regulatory and privacy duties. The viewer hides patient-identifying overlay tags unless you turn them on.
 
@@ -16,6 +16,7 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 - Measurements: length, bidirectional, ellipse, rectangle, probe, and angle. Ellipse and rectangle show Hounsfield statistics (the mean, spread, minimum, and maximum of the pixels inside). A list panel lets you jump to, rename, and delete a measurement. You can export and import measurements as JSON.
 - Segmentations: DICOM SEG overlays. A SEG is loaded against the series it names, and each segment can be shown, hidden, recoloured, made more or less opaque, highlighted (the others fade, or the chosen ones get an outline), and gone to (the image with most of it, the one nearest its middle, or the one nearest the image on screen). The same state shows in every viewport. A SEG that does not lie on its images is drawn with a warning. A binary SEG of 512 by 512 by 300 pixels with 100 segments loads in about 2 seconds. A Segments panel lists the SEGs of the study.
 - Interface: an icon toolbar, side panels that fold, slots for your own content, a light and a dark theme, and three palettes (`palette="navy"`, `palette="graphite"`, or the default). Any single colour is a `--dv-color-*` CSS property, so the viewer can take the colours of the page it sits in. The interface passes automated accessibility checks (axe) and works from the keyboard.
+- Languages: the built-in labels, panel titles, status messages, warnings, and screen-reader labels can be translated with a typed `messages` property (React, Vue, and `<dv-viewer>`), except the "DICOM viewport" role description of each viewport. English is the default, and changing the messages does not restart the viewer or lose the open study and measurements. See [Languages and text](#languages-and-text).
 - Frameworks: the same interface runs in plain HTML, React, Vue, Next.js (Turbopack and webpack), and Nuxt, with no bundler configuration.
 - Layouts and planes: four layouts (`1x1`, `1x2`, `2x2`, and one large with three small), series dragged from the browser into any viewport, hanging protocols that lay a study out by rule, and reformatted planes (axial, sagittal, and coronal) of a volume with crosshairs, a shared window, and a SEG drawn over each plane. A series that is tilted, unevenly spaced, or too large for the memory budget is shown as slices, and the viewport says why.
 
@@ -271,6 +272,34 @@ dv-viewer {
 ```
 
 In HTML, write `theme="light" palette="navy"`. In React and Vue, pass `theme` and `palette` as props. Keep the text on the accent colour readable: `--dv-color-accent-text` must contrast with `--dv-color-accent`. The built-in palettes are checked for this, and yours are not.
+
+### Languages and text
+
+The interface is in English unless you pass `messages`, a `Partial<ViewerMessages>`. Entries you leave out keep their English text, so you can translate a few labels or all of them. The full list of keys is `DEFAULT_VIEWER_MESSAGES`, exported from `@01x/dicom-viewer-core` (the type is `ViewerMessages`).
+
+```tsx
+import type { ViewerMessages } from '@01x/dicom-viewer-core';
+
+// Define it outside the component (or memoize it), so it is the same object on every render.
+const es: Partial<ViewerMessages> = {
+  viewerLabel: 'Visor DICOM',
+  toolPan: 'Desplazar',
+  measurementsPanel: 'Mediciones',
+  showItem: 'Mostrar {name}',
+};
+
+<DicomViewer options={options} studyInstanceUID={studyUid} messages={es} />;
+```
+
+- In HTML, set the `messages` property of `<dv-viewer>` from script (it is not an attribute). In Vue, pass the `messages` prop.
+- A message with a value uses a named placeholder in single braces, such as `{name}` or `{count}`. Keep the same placeholders in each translation. Values are inserted as plain text.
+- Changing `messages` updates the toolbar, panels, status text, warnings, and accessible labels in place. The viewer, the open study, and the measurements stay.
+- One screen-reader string is not translatable yet: the role description of each viewport, which is always "DICOM viewport".
+- Patient and study data is not translated: series descriptions, measurement names, and segment names are shown as they are. A toolbar button or window preset that you define keeps your own label.
+- The host chooses the language and owns the translations. The viewer does not detect a locale, and numbers keep their usual format (a full stop as the decimal mark).
+- The viewer shows a generic, translated message when a study fails to load. The original `Error` still reaches `onError` (or the `dv-error` event), so remove patient identifiers before it goes to an error service.
+
+Helpers for your own text: `resolveViewerMessages(partial)` returns the full set, and `formatViewerMessage(template, values)` fills the placeholders. [Host text and languages](docs/guides/installing.md#host-text-and-languages) has more.
 
 ### The toolbar
 

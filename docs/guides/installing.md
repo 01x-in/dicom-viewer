@@ -42,11 +42,14 @@ The shell uses English unless the host supplies `messages`. Import `ViewerMessag
 `<dv-viewer>`. Missing entries keep their English text. The host chooses the language and owns its translations.
 
 ```tsx
-<DicomViewer
-  options={options}
-  studyInstanceUID={studyUid}
-  messages={{ viewerLabel: 'Visor DICOM', toolPan: 'Desplazar', measurementsPanel: 'Mediciones' }}
-/>
+// Defined outside the component, so every render passes the same object.
+const messages = {
+  viewerLabel: 'Visor DICOM',
+  toolPan: 'Desplazar',
+  measurementsPanel: 'Mediciones',
+};
+
+<DicomViewer options={options} studyInstanceUID={studyUid} messages={messages} />;
 ```
 
 Messages with values use named single-brace placeholders, such as `showItem: 'Mostrar {name}'`.
@@ -55,7 +58,8 @@ series descriptions, measurement names, and segment names are data and are not t
 Built-in action and preset labels are translated; labels supplied by the host keep their own text.
 
 Changing `messages` updates the shell without restarting the engine, loading the study again, or
-clearing measurements. Keep `options` and `config` stable when changing the language. The shell shows
+clearing measurements. Define the `messages` object outside the component (or memoize it), so a
+render that changes nothing does not pass a new object. Keep `options` and `config` stable when changing the language. The shell shows
 a generic error message. The original `Error` still reaches `onError` or `dv-error`, so the host
 must remove patient data and identifiers before sending it to an error service.
 
