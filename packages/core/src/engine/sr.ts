@@ -1,0 +1,190 @@
+import { adaptersSR } from '@cornerstonejs/adapters';
+import { metaData } from '@cornerstonejs/core';
+import { data } from 'dcmjs';
+import { z } from 'zod';
+import type { MeasurementType, Point3 } from '../measurements/model';
+import { type EllipsePoints, orderEllipseAxes, type SrShape } from '../measurements/sr';
+
+/** What the engine made of a report: the shapes it read, and what it could not. */
+export interface SrRead {
+  readonly shapes: readonly SrShape[];
+  /** Measurement groups the reader failed on, or had no reader for. */
+  readonly unreadable: number;
+  /** The reader's names for shapes of a kind the model has no place for, one for each shape. */
+  readonly unsupported: readonly string[];
+}
+
+/** The reader's names for the shapes the model keeps. */
+const TYPE_OF_TOOL: Readonly<Record<string, MeasurementType>> = {
+  Length: 'length',
+  Bidirectional: 'bidirectional',
+  EllipticalROI: 'ellipse',
+  RectangleROI: 'rectangle',
+  Probe: 'probe',
+  Angle: 'angle',
+};
+
+const REPORT_MEANING = 'Imaging Measurements';
+const GROUP_MEANING = 'Measurement Group';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** A content sequence that holds one item is a bare item in the named form, not a list of one. */
+function toArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return value === undefined ? [] : [value];
+}
+
+function itemsOf(value: unknown): Record<string, unknown>[] {
+  return toArray(value).filter(isRecord);
+}
+
+function meaningOf(item: Record<string, unknown>): unknown {
+  const name = toArray(item['ConceptNameCodeSequence']).find(isRecord);
+  return name?.['CodeMeaning'];
+}
+
+function measurementGroups(dataset: unknown): Record<string, unknown>[] {
+  if (!isRecord(dataset)) return [];
+  const report = itemsOf(dataset['ContentSequence']).find(
+    (item) => meaningOf(item) === REPORT_MEANING,
+  );
+  if (report === undefined) return [];
+  return itemsOf(report['ContentSequence']).filter((item) => meaningOf(item) === GROUP_MEANING);
+}
+
+function isCoordinates(item: Record<string, unknown>): boolean {
+  return item['ValueType'] === 'SCOORD' || item['ValueType'] === 'SCOORD3D';
+}
+
+/**
+ * The reader looks for a shape inside the number of a measurement group. The DICOM template, and
+ * tools that follow it (highdicom), put the shape beside the number, and with a number there the
+ * reader finds no shape and gives up on the group. This moves such a shape into the number. A
+ * group that already has its shape inside, or has no number, is left as it is.
+ */
+export function liftSiblingCoordinates(dataset: unknown): void {
+  for (const group of measurementGroups(dataset)) {
+    const items = itemsOf(group['ContentSequence']);
+    const number = items.find((item) => item['ValueType'] === 'NUM');
+    const beside = items.filter(isCoordinates);
+    if (number === undefined || beside.length === 0) continue;
+    const inside = itemsOf(number['ContentSequence']);
+    if (inside.some(isCoordinates)) continue;
+    number['ContentSequence'] = [...inside, ...beside];
+  }
+}
+
+const finite = z.number();
+const point = z.tuple([finite, finite, finite]);
+
+const entrySchema = z.object({
+  sopInstanceUid: z.string(),
+  // The finding the report names the shape by. It is no use to the model if it is not text.
+  description: z.string().optional().catch(undefined),
+  annotation: z.object({
+    data: z.object({ handles: z.object({ points: z.array(point) }) }),
+    metadata: z.object({ referencedImageId: z.string() }),
+  }),
+});
+
+const toolStateSchema = z.record(z.string(), z.array(z.unknown()));
+
+/**
+ * Turns the reader's result, which is typed `any`, into shapes. `columnOf` gives the direction of
+ * increasing row of an image (down the picture), which says which axis of an ellipse is vertical.
+ */
+export function shapesFromToolState(
+  toolState: unknown,
+  columnOf: (imageId: string) => Point3 | undefined,
+): SrRead {
+  const shapes: SrShape[] = [];
+  const unsupported: string[] = [];
+  let unreadable = 0;
+  for (const [tool, entries] of Object.entries(toolStateSchema.parse(toolState))) {
+    const type = TYPE_OF_TOOL[tool];
+    for (const entry of entries) {
+      if (type === undefined) {
+        unsupported.push(tool);
+        continue;
+      }
+      const parsed = entrySchema.safeParse(entry);
+      if (!parsed.success) {
+        unreadable += 1;
+        continue;
+      }
+      const { sopInstanceUid, description, annotation } = parsed.data;
+      const column = columnOf(annotation.metadata.referencedImageId);
+      const points = annotation.data.handles.points;
+      const [first, second, third, fourth] = points;
+      shapes.push({
+        type,
+        points:
+          type === 'ellipse' &&
+          points.length === 4 &&
+          column !== undefined &&
+          first !== undefined &&
+          second !== undefined &&
+          third !== undefined &&
+          fourth !== undefined
+            ? orderEllipseAxes([first, second, third, fourth] satisfies EllipsePoints, column)
+            : points,
+        label: description,
+        sopInstanceUID: sopInstanceUid,
+      });
+    }
+  }
+  return { shapes, unreadable, unsupported };
+}
+
+const planeSchema = z.object({ columnCosines: z.tuple([finite, finite, finite]) });
+
+function columnOfImage(imageId: string): Point3 | undefined {
+  const plane: unknown = metaData.get('imagePlaneModule', imageId);
+  const parsed = planeSchema.safeParse(plane);
+  return parsed.success ? parsed.data.columnCosines : undefined;
+}
+
+const adapterMetadata = {
+  get(type: string, imageId: string): unknown {
+    return metaData.get(type, imageId);
+  },
+};
+
+/**
+ * Reads the shapes of a TID 1500 measurement report. `imageIdBySop` holds the images the report may
+ * refer to, and Cornerstone must already know their metadata: the reader turns pixel positions
+ * into patient millimetres with it. A shape on any other image is counted as unreadable. Throws
+ * for a file that is not a TID 1500 report.
+ */
+export function readStructuredReport(
+  bytes: ArrayBuffer,
+  imageIdBySop: ReadonlyMap<string, string>,
+): SrRead {
+  const dataset = data.DicomMetaDictionary.naturalizeDataset(
+    data.DicomMessage.readFile(bytes).dict,
+  );
+  const template = itemsOf(dataset['ContentTemplateSequence'])[0]?.['TemplateIdentifier'];
+  if (template !== '1500') {
+    throw new Error('This is not a TID 1500 measurement report, the only kind the viewer reads.');
+  }
+  const groups = measurementGroups(dataset).length;
+  liftSiblingCoordinates(dataset);
+
+  // The reader looks an image up by its SOP instance and frame. Single-frame images are frame 1.
+  const imageIds: Record<string, string> = {};
+  for (const [sopInstanceUID, imageId] of imageIdBySop) imageIds[`${sopInstanceUID}:1`] = imageId;
+  const toolState: unknown = adaptersSR.Cornerstone3D.MeasurementReport.generateToolState(
+    dataset,
+    imageIds,
+    adapterMetadata,
+    undefined,
+  );
+
+  const read = shapesFromToolState(toolState, columnOfImage);
+  // The reader drops a group it fails on, with only a log line. What did not come back failed.
+  const returned = read.shapes.length + read.unsupported.length + read.unreadable;
+  return { ...read, unreadable: read.unreadable + Math.max(0, groups - returned) };
+}
