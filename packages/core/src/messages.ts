@@ -1,4 +1,8 @@
-/** English text of the styled viewer. Named placeholders use single braces. */
+/**
+ * English text of the styled viewer, and the list of every key a host can translate. Named
+ * placeholders use single braces, such as `{name}` or `{count}`. Read this object to see the full
+ * set of keys and the English wording to start from.
+ */
 export const DEFAULT_VIEWER_MESSAGES = {
   viewerLabel: 'DICOM viewer',
   toolbarLabel: 'Viewer tools',
@@ -120,7 +124,21 @@ export const DEFAULT_VIEWER_MESSAGES = {
   error: 'The viewer could not complete this action.',
 } as const;
 
-/** Host text for the styled shell. Omitted entries keep their English defaults. */
+/**
+ * Host text for the styled shell. Pass a `Partial<ViewerMessages>` as the `messages` prop of the
+ * React or Vue `DicomViewer`, or as the `messages` property of `<dv-viewer>`. Omitted entries keep
+ * their English defaults. Keep the placeholders of the English text in each translation. Text the
+ * patient data provides (series descriptions, measurement names, segment names) is not translated.
+ *
+ * @example
+ * ```ts
+ * const es: Partial<ViewerMessages> = {
+ *   viewerLabel: 'Visor DICOM',
+ *   toolPan: 'Desplazar',
+ *   showItem: 'Mostrar {name}',
+ * };
+ * ```
+ */
 export type ViewerMessages = { readonly [Key in keyof typeof DEFAULT_VIEWER_MESSAGES]: string };
 
 /** Resolves partial host text without changing the English defaults. */
