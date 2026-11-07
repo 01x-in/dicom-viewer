@@ -3,6 +3,7 @@ import {
   type Measurement,
   measurementLines,
   measurementName,
+  measurementNames,
   type SeriesSummary,
   type SrLoadResult,
   type Viewer,
@@ -431,8 +432,13 @@ export class DvMeasurementListElement extends LitElement {
     rows[next]?.focus();
   }
 
-  #renderRow(measurement: Measurement, position: number): TemplateResult {
-    const title = measurementName(measurement, this.items, this.messages);
+  #renderRow(
+    measurement: Measurement,
+    position: number,
+    names: ReadonlyMap<string, string>,
+  ): TemplateResult {
+    const title =
+      names.get(measurement.id) ?? measurementName(measurement, this.items, this.messages);
     const lines = measurementLines(measurement, this.messages);
     return html`<li
       role="option"
@@ -611,8 +617,9 @@ export class DvMeasurementListElement extends LitElement {
       </p>
       ${this.#renderReport()}`;
     }
+    const names = measurementNames(this.items, this.messages);
     return html`<ul role="listbox" aria-label=${this.label === 'Measurements' ? text.measurementsPanel : this.label}>
-        ${this.items.map((measurement, position) => this.#renderRow(measurement, position))}
+        ${this.items.map((measurement, position) => this.#renderRow(measurement, position, names))}
       </ul>
       ${this.#renderActions()} ${this.#renderReport()}`;
   }

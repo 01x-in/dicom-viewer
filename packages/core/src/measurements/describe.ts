@@ -106,3 +106,25 @@ export function measurementName(
   const number = sameKind.findIndex((other) => other.id === measurement.id) + 1;
   return `${resolveViewerMessages(messages)[MEASUREMENT_MESSAGES[measurement.type]]} ${number.toString()}`;
 }
+
+/**
+ * The names of a whole list at once, by id. Each one is what `measurementName` gives, worked out in
+ * one pass instead of once for each measurement, so a long list costs a visit for each item.
+ */
+export function measurementNames(
+  all: readonly Measurement[],
+  messages?: Partial<ViewerMessages>,
+): ReadonlyMap<string, string> {
+  const text = resolveViewerMessages(messages);
+  const seen = new Map<MeasurementType, number>();
+  const names = new Map<string, string>();
+  for (const measurement of all) {
+    const number = (seen.get(measurement.type) ?? 0) + 1;
+    seen.set(measurement.type, number);
+    names.set(
+      measurement.id,
+      measurement.label ?? `${text[MEASUREMENT_MESSAGES[measurement.type]]} ${number.toString()}`,
+    );
+  }
+  return names;
+}

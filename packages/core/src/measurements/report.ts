@@ -1,4 +1,4 @@
-import { measurementLines, measurementName } from './describe';
+import { measurementLines, measurementNames, measurementTitle } from './describe';
 import type { Measurement } from './model';
 import type { MeasurementOrigin } from './registry';
 
@@ -100,11 +100,12 @@ function dateOf(value: string): string {
 }
 
 export function buildReport(input: ReportInput): ReportModel {
+  const names = measurementNames(input.measurements);
   const rows = input.measurements.map((measurement): ReportRow => {
     const series = input.series.get(measurement.reference.seriesInstanceUID);
     const slice = series?.slices.get(measurement.reference.sopInstanceUID);
     return {
-      name: measurementName(measurement, input.measurements),
+      name: names.get(measurement.id) ?? measurementTitle(measurement),
       type: TYPE_NAMES[measurement.type],
       value: measurementLines(measurement),
       series:

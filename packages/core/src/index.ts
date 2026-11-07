@@ -71,6 +71,7 @@ export {
   MEASUREMENT_NAMES,
   measurementLines,
   measurementName,
+  measurementNames,
   measurementTitle,
   measurementValues,
 } from './measurements/describe';
