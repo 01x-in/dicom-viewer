@@ -1,9 +1,10 @@
 import {
   MAX_LABEL_LENGTH,
-  MEASUREMENT_NAMES,
   type Measurement,
   measurementLines,
   type Viewer,
+  resolveViewerMessages,
+  type ViewerMessages,
 } from '@01x/dicom-viewer-core';
 import {
   css,
@@ -17,6 +18,7 @@ import {
 } from 'lit';
 import { baseStyles, themeStyles } from './theme';
 import { nextFocusIndex } from './toolbar-config';
+import { toolLabel } from './messages';
 
 const EVENTS = [
   'measurement:added',
@@ -31,11 +33,15 @@ const EVENTS = [
  * What a row calls a measurement: the name a person gave it, or its kind and its number among
  * those of that kind (`Length 2`), so two that nobody named can be told apart.
  */
-export function measurementName(measurement: Measurement, all: readonly Measurement[]): string {
+export function measurementName(
+  measurement: Measurement,
+  all: readonly Measurement[],
+  messages?: Partial<ViewerMessages>,
+): string {
   if (measurement.label !== undefined) return measurement.label;
   const sameKind = all.filter((other) => other.type === measurement.type);
   const number = sameKind.findIndex((other) => other.id === measurement.id) + 1;
-  return `${MEASUREMENT_NAMES[measurement.type]} ${number.toString()}`;
+  return `${toolLabel(measurement.type, messages)} ${number.toString()}`;
 }
 
 function sameList(a: readonly Measurement[], b: readonly Measurement[]): boolean {
@@ -54,6 +60,7 @@ function toError(error: unknown): Error {
 export class DvMeasurementListElement extends LitElement {
   static override properties: PropertyDeclarations = {
     viewer: { attribute: false },
+    messages: { attribute: false },
     viewportId: { attribute: 'viewport-id' },
     label: {},
     items: { state: true },
@@ -160,6 +167,7 @@ export class DvMeasurementListElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
+  declare messages: Partial<ViewerMessages> | undefined;
   declare viewportId: string | undefined;
   declare label: string;
   declare items: readonly Measurement[];
@@ -340,8 +348,8 @@ export class DvMeasurementListElement extends LitElement {
   }
 
   #renderRow(measurement: Measurement, position: number): TemplateResult {
-    const title = measurementName(measurement, this.items);
-    const lines = measurementLines(measurement);
+    const title = measurementName(measurement, this.items, this.messages);
+    const lines = measurementLines(measurement, this.messages);
     return html`<li
       role="option"
       part="measurement-item"
@@ -374,6 +382,7 @@ export class DvMeasurementListElement extends LitElement {
   }
 
   #renderActions(): TemplateResult {
+    const text = resolveViewerMessages(this.messages);
     const renaming = this.items.find((item) => item.id === this.renamingId);
     if (renaming !== undefined) {
       return html`<form
@@ -385,12 +394,12 @@ export class DvMeasurementListElement extends LitElement {
         }}
       >
         <label>
-          Name
+          ${text.name}
           <input
             type="text"
             part="rename-input"
             maxlength=${MAX_LABEL_LENGTH.toString()}
-            .value=${renaming.label ?? measurementName(renaming, this.items)}
+            .value=${renaming.label ?? measurementName(renaming, this.items, this.messages)}
             @keydown=${(event: KeyboardEvent): void => {
               if (event.key === 'Escape') {
                 event.preventDefault();
@@ -400,7 +409,7 @@ export class DvMeasurementListElement extends LitElement {
             }}
           />
         </label>
-        <button type="submit" part="button">Save</button>
+        <button type="submit" part="button">${text.save}</button>
         <button
           type="button"
           part="button"
@@ -408,12 +417,12 @@ export class DvMeasurementListElement extends LitElement {
             this.#finishRename(false, '');
           }}
         >
-          Cancel
+          ${text.cancel}
         </button>
       </form>`;
     }
     const disabled = this.#current() === undefined;
-    return html`<div class="actions" role="group" aria-label="Measurement actions">
+    return html`<div class="actions" role="group" aria-label=${text.measurementActions}>
       <button
         type="button"
         part="button"
@@ -424,7 +433,7 @@ export class DvMeasurementListElement extends LitElement {
           this.#startRename(this.#current());
         }}
       >
-        Rename
+        ${text.rename}
       </button>
       <button
         type="button"
@@ -435,18 +444,19 @@ export class DvMeasurementListElement extends LitElement {
           this.#delete(this.#current());
         }}
       >
-        Delete
+        ${text.delete}
       </button>
     </div>`;
   }
 
   override render(): TemplateResult {
+    const text = resolveViewerMessages(this.messages);
     if (this.items.length === 0) {
       return html`<p class="empty" role="status">
-        No measurements yet. Choose a tool from the Measure menu and draw on the image.
+        ${text.noMeasurements}
       </p>`;
     }
-    return html`<ul role="listbox" aria-label=${this.label}>
+    return html`<ul role="listbox" aria-label=${this.label === 'Measurements' ? text.measurementsPanel : this.label}>
         ${this.items.map((measurement, position) => this.#renderRow(measurement, position))}
       </ul>
       ${this.#renderActions()}`;

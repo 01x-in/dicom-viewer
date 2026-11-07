@@ -20,6 +20,8 @@ export type SegmentationWarningCode =
 export interface SegmentationWarning {
   readonly code: SegmentationWarningCode;
   readonly message: string;
+  /** Named values for a translated shell message. Patient-provided labels stay plain text. */
+  readonly parameters?: Readonly<Record<string, string | number>>;
 }
 
 /** How far a frame's plane may be from its image's before it is a warning. A tenth of a millimetre is far below a voxel. */
@@ -82,6 +84,12 @@ export function checkSegmentation(input: {
       warnings.push({
         code: 'image-size',
         message: `The SEG is ${header.rows.toString()} by ${header.columns.toString()} pixels and the images are ${rows.toString()} by ${columns.toString()}.`,
+        parameters: {
+          rows: header.rows,
+          columns: header.columns,
+          imageRows: rows,
+          imageColumns: columns,
+        },
       });
     }
 
@@ -108,6 +116,10 @@ export function checkSegmentation(input: {
       warnings.push({
         code: 'pixel-spacing',
         message: `The SEG has pixels of ${header.pixelSpacing.map((value) => mm(value)).join(' by ')} and the images have ${spacing.map((value) => mm(value)).join(' by ')}.`,
+        parameters: {
+          segSpacing: header.pixelSpacing.map(mm).join(' × '),
+          imageSpacing: spacing.map(mm).join(' × '),
+        },
       });
     }
   }
@@ -118,6 +130,7 @@ export function checkSegmentation(input: {
     warnings.push({
       code: 'missing-references',
       message: `The SEG names ${plural(missing.length, 'image')} that ${missing.length === 1 ? 'is' : 'are'} not in the series on screen.`,
+      parameters: { count: missing.length },
     });
   }
 
@@ -143,6 +156,7 @@ export function checkSegmentation(input: {
     warnings.push({
       code: 'plane-position',
       message: `${plural(offFrames, 'frame')} of the SEG ${offFrames === 1 ? 'is' : 'are'} not on the plane of the image ${offFrames === 1 ? 'it names' : 'they name'}, by up to ${mm(farthest)}.`,
+      parameters: { count: offFrames, distance: farthest.toFixed(1) },
     });
   }
 
@@ -154,6 +168,15 @@ export function checkSegmentation(input: {
     warnings.push({
       code: 'overlapping-segments',
       message: `Segments share pixels: ${named.join(', ')}${more > 0 ? `, and ${plural(more, 'other pair')}` : ''}.`,
+      parameters: {
+        pairs: index.overlaps
+          .slice(0, NAMED_OVERLAPS)
+          .map(
+            ({ a, b }) => `${labelOf.get(a) ?? a.toString()} / ${labelOf.get(b) ?? b.toString()}`,
+          )
+          .join(', '),
+        count: more,
+      },
     });
   }
 
@@ -163,6 +186,7 @@ export function checkSegmentation(input: {
     warnings.push({
       code: 'empty-segment',
       message: `The segment ${segment.label} has no pixels.`,
+      parameters: { name: segment.label },
     });
   }
   return warnings;

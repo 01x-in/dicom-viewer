@@ -1,4 +1,4 @@
-import type { Viewer } from '@01x/dicom-viewer-core';
+import { resolveViewerMessages, type Viewer, type ViewerMessages } from '@01x/dicom-viewer-core';
 import {
   html,
   LitElement,
@@ -11,6 +11,7 @@ import {
 } from 'lit';
 import { type IconName, icon, iconStyles } from './icons';
 import { baseStyles, themeStyles } from './theme';
+import { itemLabel, toolLabel } from './messages';
 import {
   type ActionItem,
   DEFAULT_TOOLBAR,
@@ -53,6 +54,7 @@ function toError(error: unknown): Error {
 export class DvToolbarElement extends LitElement {
   static override properties: PropertyDeclarations = {
     viewer: { attribute: false },
+    messages: { attribute: false },
     items: { attribute: false },
     viewportId: { attribute: 'viewport-id' },
     label: {},
@@ -255,6 +257,7 @@ export class DvToolbarElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
+  declare messages: Partial<ViewerMessages> | undefined;
   /** What the toolbar shows. Default: the built-in tools, actions, and window presets. */
   declare items: readonly ToolbarItem[];
   /** The viewport the actions work on. Default: the active one, which follows the person. */
@@ -493,10 +496,7 @@ export class DvToolbarElement extends LitElement {
       case 'custom':
         return item.render(context);
       case 'tool': {
-        const label =
-          item.label ??
-          context.viewer.tools.list().find((tool) => tool.id === item.tool)?.label ??
-          item.tool;
+        const label = item.label ?? toolLabel(item.tool, this.messages);
         const at = position.next++;
         const pressed = context.viewer.tools.getActive() === item.tool;
         // Crosshairs need two planes of one volume; the button is there, but says it cannot yet.
@@ -535,7 +535,8 @@ export class DvToolbarElement extends LitElement {
         const disabled = !this.#enabled(item, context);
         const hint =
           item.shortcut === undefined ? undefined : shortcutOf(context.viewer, item.shortcut);
-        const face = this.#face(item.icon, item.label, hint);
+        const label = itemLabel(item, this.messages);
+        const face = this.#face(item.icon, label, hint);
         return html`<span class="item"
           ><button
             type="button"
@@ -544,7 +545,7 @@ export class DvToolbarElement extends LitElement {
             data-roving
             data-action=${item.id}
             tabindex=${this.#roving(at)}
-            aria-label=${item.label}
+            aria-label=${label}
             aria-pressed=${pressed === undefined ? nothing : pressed ? 'true' : 'false'}
             aria-disabled=${disabled ? 'true' : nothing}
             @click=${(): void => {
@@ -566,7 +567,8 @@ export class DvToolbarElement extends LitElement {
     // A menu that has a chosen entry shows it on its button, closed or open.
     const chosen = entries.find((entry) => entry.pressed?.(context) === true);
     const name = chosen?.icon ?? item.icon;
-    const face = this.#face(name, item.label, undefined);
+    const label = itemLabel(item, this.messages);
+    const face = this.#face(name, label, undefined);
     return html`<div class="menu-wrap" data-open=${open ? '' : nothing}>
       <button
         type="button"
@@ -576,7 +578,7 @@ export class DvToolbarElement extends LitElement {
         data-menu-id=${item.id}
         id=${`dv-menu-button-${item.id}`}
         tabindex=${this.#roving(at)}
-        aria-label=${item.label}
+        aria-label=${label}
         aria-haspopup="menu"
         aria-expanded=${open ? 'true' : 'false'}
         data-active=${chosen === undefined ? nothing : 'true'}
@@ -611,7 +613,7 @@ export class DvToolbarElement extends LitElement {
                 }}
               >
                 ${entry.icon === undefined ? nothing : icon(entry.icon)}
-                <span class="entry-label">${entry.label}</span>
+                <span class="entry-label">${itemLabel(entry, this.messages)}</span>
                 ${entryHint === undefined ? nothing : html`<kbd>${entryHint}</kbd>`}
               </button>`;
             })}
@@ -628,7 +630,7 @@ export class DvToolbarElement extends LitElement {
       class="bar"
       part="toolbar"
       role="toolbar"
-      aria-label=${this.label}
+      aria-label=${this.label === 'Viewer tools' ? resolveViewerMessages(this.messages).toolbarLabel : this.label}
       aria-orientation="horizontal"
       @keydown=${this.#onKeydown}
       @focusin=${this.#onFocusin}

@@ -5,6 +5,9 @@ import {
   type SegmentInfo,
   type SeriesSummary,
   type Viewer,
+  resolveViewerMessages,
+  formatViewerMessage,
+  type ViewerMessages,
 } from '@01x/dicom-viewer-core';
 import {
   css,
@@ -19,6 +22,7 @@ import {
 } from 'lit';
 import { icon, iconMask, iconStyles } from './icons';
 import { baseStyles, themeStyles } from './theme';
+import { warningMessage } from './messages';
 
 const EVENTS = [
   'segmentation:loaded',
@@ -72,6 +76,7 @@ function latestWins<T>(
 export class DvSegmentationListElement extends LitElement {
   static override properties: PropertyDeclarations = {
     viewer: { attribute: false },
+    messages: { attribute: false },
     viewportId: { attribute: 'viewport-id' },
     label: {},
     series: { state: true },
@@ -313,6 +318,7 @@ export class DvSegmentationListElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
+  declare messages: Partial<ViewerMessages> | undefined;
   declare viewportId: string | undefined;
   declare label: string;
   /** The SEG series of the study on screen. */
@@ -480,6 +486,7 @@ export class DvSegmentationListElement extends LitElement {
 
   #renderSegment(info: SegmentationInfo, segment: SegmentInfo): TemplateResult {
     const { viewer } = this;
+    const text = resolveViewerMessages(this.messages);
     const uid = info.seriesInstanceUID;
     const key = `${uid}/${segment.number.toString()}`;
     const highlighted = info.highlight?.segments.includes(segment.number) === true;
@@ -489,7 +496,7 @@ export class DvSegmentationListElement extends LitElement {
       <input
         type="checkbox"
         part="segment-visible"
-        aria-label=${`Show ${segment.label}`}
+        aria-label=${formatViewerMessage(text.showItem, { name: segment.label })}
         .checked=${segment.visible}
         @change=${(event: Event): void => {
           const { checked } = event.target as HTMLInputElement;
@@ -499,7 +506,7 @@ export class DvSegmentationListElement extends LitElement {
       <input
         type="color"
         part="segment-color"
-        aria-label=${`${segment.label} colour`}
+        aria-label=${formatViewerMessage(text.colorItem, { name: segment.label })}
         .value=${this.#hex(`${key}/color`, segment.color)}
         @input=${(event: Event): void => {
           const { value } = event.target as HTMLInputElement;
@@ -520,15 +527,15 @@ export class DvSegmentationListElement extends LitElement {
       />
       <span class="segment-name" part="segment-name">
         ${segment.label}
-        ${empty ? html`<small>No pixels</small>` : nothing}
+        ${empty ? html`<small>${text.noPixels}</small>` : nothing}
       </span>
       <button
         type="button"
         part="button"
         class="icon-button"
         data-action="highlight"
-        aria-label=${`Highlight ${segment.label}`}
-        title="Highlight"
+        aria-label=${formatViewerMessage(text.highlightItem, { name: segment.label })}
+        title=${text.highlight}
         aria-pressed=${highlighted ? 'true' : 'false'}
         @click=${(): void => {
           this.#call(() =>
@@ -543,8 +550,8 @@ export class DvSegmentationListElement extends LitElement {
         part="button"
         class="icon-button"
         data-action="jump"
-        aria-label=${`Go to ${segment.label}`}
-        title="Go to"
+        aria-label=${formatViewerMessage(text.goToItem, { name: segment.label })}
+        title=${text.goTo}
         aria-disabled=${empty ? 'true' : nothing}
         @click=${(): void => {
           if (empty) return;
@@ -558,14 +565,14 @@ export class DvSegmentationListElement extends LitElement {
         ${icon('target')}
       </button>
       <label class="segment-opacity">
-        <span>Opacity</span>
+        <span>${text.opacity}</span>
         <input
           type="range"
           part="segment-opacity"
           min="0"
           max="100"
           step="5"
-          aria-label=${`${segment.label} opacity`}
+          aria-label=${formatViewerMessage(text.opacityItem, { name: segment.label })}
           .value=${percent.toString()}
           @input=${(event: Event): void => {
             const value = Number((event.target as HTMLInputElement).value);
@@ -591,6 +598,7 @@ export class DvSegmentationListElement extends LitElement {
 
   #renderLoaded(series: SeriesSummary, info: SegmentationInfo): TemplateResult {
     const { viewer } = this;
+    const text = resolveViewerMessages(this.messages);
     const uid = info.seriesInstanceUID;
     const key = `${uid}/opacity`;
     const percent = this.#percent(key, info.opacity);
@@ -599,7 +607,7 @@ export class DvSegmentationListElement extends LitElement {
         <input
           type="checkbox"
           part="segmentation-visible"
-          aria-label=${`Show ${segmentationName(series)}`}
+          aria-label=${formatViewerMessage(text.showItem, { name: segmentationName(series) })}
           .checked=${info.visible}
           @change=${(event: Event): void => {
             const { checked } = event.target as HTMLInputElement;
@@ -612,23 +620,23 @@ export class DvSegmentationListElement extends LitElement {
           part="button"
           class="text-button"
           data-action="unload"
-          aria-label=${`Unload ${segmentationName(series)}`}
+          aria-label=${formatViewerMessage(text.unloadItem, { name: segmentationName(series) })}
           @click=${(): void => {
             this.#call(() => viewer?.segmentations.unload(uid));
           }}
         >
-          Unload
+          ${text.unload}
         </button>
       </div>
       <label class="seg-opacity">
-        <span>Opacity</span>
+        <span>${text.opacity}</span>
         <input
           type="range"
           part="segmentation-opacity"
           min="0"
           max="100"
           step="5"
-          aria-label=${`${segmentationName(series)} opacity`}
+          aria-label=${formatViewerMessage(text.opacityItem, { name: segmentationName(series) })}
           .value=${percent.toString()}
           @input=${(event: Event): void => {
             const value = Number((event.target as HTMLInputElement).value);
@@ -648,20 +656,21 @@ export class DvSegmentationListElement extends LitElement {
       ${
         info.warnings.length === 0
           ? nothing
-          : html`<ul class="warnings" part="warnings" aria-label="Warnings">
+          : html`<ul class="warnings" part="warnings" aria-label=${text.warnings}>
             ${info.warnings.map(
               (warning) =>
-                html`<li>${icon('warning')}<span><span class="dv-visually-hidden">Warning: </span>${warning.message}</span></li>`,
+                html`<li>${icon('warning')}<span><span class="dv-visually-hidden">${text.warningPrefix}</span>${this.messages === undefined ? warning.message : warningMessage(warning, this.messages)}</span></li>`,
             )}
           </ul>`
       }
-      <ul class="segments" part="segments" aria-label=${`${segmentationName(series)} segments`}>
+      <ul class="segments" part="segments" aria-label=${formatViewerMessage(text.segmentsItem, { name: segmentationName(series) })}>
         ${info.segments.map((segment) => this.#renderSegment(info, segment))}
       </ul>
     </li>`;
   }
 
   #renderUnloaded(series: SeriesSummary): TemplateResult {
+    const text = resolveViewerMessages(this.messages);
     const uid = series.seriesInstanceUID;
     const busy = this.loading.has(uid);
     return html`<li class="seg" part="segmentation" data-segmentation=${uid} aria-busy=${busy ? 'true' : nothing}>
@@ -672,25 +681,26 @@ export class DvSegmentationListElement extends LitElement {
           part="button"
           class="text-button primary"
           data-action="load"
-          aria-label=${`Load ${segmentationName(series)}`}
+          aria-label=${formatViewerMessage(text.loadItem, { name: segmentationName(series) })}
           aria-disabled=${busy ? 'true' : nothing}
           @click=${(): void => {
             this.#load(uid);
           }}
         >
-          ${busy ? 'Loading…' : 'Load'}
+          ${busy ? text.loading : text.load}
         </button>
       </div>
     </li>`;
   }
 
   override render(): TemplateResult {
+    const text = resolveViewerMessages(this.messages);
     if (this.series.length === 0) {
       return html`<p class="empty" role="status">
-        ${icon('segments')}<span>This study has no segmentations.</span>
+        ${icon('segments')}<span>${text.noSegmentations}</span>
       </p>`;
     }
-    return html`<ul class="seg-list" aria-label=${this.label}>
+    return html`<ul class="seg-list" aria-label=${this.label === 'Segmentations' || this.label === 'Segments' ? text.segmentationsPanel : this.label}>
       ${this.series.map((series) => {
         const info = this.loaded.find(
           (item) => item.seriesInstanceUID === series.seriesInstanceUID,

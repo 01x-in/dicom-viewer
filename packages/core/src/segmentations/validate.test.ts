@@ -133,6 +133,7 @@ describe('checkSegmentation', () => {
       {
         code: 'image-size',
         message: 'The SEG is 256 by 128 pixels and the images are 128 by 128.',
+        parameters: { rows: 256, columns: 128, imageRows: 128, imageColumns: 128 },
       },
     ]);
   });
@@ -150,6 +151,7 @@ describe('checkSegmentation', () => {
       {
         code: 'pixel-spacing',
         message: 'The SEG has pixels of 1.5 mm by 3.0 mm and the images have 1.5 mm by 1.5 mm.',
+        parameters: { segSpacing: '1.5 mm × 3.0 mm', imageSpacing: '1.5 mm × 1.5 mm' },
       },
     ]);
   });
@@ -192,7 +194,11 @@ describe('checkSegmentation', () => {
       overlaps: [{ a: 1, b: 2, voxelCount: 4 }],
     };
     expect(checkSegmentation({ header, stack, index: overlap })).toEqual([
-      { code: 'overlapping-segments', message: 'Segments share pixels: Body and Bone insert.' },
+      {
+        code: 'overlapping-segments',
+        message: 'Segments share pixels: Body and Bone insert.',
+        parameters: { pairs: 'Body / Bone insert', count: 0 },
+      },
     ]);
   });
 
@@ -215,7 +221,11 @@ describe('checkSegmentation', () => {
   it('says which segments have no pixels', () => {
     const onlyBody = buildSegmentIndex({ rows: 1, columns: 1, layers: [[Uint8Array.of(1)]] });
     expect(checkSegmentation({ header, stack, index: onlyBody })).toEqual([
-      { code: 'empty-segment', message: 'The segment Bone insert has no pixels.' },
+      {
+        code: 'empty-segment',
+        message: 'The segment Bone insert has no pixels.',
+        parameters: { name: 'Bone insert' },
+      },
     ]);
   });
 });

@@ -1,4 +1,6 @@
 export { createDicomWebDataSource } from './data/dicomweb';
+export { DEFAULT_VIEWER_MESSAGES, formatViewerMessage, resolveViewerMessages } from './messages';
+export type { ViewerMessages } from './messages';
 export { DataSourceError } from './data/errors';
 export { isDicomUid } from './data/uid';
 export type { DicomWebDataSourceOptions } from './data/dicomweb';

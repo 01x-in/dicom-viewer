@@ -34,6 +34,31 @@ Nothing in the viewer runs on the server.
   `location`, create it in `onMounted` too (the Nuxt example does), or wrap the viewer in `<ClientOnly>`.
 - **Anything else.** `createViewer` needs a browser. Do not call it on the server.
 
+## Host text and languages
+
+The shell uses English unless the host supplies `messages`. Import `ViewerMessages` and
+`DEFAULT_VIEWER_MESSAGES` from `@01x/dicom-viewer-core` for the full set of keys. Pass a
+`Partial<ViewerMessages>` to the React or Vue `DicomViewer`, or set the `messages` property of
+`<dv-viewer>`. Missing entries keep their English text. The host chooses the language and owns its translations.
+
+```tsx
+<DicomViewer
+  options={options}
+  studyInstanceUID={studyUid}
+  messages={{ viewerLabel: 'Visor DICOM', toolPan: 'Desplazar', measurementsPanel: 'Mediciones' }}
+/>
+```
+
+Messages with values use named single-brace placeholders, such as `showItem: 'Mostrar {name}'`.
+Keep the same placeholders in each language. Values are inserted as plain text. Patient-provided
+series descriptions, measurement names, and segment names are data and are not translated.
+Built-in action and preset labels are translated; labels supplied by the host keep their own text.
+
+Changing `messages` updates the shell without restarting the engine, loading the study again, or
+clearing measurements. Keep `options` and `config` stable when changing the language. The shell shows
+a generic error message. The original `Error` still reaches `onError` or `dv-error`, so the host
+must remove patient data and identifiers before sending it to an error service.
+
 ## Assets: `inline` or `url`
 
 The decode worker and the codecs can be delivered two ways. Choose with the `assets` option.
