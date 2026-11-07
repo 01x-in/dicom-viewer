@@ -113,6 +113,37 @@ describe('measurements.loadSr', () => {
     expect(h.viewer.measurements.list()).toHaveLength(2);
   });
 
+  it('does not replace a measurement that something else made with the id of a shape, and counts the shape as left out', async () => {
+    const h = harness();
+    await h.viewer.loadStudy(STUDY);
+    const id = srMeasurementId(SR_SOP, 0);
+    await h.viewer.measurements.add({
+      id,
+      type: 'length',
+      label: 'Mine',
+      reference: { studyInstanceUID: STUDY, seriesInstanceUID: CT, sopInstanceUID: CT_FIRST },
+      points: [
+        [0, 0, 0],
+        [1, 0, 0],
+      ],
+    });
+    const result = await h.viewer.measurements.loadSr(SR);
+    expect(result.added).toBe(1);
+    expect(result.skipped).toEqual([
+      {
+        reason:
+          'A measurement that was not made by loading a report already has the id of this shape.',
+        count: 1,
+      },
+    ]);
+    expect(h.viewer.measurements.get(id)?.label).toBe('Mine');
+    // Loading again still replaces what the report made.
+    await expect(h.viewer.measurements.loadSr(SR)).resolves.toMatchObject({
+      added: 0,
+      replaced: 1,
+    });
+  });
+
   it('keeps what the person drew, and what the host added', async () => {
     const h = harness();
     await h.viewer.loadStudy(STUDY);

@@ -82,6 +82,10 @@ export interface SrLoadResult {
   readonly skipped: readonly SrSkip[];
 }
 
+/** Why a shape is left out when a measurement that was not made by loading a report has its id. */
+const SR_ID_TAKEN =
+  'A measurement that was not made by loading a report already has the id of this shape.';
+
 /** A title longer than this would not fit above the table on a page. */
 export const MAX_REPORT_TITLE_LENGTH = 120;
 
@@ -606,7 +610,16 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
       unreadable: read.unreadable,
       unsupported: read.unsupported,
     });
-    return { ...insertImported(measurements), skipped };
+    // The id of a shape is the loader's own, so loading again replaces it. A measurement that
+    // somebody else made with that id is not replaced: the shape is counted as left out.
+    const free = measurements.filter(
+      (measurement) => !items.has(measurement.id) || origins.get(measurement.id) === 'import',
+    );
+    const clashes = measurements.length - free.length;
+    return {
+      ...insertImported(free),
+      skipped: clashes === 0 ? skipped : [...skipped, { reason: SR_ID_TAKEN, count: clashes }],
+    };
   }
 
   const api: MeasurementsApi = {

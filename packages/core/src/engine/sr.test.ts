@@ -286,6 +286,14 @@ describe('liftSiblingCoordinates', () => {
     expect(other).toEqual({ ValueType: 'NUM' });
   });
 
+  it('moves the one shape of a group with several numbers into the first, which is where the reader looks and the shape belongs to the group', () => {
+    const first: { ValueType: string; ContentSequence?: unknown[] } = { ValueType: 'NUM' };
+    const other: { ValueType: string; ContentSequence?: unknown[] } = { ValueType: 'NUM' };
+    liftSiblingCoordinates(group([first, other, coordinates]));
+    expect(first.ContentSequence).toEqual(literal);
+    expect(other.ContentSequence).toBeUndefined();
+  });
+
   it('leaves a group that has no number alone', () => {
     const items = [coordinates];
     liftSiblingCoordinates(group(items));
