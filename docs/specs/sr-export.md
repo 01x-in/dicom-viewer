@@ -1,6 +1,6 @@
 # Spec: write Structured Reports, copy the measurements as text, and a Download menu
 
-Status: proposed (M11). Builds on [ADR 0013](../adr/0013-structured-reports-and-pdf.md) and the [M10 spec](sr-import.md).
+Status: proposed (M11). The two open decisions are settled (see "Decisions" at the end). Builds on [ADR 0013](../adr/0013-structured-reports-and-pdf.md) and the [M10 spec](sr-import.md).
 
 ## Why
 
@@ -56,7 +56,7 @@ What is not written: measurements on images that are not in the study on screen 
 
 ### Patient identity in an SR
 
-This one differs from the PDF. A DICOM object has to carry the patient name, ID, and birth date, or a PACS will not file it. The writer copies them from the source images, with the study's own IDs. So an SR file contains who the patient is whatever `showPatientInfo` says. See "Decisions needed". The file is made in the browser and downloaded. Nothing is sent anywhere. The guide says that the file has patient identity in it.
+This one differs from the PDF. A DICOM object has to carry the patient name, ID, and birth date, or a PACS will not file it. The writer copies them from the source images, with the study's own IDs. So an SR file contains who the patient is whatever `showPatientInfo` says. The menu item says so ("DICOM SR (.dcm, includes patient identity)"), and so does the guide. The file is made in the browser and downloaded. Nothing is sent anywhere. The guide says that the file has patient identity in it.
 
 ### Copy as text
 
@@ -82,7 +82,9 @@ The "Download PDF" button becomes a "Download" menu button with these items:
 
 - **Text (.txt)**: `measurement-report.txt`.
 - **PDF (.pdf)**: `measurement-report.pdf`, as now.
-- **DICOM SR (.dcm)**: `measurements.dcm`. See "Decisions needed" on whether this is an item or only an API call and a command.
+- **DICOM SR (.dcm)**: `measurements.dcm`. This file is the SR only: the measurements, with references to the images by UID. It holds no pixel data and no copy of the study. A person who wants the images has the study, which the SR points at.
+
+Which items a viewer shows is the host's choice, so it is configuration (see "The config key"). The default shows all three.
 
 The menu is a panel control, so it follows ADR 0010 and the pattern of the toolbar menus (`aria-haspopup="menu"`, `role="menu"` and `menuitem`, arrow keys, Escape closes and returns focus to the button). It uses only `--dv-*` tokens. The button is disabled (`aria-disabled`) when there are no measurements, as the PDF button is now.
 
@@ -91,6 +93,25 @@ The menu is a panel control, so it follows ADR 0010 and the pattern of the toolb
 New commands in `viewer.commands`, so a config file can put them on the toolbar as data: `measurements.copyText`, `measurements.downloadText`, and `measurements.downloadSr`. `measurements.downloadPdf` stays.
 
 All new labels, and the two M10 controls that were left in English ("Load report" and "Download PDF"), go into `ViewerMessages` so they can be translated (the message layer from M6.6).
+
+### The config key
+
+What the panel offers is a decision for each host, so it is data in `ViewerConfigV1` (ADR 0011), not code:
+
+```json
+{
+  "version": 1,
+  "measurements": {
+    "downloadFormats": ["text", "pdf", "sr"],
+    "copyText": true
+  }
+}
+```
+
+- `downloadFormats` lists the items of the Download menu, in order. The default is all three. An empty list hides the menu. A host that must not hand out `.dcm` files leaves `"sr"` out. The same list is a code option, and `viewer.config.apply` changes it like any other layer.
+- `copyText` shows or hides the Copy button. The default is `true`.
+- A format that is left out is left out of the panel only. `exportSr()`, `exportText()`, and `exportPdf()` are API calls that a host makes itself, and the commands (`measurements.downloadSr` and the others) work too, so a host that hides the menu can still put a command on the toolbar. This matches how the other config keys work: the config says what the shell shows, and the API is the host's code.
+- Keys are strict, as the rest of the schema: an unknown format is an error that names it. `viewer-config.schema.json` is regenerated (`UPDATE_SCHEMA=1 pnpm test`).
 
 ### Public API
 
@@ -110,7 +131,8 @@ exportText(options?: TextOptions): Promise<string>;
 4. **Another tool reads it.** The headless matrix writes the SR of the phantom measurements to a file and a Python check (`tools/phantom`, `uv run`) reads it with highdicom (`hd.sr.srread`) and checks the content tree: TID 1500, one group for each measurement, the shapes, the numbers, and the references. This is the test that matters most: our own reader agreeing with our own writer proves little.
 5. **Panel** (`measurement-list.test.ts`): the menu opens, moves with the arrow keys, closes with Escape and returns focus; each item calls its command; Copy shows the text box when the clipboard refuses; the button is disabled with no measurements; each label comes from the messages.
 6. **Matrix**: the `structured report` scenario loads the report, exports the SR, reads it back through `loadSr` on the exported bytes (replacing nothing it should not), copies the text (with the clipboard permission given), and downloads in each format. The held-image count is the same after every call. axe is clean with the menu open.
-7. **Visual**: the panel with the menu closed and open, in both themes. Baselines are made as the [guide](../guides/visual-regression.md) says (the *Visual regression* workflow with `update`, or the pinned image), never on a laptop.
+7. **Config** (`config/schema.test.ts`, `viewer-config.test.ts`, and the panel): the default shows the three items and Copy; a list with two shows two in that order; an empty list hides the menu; `copyText: false` hides Copy; an unknown format is rejected with its name; a layer applied later changes what is shown; the commands and the API still work with the item hidden. The `config` scenario of the matrix, in every framework, checks that a config file hides `sr`.
+8. **Visual**: the panel with the menu closed and open, in both themes. Baselines are made as the [guide](../guides/visual-regression.md) says (the *Visual regression* workflow with `update`, or the pinned image), never on a laptop.
 
 ## Steps
 
@@ -118,11 +140,11 @@ Each step is one commit, `M11: ...`, with its tests.
 
 0. **Spike (about a day).** Write the six types from `Measurement` objects with Cornerstone's writer, with no Cornerstone annotations on screen, and read the file with highdicom and pydicom. Check the engine chunk against its budget (880 kB brotli). Go or no-go: see below.
 1. Text renderer, `exportText`, and the commands.
-2. Panel: Copy button, Download menu with Text and PDF, messages for every label.
+2. Panel: Copy button, Download menu with Text and PDF, the `measurements` config key (`downloadFormats`, `copyText`), messages for every label.
 3. Engine writer and the port method.
 4. `exportSr` in the registry, with the queue and the held-image count.
 5. SR in the menu (if decided), the matrix step, and the highdicom check.
-6. Docs: the measurements guide (a section on writing a report, and the identity warning), an ADR (0014), the README and site text, the plan's M11 row and outcome, `docs/m11-report.md`, a changeset (minor, core and elements), and the size budgets.
+6. Docs: the measurements guide (a section on writing a report, and the identity warning), the config guide and the JSON Schema (the new key), an ADR (0014), the README and site text, the plan's M11 row and outcome, `docs/m11-report.md`, a changeset (minor, core and elements), and the size budgets.
 7. Release: after the pull request is merged, run the *Release* workflow from the Actions tab (`docs/guides/releasing.md`). The changeset makes it 1.3.0.
 
 ### Go or no-go (after step 0)
@@ -142,8 +164,11 @@ If highdicom cannot read what Cornerstone's writer makes, the spec changes: we w
 - **The clipboard.** Browsers differ on when it works. The text box is the fallback, and the matrix tests both.
 - **Time.** The estimate is 3 to 4 days for the SR, and 1 day for the text and the menu, after the spike.
 
-## Decisions needed
+## Decisions
 
-1. **Is the SR an item in the Download menu?** The request was for two items, Text and PDF. This spec proposes a third, "DICOM SR (.dcm)", because it is the item that matches how measurements move between systems. The alternative is to keep the menu to two items and offer the SR only as `exportSr()` and a command a config can put on the toolbar.
-2. **What patient identity does the SR carry?** This spec copies it from the source images, because a PACS will not file an object without it, and says so in the menu and the guide. The alternative is to write it only with `showPatientInfo` on, and otherwise write placeholders (an anonymous SR), which a PACS cannot match to the patient.
-3. **Milestone ID.** `M11` is as asked. The plan has an M9 (OncoTrace readiness) that is not built; this does not change that.
+Settled by the maintainer:
+
+1. **The SR is a third item in the Download menu, and which items show is configuration.** The default shows all three, and a host chooses its own list with `measurements.downloadFormats`.
+2. **The SR carries the patient identity of the source images**, because a PACS will not file an object without it. The menu item and the guide say so.
+3. **The `.dcm` is the SR only**, with references to the images, and no pixel data.
+4. **Milestone ID.** `M11`. The plan has an M9 (OncoTrace readiness) that is not built; this does not change that.
