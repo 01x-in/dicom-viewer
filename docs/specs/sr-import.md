@@ -137,6 +137,18 @@ Go if all of these hold:
 
 If fixture B does not read, that is not a no-go. It means the first release reads SRs made by Cornerstone and says so. Reading other tools' SRs then needs a reader we write ourselves (a pure parser of the SR content tree). That is more code but removes the engine dependency, and it is the next spec.
 
+## Spike findings (step 0, partly done)
+
+Run in Node against `@cornerstonejs/adapters` 5.11.4, with one SR made by highdicom (`Comprehensive3DSR`, TID 1500, one `Length` group) that refers to a phantom CT slice.
+
+- **It reads a highdicom SR, but only after a fix-up.** `MeasurementReport.generateToolState` looks for the spatial coordinates (SCOORD) inside the numeric item (NUM) of a measurement group. highdicom, like the standard's template, puts the SCOORD next to the NUM. With a NUM present the reader fails with "No spatial coordinates group found", and it only logs a warning. The engine must move a sibling SCOORD into the NUM item before it calls the reader. With that done the `Length` came back with the right world points and length (60 mm for 40 pixels at 1.5 mm).
+- **Half a pixel.** The reader treats an SCOORD value as measured from the pixel's corner and subtracts 0.5 to get Cornerstone's pixel-centre index (a column of 30 became index 29.5). Tests must compare in millimetres with that in mind, and fixture A (written by Cornerstone's own adapter) is the check that the two sides agree.
+- **The image map is keyed `SOP:frame`**, for example `1.2.3.4:1`, not by SOP instance alone. A wrong key gives the unhelpful "Cannot read properties of undefined (reading 'frameOfReferenceUID')".
+- **The reader needs a parsed dataset**, made with `dcmjs` (`DicomMessage.readFile`, then `naturalizeDataset`). `dcmjs` is already inside the engine chunk through the adapters, but `packages/core` does not list it. Add it as an exact-pinned dev dependency (0.52.0), as for the Cornerstone packages (ADR 0003). No chunk growth is expected from this; confirm when the budget is measured.
+- **Errors inside a group are swallowed.** The reader catches them and goes on, so a group that fails simply is not in the result. The engine must count the measurement groups itself and report the difference as skipped, with the reason "could not be read".
+- **Geometry comes from Cornerstone's metadata.** The pixel-to-world step reads `imagePlaneModule` for each referenced image from Cornerstone's own metadata, so the images must be registered first. The engine already does that with `metadataUtilities.addDicomWebInstance` and a claim-and-release count (`engine/index.ts`, ADR 0005). Parsing an SR claims the referenced images, reads, and releases them.
+- **Still open from step 0:** the other five types (only `Length` has been read), fixture A, engine-chunk growth, and the PDF library measurement.
+
 ## Risks
 
 - **Other tools' SRs.** The reader is built around what Cornerstone writes. Whether it reads an SR from highdicom or a vendor is what the spike finds out. Do not claim it works for them until fixture B passes.
