@@ -267,6 +267,8 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
   const items = new Map<string, Measurement>();
   /** How each measurement came to be. */
   const origins = new Map<string, MeasurementOrigin>();
+  /** The ids of the measurements that loading a report made: only a load of a report may replace those. `importJson` also has the origin `import`, so the origin cannot say. */
+  const fromReports = new Set<string>();
   const attached = new Set<ShownStack>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   let selected: string | undefined;
@@ -334,6 +336,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     if (measurement === undefined) return undefined;
     items.delete(id);
     origins.delete(id);
+    fromReports.delete(id);
     const timer = timers.get(id);
     if (timer !== undefined) clearTimeout(timer);
     timers.delete(id);
@@ -498,6 +501,8 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     let added = 0;
     let replaced = 0;
     for (const measurement of incoming) {
+      // Whoever brings it, it is not what a report made.
+      fromReports.delete(measurement.id);
       if (items.has(measurement.id)) {
         erase(measurement.id);
         replace(measurement, 'import');
@@ -613,11 +618,13 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     // The id of a shape is the loader's own, so loading again replaces it. A measurement that
     // somebody else made with that id is not replaced: the shape is counted as left out.
     const free = measurements.filter(
-      (measurement) => !items.has(measurement.id) || origins.get(measurement.id) === 'import',
+      (measurement) => !items.has(measurement.id) || fromReports.has(measurement.id),
     );
     const clashes = measurements.length - free.length;
+    const inserted = insertImported(free);
+    for (const measurement of free) fromReports.add(measurement.id);
     return {
-      ...insertImported(free),
+      ...inserted,
       skipped: clashes === 0 ? skipped : [...skipped, { reason: SR_ID_TAKEN, count: clashes }],
     };
   }

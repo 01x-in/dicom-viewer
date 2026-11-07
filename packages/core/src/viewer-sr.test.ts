@@ -144,6 +144,35 @@ describe('measurements.loadSr', () => {
     });
   });
 
+  it('does not replace a measurement brought in with importJson that has the id of a shape', async () => {
+    const h = harness();
+    await h.viewer.loadStudy(STUDY);
+    const id = srMeasurementId(SR_SOP, 0);
+    await h.viewer.measurements.importJson({
+      format: 'measurements/v1',
+      measurements: [
+        {
+          id,
+          type: 'length',
+          label: 'Imported by the host',
+          reference: { studyInstanceUID: STUDY, seriesInstanceUID: CT, sopInstanceUID: CT_FIRST },
+          points: [
+            [0, 0, 0],
+            [1, 0, 0],
+          ],
+        },
+      ],
+    });
+    const result = await h.viewer.measurements.loadSr(SR);
+    expect(result.added).toBe(1);
+    expect(result.skipped).toHaveLength(1);
+    expect(h.viewer.measurements.get(id)?.label).toBe('Imported by the host');
+    // Once the host's measurement is gone, the id is free and the report makes its own.
+    await h.viewer.measurements.remove(id);
+    await h.viewer.measurements.loadSr(SR);
+    expect(h.viewer.measurements.get(id)?.label).toBe('Aorta');
+  });
+
   it('keeps what the person drew, and what the host added', async () => {
     const h = harness();
     await h.viewer.loadStudy(STUDY);
