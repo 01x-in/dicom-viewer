@@ -635,6 +635,11 @@ export function createViewerCore(
     },
     study: () => store.getState().studyInstanceUID,
     navigateNow: (target) => navigateNow(target),
+    getSeries: (studyInstanceUID, seriesInstanceUID) =>
+      getSeries(studyInstanceUID, seriesInstanceUID),
+    getInstanceBytes: (studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality) =>
+      dataSource.getInstanceBytes(studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality),
+    port: () => portPromise,
     fail: (error) => {
       events.emit('error', { error, context: 'measurement' });
     },

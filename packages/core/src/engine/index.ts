@@ -19,6 +19,7 @@ import {
   utilities as metadataUtilities,
 } from '@cornerstonejs/metadata';
 import type { FrameRequestPolicy, SeriesInstance, SeriesStack } from '../data/types';
+import type { SrRead } from '../measurements/sr';
 import { provideEngineDiagnostics } from '../diagnostics';
 import {
   VolumeUnsupportedError,
@@ -42,6 +43,7 @@ import {
   type StackSegmentations,
 } from './segmentation';
 import { readSegmentationHeader } from './segmentation-header';
+import { readReportReferences, readStructuredReport } from './sr';
 import { trackMeasurements, type StackMeasurements } from './measurements';
 import { attachStackTools, attachVolumeTools, type StackTools } from './tools';
 import {
@@ -699,6 +701,25 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       } catch (error) {
         releaseImages(stack.imageIds);
         throw error;
+      }
+    },
+    readReportReferences,
+    async readReport(bytes, instances): Promise<SrRead> {
+      // The reader turns pixel positions into millimetres with what Cornerstone knows about each
+      // image, and a report can name series no stack shows. Tell it, for the images nobody has,
+      // and hold the images only while the report is read.
+      await Promise.all(
+        instances.filter((instance) => !imageUsers.has(instance.imageId)).map(registerInstance),
+      );
+      const imageIds = instances.map((instance) => instance.imageId);
+      claimImages(imageIds);
+      try {
+        return readStructuredReport(
+          bytes,
+          new Map(instances.map((instance) => [instance.sopInstanceUID, instance.imageId])),
+        );
+      } finally {
+        releaseImages(imageIds);
       }
     },
     destroy(): void {

@@ -6,7 +6,12 @@ import { data } from 'dcmjs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { MeasurementType, Point3 } from '../measurements/model';
-import { liftSiblingCoordinates, readStructuredReport, shapesFromToolState } from './sr';
+import {
+  liftSiblingCoordinates,
+  readReportReferences,
+  readStructuredReport,
+  shapesFromToolState,
+} from './sr';
 
 const PHANTOM = fileURLToPath(new URL('../../../../fixtures/phantom', import.meta.url));
 const IMAGE_ID = 'phantom:1';
@@ -22,6 +27,7 @@ const ct = data.DicomMetaDictionary.naturalizeDataset(data.DicomMessage.readFile
 const ctSchema = z.object({
   SOPInstanceUID: z.string(),
   SOPClassUID: z.string(),
+  SeriesInstanceUID: z.string(),
   FrameOfReferenceUID: z.string(),
   ImagePositionPatient: z.tuple([z.coerce.number(), z.coerce.number(), z.coerce.number()]),
 });
@@ -271,5 +277,22 @@ describe('liftSiblingCoordinates', () => {
     const items = [coordinates];
     liftSiblingCoordinates(group(items));
     expect(items).toEqual([coordinates]);
+  });
+});
+
+describe('readReportReferences', () => {
+  it('names the series the report has as evidence', () => {
+    const report = writeReport([
+      { tool: 'Length', points: [at(20, 30), at(60, 30)], stats: { length: 60, unit: 'mm' } },
+    ]);
+    expect(readReportReferences(report)).toEqual([ctInfo.SeriesInstanceUID]);
+  });
+
+  it('refuses a file that is not a readable DICOM file, with a message that says so', () => {
+    expect(() => readReportReferences(new ArrayBuffer(16))).toThrow(/not a readable DICOM file/);
+  });
+
+  it('refuses a DICOM file that is not a TID 1500 report', () => {
+    expect(() => readReportReferences(ctBytes)).toThrow(/not a TID 1500 measurement report/);
   });
 });

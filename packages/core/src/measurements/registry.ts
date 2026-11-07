@@ -1,6 +1,7 @@
 import { optionalString } from '../data/dicom-json';
-import type { SeriesStack } from '../data/types';
-import type { MeasurementChange, StackPort } from '../rendering-port';
+import type { LoadedSeriesData, SeriesStack } from '../data/types';
+import { assertDicomUid } from '../data/uid';
+import type { MeasurementChange, RenderingPort, StackPort } from '../rendering-port';
 import { measurementValues, type MeasurementValues } from './describe';
 import { planeOf } from './geometry';
 import { newId } from './ids';
@@ -16,6 +17,7 @@ import {
   type Point3,
   type RoiStats,
 } from './model';
+import { measurementsFromSr, type SrSkip } from './sr';
 import { probeHu, roiStats } from './stats';
 
 /** Who changed a measurement: the person with the mouse, the host's code, or an import. */
@@ -69,6 +71,15 @@ export interface ImportResult {
   readonly replaced: number;
 }
 
+export interface SrLoadResult {
+  /** Measurements the report made that were not there before. */
+  readonly added: number;
+  /** Measurements that an earlier load of the same report made, and this one replaced. */
+  readonly replaced: number;
+  /** What was left out, by reason. Empty when every shape in the report is kept. */
+  readonly skipped: readonly SrSkip[];
+}
+
 export interface JumpOptions {
   /** Default `vp-0`. */
   readonly viewportId?: string;
@@ -102,6 +113,15 @@ export interface MeasurementsApi {
    * anything wrong in it adds nothing, and rejects.
    */
   importJson(input: unknown, options?: ImportOptions): Promise<ImportResult>;
+  /**
+   * Reads a DICOM Structured Report of the study on screen (a TID 1500 measurement report) and
+   * keeps its shapes as measurements, as an import does. Lengths, bidirectional measurements,
+   * ellipses, rectangles, probes, and angles are kept, each on the image the report puts it on;
+   * the numbers are worked out again from the pixels. A shape that cannot be kept is counted in
+   * `skipped`. Loading a report again replaces what it made. Rejects with a `RangeError` for a
+   * series that is not an SR, and with an `Error` for a report that is not TID 1500.
+   */
+  loadSr(seriesInstanceUID: string): Promise<SrLoadResult>;
 }
 
 /** A stack on screen, with the engine drawing it. */
@@ -124,6 +144,14 @@ export interface MeasurementDeps {
     readonly sopInstanceUID: string;
     readonly viewportId?: string;
   }): Promise<unknown>;
+  getSeries(studyInstanceUID: string, seriesInstanceUID: string): Promise<LoadedSeriesData>;
+  getInstanceBytes(
+    studyInstanceUID: string,
+    seriesInstanceUID: string,
+    sopInstanceUID: string,
+    modality: string,
+  ): Promise<ArrayBuffer>;
+  port(): Promise<RenderingPort>;
   /** A failure nobody is waiting for, such as a slice that could not be read for its pixels. */
   fail(error: Error): void;
 }
@@ -144,6 +172,12 @@ export const STATS_DELAY_MS = 150;
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+/** A UID that is not one is the caller's mistake, as a measurement that is not valid is. */
+function toRangeOrError(error: unknown): Error {
+  const found = toError(error);
+  return found instanceof RangeError ? found : new RangeError(found.message);
 }
 
 function samePoints(a: readonly Point3[], b: readonly Point3[]): boolean {
@@ -428,6 +462,81 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     return deps.enqueue(task);
   }
 
+  /** Keeps measurements that came from outside. A measurement with the same id is replaced. Runs in the queue. */
+  function insertImported(incoming: readonly Measurement[]): ImportResult {
+    let added = 0;
+    let replaced = 0;
+    for (const measurement of incoming) {
+      if (items.has(measurement.id)) {
+        erase(measurement.id);
+        replace(measurement, 'import');
+        replaced += 1;
+      } else {
+        items.set(measurement.id, measurement);
+        deps.emit('measurement:added', { measurement, origin: 'import' });
+        added += 1;
+      }
+      draw(measurement);
+      if (needsPixels(measurement)) schedulePixels(measurement.id, 'import', 0);
+    }
+    return { added, replaced };
+  }
+
+  async function loadSrNow(seriesInstanceUID: string): Promise<SrLoadResult> {
+    const studyInstanceUID = deps.study();
+    if (studyInstanceUID === undefined) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    const report = await deps.getSeries(studyInstanceUID, seriesInstanceUID);
+    deps.assertAlive();
+    if (report.modality !== 'SR') {
+      throw new RangeError(`Series ${seriesInstanceUID} is a ${report.modality}, not an SR.`);
+    }
+    const srSopInstanceUID = report.instances[0]?.sopInstanceUID;
+    if (srSopInstanceUID === undefined) {
+      throw new Error(`Series ${seriesInstanceUID} has no instances.`);
+    }
+    const bytes = await deps.getInstanceBytes(
+      studyInstanceUID,
+      seriesInstanceUID,
+      srSopInstanceUID,
+      'SR',
+    );
+    const port = await deps.port();
+    deps.assertAlive();
+
+    // Throws for a file that is not a TID 1500 report, before any image is asked for.
+    const referencedSeries = port.readReportReferences(bytes);
+    const referenced = await Promise.all(
+      referencedSeries.map((uid) => deps.getSeries(studyInstanceUID, uid)),
+    );
+    deps.assertAlive();
+    const references = new Map<string, MeasurementReference>();
+    const instances = referenced.flatMap((series) =>
+      series.instances.map((instance) => {
+        const frameOfReferenceUID = optionalString(instance.metadata, '00200052');
+        references.set(instance.sopInstanceUID, {
+          studyInstanceUID,
+          seriesInstanceUID: series.seriesInstanceUID,
+          sopInstanceUID: instance.sopInstanceUID,
+          ...(frameOfReferenceUID === undefined ? {} : { frameOfReferenceUID }),
+        });
+        return instance;
+      }),
+    );
+    const read = await port.readReport(bytes, instances);
+    deps.assertAlive();
+
+    const { measurements, skipped } = measurementsFromSr({
+      srSopInstanceUID,
+      shapes: read.shapes,
+      referenceOf: (sopInstanceUID) => references.get(sopInstanceUID),
+      unreadable: read.unreadable,
+      unsupported: read.unsupported,
+    });
+    return { ...insertImported(measurements), skipped };
+  }
+
   const api: MeasurementsApi = {
     list: (filter) => [...items.values()].filter((measurement) => matches(measurement, filter)),
     get: (id) => items.get(id),
@@ -543,23 +652,21 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
             drop(measurement.id, 'import');
           }
         }
-        let added = 0;
-        let replaced = 0;
-        for (const measurement of incoming) {
-          if (items.has(measurement.id)) {
-            erase(measurement.id);
-            replace(measurement, 'import');
-            replaced += 1;
-          } else {
-            items.set(measurement.id, measurement);
-            deps.emit('measurement:added', { measurement, origin: 'import' });
-            added += 1;
-          }
-          draw(measurement);
-          if (needsPixels(measurement)) schedulePixels(measurement.id, 'import', 0);
-        }
-        return Promise.resolve({ added, replaced });
+        return Promise.resolve(insertImported(incoming));
       });
+    },
+    loadSr(seriesInstanceUID): Promise<SrLoadResult> {
+      try {
+        deps.assertAlive();
+      } catch (error) {
+        return Promise.reject(toError(error));
+      }
+      try {
+        assertDicomUid(seriesInstanceUID, 'seriesInstanceUID');
+      } catch (error) {
+        return Promise.reject(toRangeOrError(error));
+      }
+      return call(() => loadSrNow(seriesInstanceUID));
     },
   };
 

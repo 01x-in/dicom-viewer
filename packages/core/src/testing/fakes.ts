@@ -19,6 +19,7 @@ import type {
 } from '../rendering-port';
 import { VolumeUnsupportedError } from '../rendering-port';
 import type { MprOrientation } from '../mpr';
+import type { SrRead } from '../measurements/sr';
 import type { SegmentationDisplay } from '../segmentations/display';
 import type { SegmentationHeader } from '../segmentations/header';
 import type { SegmentIndexEntry, SegmentIndexResult } from '../segmentations/segment-index';
@@ -37,6 +38,10 @@ export const SEG_OVERLAP = '1.2.3.11';
 export const SEG_OFF = '1.2.3.12';
 /** A SEG of the second stack of `CT_TWO_STACKS`, which has three images. */
 export const SEG_ON_SECOND_STACK = '1.2.3.13';
+/** A TID 1500 measurement report on the CT, with a length on its first image and a probe on its fourth. */
+export const SR = '1.2.3.20';
+/** An SR the engine refuses, as it does one that is not a TID 1500 measurement report. */
+export const SR_NOT_A_REPORT = '1.2.3.21';
 /** A SEG whose bytes cannot be read. */
 export const SEG_UNREADABLE = '1.2.3.14';
 /** A study whose only series is the SEG: nothing in it can be shown. */
@@ -226,6 +231,19 @@ export function fakeSource(): FakeSource {
       stacks: [stackOf(CT_TWO_STACKS, 0, 6), stackOf(CT_TWO_STACKS, 1, 3)],
     },
     ...Object.fromEntries(
+      [SR, SR_NOT_A_REPORT].map((uid) => [
+        uid,
+        {
+          studyInstanceUID: STUDY,
+          seriesInstanceUID: uid,
+          modality: 'SR',
+          description: `SR ${uid}`,
+          instances: instances(uid, 0, 1),
+          stacks: [],
+        } satisfies LoadedSeriesData,
+      ]),
+    ),
+    ...Object.fromEntries(
       [SEG, SEG_SECOND, SEG_OVERLAP, SEG_OFF, SEG_ON_SECOND_STACK, SEG_UNREADABLE].map((uid) => [
         uid,
         {
@@ -352,6 +370,12 @@ export interface FakePort extends RenderingPort {
   throwOnSegmentationDraw: boolean;
   /** What a stack does when asked to draw the SEG with this handle id (`seg-1`, ...): `refuse` or `throw`. */
   segmentationDrawFaults: Map<string, 'refuse' | 'throw'>;
+  /** Every report the viewer asked the engine to read: the report, and the instances it was read against. */
+  readonly reportReads: { report: string; sopInstanceUIDs: readonly string[] }[];
+  /** What the engine reads from a report. By default a length and a probe on the CT. */
+  reportResult: SrRead;
+  /** Makes the next `readReport` fail. */
+  failNextReportRead(): void;
   /** Makes the next `loadSegmentation` fail. */
   failNextSegmentationLoad(): void;
   /** Holds every `loadSegmentation` until `release()`. */
@@ -372,6 +396,8 @@ export function fakePort(): FakePort {
   const segmentationLoads: FakePort['segmentationLoads'] = [];
   const segmentationHandles: FakeSegmentationHandle[] = [];
   let segmentationFailure = false;
+  let reportFailure = false;
+  const reportReads: FakePort['reportReads'] = [];
   let segmentationGate: Promise<void> | undefined;
   const volumeCalls: string[] = [];
   const thumbnailCalls: string[] = [];
@@ -564,6 +590,26 @@ export function fakePort(): FakePort {
     volumeCalls,
     volumeUnsupported: false,
     destroyed: false,
+    reportReads,
+    reportResult: {
+      shapes: [
+        {
+          type: 'length',
+          points: [
+            [0, 0, 0],
+            [3, 4, 0],
+          ],
+          label: 'Aorta',
+          sopInstanceUID: `${CT}.0.0`,
+        },
+        { type: 'probe', points: [[7, 2, 7.5]], sopInstanceUID: `${CT}.0.3` },
+      ],
+      unreadable: 0,
+      unsupported: [],
+    },
+    failNextReportRead(): void {
+      reportFailure = true;
+    },
     segmentationLoads,
     segmentationHandles,
     segmentationIndexOf: fakeIndexOf,
@@ -648,6 +694,26 @@ export function fakePort(): FakePort {
       const header = FAKE_SEGMENTATION_HEADERS.get(uid);
       if (header === undefined) throw new Error(`The fake knows no SEG ${uid}.`);
       return header;
+    },
+    readReportReferences(bytes): readonly string[] {
+      const uid = new TextDecoder().decode(bytes);
+      if (uid === SR_NOT_A_REPORT) {
+        throw new Error(
+          'This is not a TID 1500 measurement report, the only kind the viewer reads.',
+        );
+      }
+      return [CT];
+    },
+    readReport(bytes, referenced): Promise<SrRead> {
+      reportReads.push({
+        report: new TextDecoder().decode(bytes),
+        sopInstanceUIDs: referenced.map((instance) => instance.sopInstanceUID),
+      });
+      if (reportFailure) {
+        reportFailure = false;
+        return Promise.reject(new Error('The report could not be read.'));
+      }
+      return Promise.resolve(port.reportResult);
     },
     async loadSegmentation(stack, _bytes, header): Promise<SegmentationHandle> {
       const { imageIds } = stack;

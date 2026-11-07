@@ -15,6 +15,15 @@ export interface SrShape {
   readonly sopInstanceUID: string;
 }
 
+/** What the engine made of a report: the shapes it read, and what it could not. */
+export interface SrRead {
+  readonly shapes: readonly SrShape[];
+  /** Measurement groups the reader failed on, or had no reader for. */
+  readonly unreadable: number;
+  /** The reader's names for shapes of a kind the model has no place for, one for each shape. */
+  readonly unsupported: readonly string[];
+}
+
 export interface SrSkip {
   readonly reason: string;
   readonly count: number;

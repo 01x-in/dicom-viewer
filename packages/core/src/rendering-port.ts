@@ -1,6 +1,7 @@
-import type { SeriesStack } from './data/types';
+import type { SeriesInstance, SeriesStack } from './data/types';
 import type { MprOrientation } from './mpr';
 import type { MeasurementType, Point3 } from './measurements/model';
+import type { SrRead } from './measurements/sr';
 import type { PixelSlice } from './measurements/stats';
 import type { SegmentationDisplay } from './segmentations/display';
 import type { SegmentationHeader } from './segmentations/header';
@@ -169,5 +170,16 @@ export interface RenderingPort {
     bytes: ArrayBuffer,
     header: SegmentationHeader,
   ): Promise<SegmentationHandle>;
+  /**
+   * The series a measurement report says its shapes are on, from its bytes. Throws for a file that
+   * is not a readable DICOM file, or is not a TID 1500 measurement report.
+   */
+  readReportReferences(bytes: ArrayBuffer): readonly string[];
+  /**
+   * Reads the shapes of a TID 1500 measurement report, against the instances it refers to. The
+   * engine learns what it needs about those images, and lets go of them when it is done. A shape on
+   * an image that is not among them is counted as unreadable.
+   */
+  readReport(bytes: ArrayBuffer, instances: readonly SeriesInstance[]): Promise<SrRead>;
   destroy(): void;
 }

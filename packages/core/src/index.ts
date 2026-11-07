@@ -103,7 +103,9 @@ export type {
   MeasurementsApi,
   MeasurementsExportV1,
   NewMeasurement,
+  SrLoadResult,
 } from './measurements/registry';
+export type { SrSkip } from './measurements/sr';
 export type {
   HighlightOptions,
   JumpToSegmentOptions,

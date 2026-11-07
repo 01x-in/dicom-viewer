@@ -2,17 +2,14 @@ import { adaptersSR } from '@cornerstonejs/adapters';
 import { metaData } from '@cornerstonejs/core';
 import { data } from 'dcmjs';
 import { z } from 'zod';
+import { isDicomUid } from '../data/uid';
 import type { MeasurementType, Point3 } from '../measurements/model';
-import { type EllipsePoints, orderEllipseAxes, type SrShape } from '../measurements/sr';
-
-/** What the engine made of a report: the shapes it read, and what it could not. */
-export interface SrRead {
-  readonly shapes: readonly SrShape[];
-  /** Measurement groups the reader failed on, or had no reader for. */
-  readonly unreadable: number;
-  /** The reader's names for shapes of a kind the model has no place for, one for each shape. */
-  readonly unsupported: readonly string[];
-}
+import {
+  type EllipsePoints,
+  orderEllipseAxes,
+  type SrRead,
+  type SrShape,
+} from '../measurements/sr';
 
 /** The reader's names for the shapes the model keeps. */
 const TYPE_OF_TOOL: Readonly<Record<string, MeasurementType>> = {
@@ -153,6 +150,38 @@ const adapterMetadata = {
   },
 };
 
+const NOT_TID_1500 = 'This is not a TID 1500 measurement report, the only kind the viewer reads.';
+
+/** The report as named fields. Throws for a file that is not DICOM, or not a TID 1500 report. */
+function naturalizedReport(bytes: ArrayBuffer): Record<string, unknown> {
+  let dataset: unknown;
+  try {
+    dataset = data.DicomMetaDictionary.naturalizeDataset(data.DicomMessage.readFile(bytes).dict);
+  } catch {
+    throw new Error('The report is not a readable DICOM file.');
+  }
+  if (!isRecord(dataset)) throw new Error(NOT_TID_1500);
+  const template = itemsOf(dataset['ContentTemplateSequence'])[0]?.['TemplateIdentifier'];
+  if (template !== '1500') throw new Error(NOT_TID_1500);
+  return dataset;
+}
+
+/**
+ * The series the report says its shapes are on: those of its evidence. Only well-formed UIDs are
+ * returned, as they go into a request path.
+ */
+export function readReportReferences(bytes: ArrayBuffer): readonly string[] {
+  const dataset = naturalizedReport(bytes);
+  const found = new Set<string>();
+  for (const evidence of itemsOf(dataset['CurrentRequestedProcedureEvidenceSequence'])) {
+    for (const series of itemsOf(evidence['ReferencedSeriesSequence'])) {
+      const uid = series['SeriesInstanceUID'];
+      if (typeof uid === 'string' && isDicomUid(uid)) found.add(uid);
+    }
+  }
+  return [...found];
+}
+
 /**
  * Reads the shapes of a TID 1500 measurement report. `imageIdBySop` holds the images the report may
  * refer to, and Cornerstone must already know their metadata: the reader turns pixel positions
@@ -163,13 +192,7 @@ export function readStructuredReport(
   bytes: ArrayBuffer,
   imageIdBySop: ReadonlyMap<string, string>,
 ): SrRead {
-  const dataset = data.DicomMetaDictionary.naturalizeDataset(
-    data.DicomMessage.readFile(bytes).dict,
-  );
-  const template = itemsOf(dataset['ContentTemplateSequence'])[0]?.['TemplateIdentifier'];
-  if (template !== '1500') {
-    throw new Error('This is not a TID 1500 measurement report, the only kind the viewer reads.');
-  }
+  const dataset = naturalizedReport(bytes);
   const groups = measurementGroups(dataset).length;
   liftSiblingCoordinates(dataset);
 
