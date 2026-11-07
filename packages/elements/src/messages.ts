@@ -8,7 +8,7 @@ import {
   type SegmentationWarning,
   type ViewerMessages,
 } from '@01x/dicom-viewer-core';
-import type { MenuEntry, ToolbarItem } from './toolbar-config';
+import { TOOLBAR_ACTIONS, type MenuEntry, type MenuItem, type ToolbarItem } from './toolbar-config';
 
 const TOOL_MESSAGES: Readonly<Record<PrimaryTool, keyof ViewerMessages>> = {
   'window-level': 'toolWindowLevel',
@@ -53,7 +53,11 @@ const ITEM_MESSAGES: Readonly<Record<string, keyof ViewerMessages>> = {
 export const itemLabel = (
   item: Exclude<ToolbarItem, { readonly type: 'tool' | 'separator' | 'custom' }> | MenuEntry,
   messages?: Partial<ViewerMessages>,
+  parent?: MenuItem,
 ): string => {
+  const builtInItems = Object.values(TOOLBAR_ACTIONS);
+  const isBuiltIn = builtInItems.some((builtIn) => builtIn === item || builtIn === parent);
+  if (!isBuiltIn) return item.label;
   const key = ITEM_MESSAGES[item.id];
   return key !== undefined && item.label === DEFAULT_VIEWER_MESSAGES[key]
     ? resolveViewerMessages(messages)[key]
@@ -91,8 +95,13 @@ const WARNING_MESSAGES: Readonly<Record<SegmentationWarningCode, keyof ViewerMes
 export const warningMessage = (
   warning: SegmentationWarning,
   messages?: Partial<ViewerMessages>,
-): string =>
-  formatViewerMessage(
-    resolveViewerMessages(messages)[WARNING_MESSAGES[warning.code]],
-    warning.parameters ?? {},
-  );
+): string => {
+  const parameters = warning.parameters ?? {};
+  const messageKey =
+    warning.code === 'overlapping-segments' &&
+    typeof parameters['count'] === 'number' &&
+    parameters['count'] > 0
+      ? 'warningOverlappingSegmentsMore'
+      : WARNING_MESSAGES[warning.code];
+  return formatViewerMessage(resolveViewerMessages(messages)[messageKey], parameters);
+};

@@ -613,7 +613,7 @@ export class DvToolbarElement extends LitElement {
                 }}
               >
                 ${entry.icon === undefined ? nothing : icon(entry.icon)}
-                <span class="entry-label">${itemLabel(entry, this.messages)}</span>
+                <span class="entry-label">${itemLabel(entry, this.messages, item)}</span>
                 ${entryHint === undefined ? nothing : html`<kbd>${entryHint}</kbd>`}
               </button>`;
             })}

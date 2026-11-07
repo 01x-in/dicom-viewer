@@ -43,7 +43,8 @@ export const DEFAULT_VIEWER_MESSAGES = {
   warningPlanePosition:
     'Number of SEG frames outside their image planes: {count}. Maximum distance: {distance} mm.',
   warningMissingReferences: 'Number of referenced images outside the series on screen: {count}.',
-  warningOverlappingSegments: 'Segments share pixels: {pairs}. Additional pairs: {count}.',
+  warningOverlappingSegments: 'Segments share pixels: {pairs}.',
+  warningOverlappingSegmentsMore: 'Segments share pixels: {pairs}. Additional pairs: {count}.',
   warningEmptySegment: 'The segment {name} has no pixels.',
   warningNotDrawn:
     'The SEG is not drawn on screen: the engine could not draw it, which happens when it renders without WebGL.',
