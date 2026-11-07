@@ -6,6 +6,8 @@ import {
   type SeriesSummary,
   type SrLoadResult,
   type Viewer,
+  resolveViewerMessages,
+  type ViewerMessages,
 } from '@01x/dicom-viewer-core';
 import {
   css,
@@ -52,6 +54,7 @@ function toError(error: unknown): Error {
 export class DvMeasurementListElement extends LitElement {
   static override properties: PropertyDeclarations = {
     viewer: { attribute: false },
+    messages: { attribute: false },
     viewportId: { attribute: 'viewport-id' },
     label: {},
     items: { state: true },
@@ -183,6 +186,7 @@ export class DvMeasurementListElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
+  declare messages: Partial<ViewerMessages> | undefined;
   declare viewportId: string | undefined;
   declare label: string;
   declare items: readonly Measurement[];
@@ -428,8 +432,8 @@ export class DvMeasurementListElement extends LitElement {
   }
 
   #renderRow(measurement: Measurement, position: number): TemplateResult {
-    const title = measurementName(measurement, this.items);
-    const lines = measurementLines(measurement);
+    const title = measurementName(measurement, this.items, this.messages);
+    const lines = measurementLines(measurement, this.messages);
     return html`<li
       role="option"
       part="measurement-item"
@@ -462,6 +466,7 @@ export class DvMeasurementListElement extends LitElement {
   }
 
   #renderActions(): TemplateResult {
+    const text = resolveViewerMessages(this.messages);
     const renaming = this.items.find((item) => item.id === this.renamingId);
     if (renaming !== undefined) {
       return html`<form
@@ -473,12 +478,12 @@ export class DvMeasurementListElement extends LitElement {
         }}
       >
         <label>
-          Name
+          ${text.name}
           <input
             type="text"
             part="rename-input"
             maxlength=${MAX_LABEL_LENGTH.toString()}
-            .value=${renaming.label ?? measurementName(renaming, this.items)}
+            .value=${renaming.label ?? measurementName(renaming, this.items, this.messages)}
             @keydown=${(event: KeyboardEvent): void => {
               if (event.key === 'Escape') {
                 event.preventDefault();
@@ -488,7 +493,7 @@ export class DvMeasurementListElement extends LitElement {
             }}
           />
         </label>
-        <button type="submit" part="button">Save</button>
+        <button type="submit" part="button">${text.save}</button>
         <button
           type="button"
           part="button"
@@ -496,12 +501,12 @@ export class DvMeasurementListElement extends LitElement {
             this.#finishRename(false, '');
           }}
         >
-          Cancel
+          ${text.cancel}
         </button>
       </form>`;
     }
     const disabled = this.#current() === undefined;
-    return html`<div class="actions" role="group" aria-label="Measurement actions">
+    return html`<div class="actions" role="group" aria-label=${text.measurementActions}>
       <button
         type="button"
         part="button"
@@ -512,7 +517,7 @@ export class DvMeasurementListElement extends LitElement {
           this.#startRename(this.#current());
         }}
       >
-        Rename
+        ${text.rename}
       </button>
       <button
         type="button"
@@ -523,7 +528,7 @@ export class DvMeasurementListElement extends LitElement {
           this.#delete(this.#current());
         }}
       >
-        Delete
+        ${text.delete}
       </button>
     </div>`;
   }
@@ -599,13 +604,14 @@ export class DvMeasurementListElement extends LitElement {
   }
 
   override render(): TemplateResult {
+    const text = resolveViewerMessages(this.messages);
     if (this.items.length === 0) {
       return html`<p class="empty" role="status">
-          No measurements yet. Choose a tool from the Measure menu and draw on the image.
-        </p>
-        ${this.#renderReport()}`;
+        ${text.noMeasurements}
+      </p>
+      ${this.#renderReport()}`;
     }
-    return html`<ul role="listbox" aria-label=${this.label}>
+    return html`<ul role="listbox" aria-label=${this.label === 'Measurements' ? text.measurementsPanel : this.label}>
         ${this.items.map((measurement, position) => this.#renderRow(measurement, position))}
       </ul>
       ${this.#renderActions()} ${this.#renderReport()}`;

@@ -1,6 +1,7 @@
 import {
   type KeyAction,
   LAYOUTS,
+  DEFAULT_WINDOW_PRESETS,
   type LayoutId,
   type PrimaryTool,
   type Viewer,
@@ -139,17 +140,25 @@ const CINE: ActionItem = {
   pressed: (context) => viewportOf(context)?.cine.playing === true,
 };
 
+const BUILTIN_PRESET_ENTRIES = new WeakSet();
+
+export const isBuiltInPresetEntry = (entry: object): boolean => BUILTIN_PRESET_ENTRIES.has(entry);
+
 const PRESETS: MenuItem = {
   type: 'menu',
   id: 'presets',
   label: 'Presets',
   icon: 'presets',
   items: ({ viewer, viewportId }) =>
-    viewer.tools.windowPresets().map((preset) => ({
-      id: `preset-${preset.id}`,
-      label: preset.label,
-      run: () => viewer.viewports.get(viewportId)?.applyWindowPreset(preset.id),
-    })),
+    viewer.tools.windowPresets().map((preset) => {
+      const entry: MenuEntry = {
+        id: `preset-${preset.id}`,
+        label: preset.label,
+        run: () => viewer.viewports.get(viewportId)?.applyWindowPreset(preset.id),
+      };
+      if (DEFAULT_WINDOW_PRESETS.includes(preset)) BUILTIN_PRESET_ENTRIES.add(entry);
+      return entry;
+    }),
 };
 
 /** What each layout is called in a menu. */

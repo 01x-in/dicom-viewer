@@ -1,4 +1,10 @@
-import type { PanelDefinition, PanelPlacement, Viewer } from '@01x/dicom-viewer-core';
+import {
+  resolveViewerMessages,
+  type PanelDefinition,
+  type PanelPlacement,
+  type Viewer,
+  type ViewerMessages,
+} from '@01x/dicom-viewer-core';
 import {
   css,
   type CSSResultGroup,
@@ -32,6 +38,7 @@ function toError(error: unknown): Error {
 export class DvPanelDockElement extends LitElement {
   static override properties: PropertyDeclarations = {
     viewer: { attribute: false },
+    messages: { attribute: false },
     placement: { reflect: true },
     collapsed: { type: Boolean, reflect: true },
     selectedId: { state: true },
@@ -164,6 +171,7 @@ export class DvPanelDockElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
+  declare messages: Partial<ViewerMessages> | undefined;
   declare placement: PanelPlacement;
   /** Folded to a strip of pictures down the edge. A click on a tab opens it again. */
   declare collapsed: boolean;
@@ -307,18 +315,33 @@ export class DvPanelDockElement extends LitElement {
     const entries = [...this.#entries.values()];
     if (entries.length === 0) return nothing;
     const { collapsed } = this;
-    const toward = this.placement === 'left' ? 'left' : 'right';
-    const verb = collapsed ? 'Expand' : 'Collapse';
+    const messages = resolveViewerMessages(this.messages);
+    const collapseLabel =
+      this.placement === 'left'
+        ? collapsed
+          ? messages.expandLeftPanels
+          : messages.collapseLeftPanels
+        : collapsed
+          ? messages.expandRightPanels
+          : messages.collapseRightPanels;
     return html`<div class="head">
         <div
           role="tablist"
           part="tabs"
-          aria-label=${`${this.placement === 'left' ? 'Left' : 'Right'} panels`}
+          aria-label=${this.placement === 'left' ? messages.leftPanels : messages.rightPanels}
           aria-orientation=${collapsed ? 'vertical' : 'horizontal'}
           @keydown=${this.#onKeydown}
         >
         ${entries.map(({ definition }) => {
           const selected = definition.id === this.selectedId;
+          const title =
+            definition.id === 'series' && definition.title === 'Series'
+              ? messages.seriesPanel
+              : definition.id === 'measurements' && definition.title === 'Measurements'
+                ? messages.measurementsPanel
+                : definition.id === 'segmentations' && definition.title === 'Segments'
+                  ? messages.segmentationsPanel
+                  : definition.title;
           const name = isIconName(definition.icon) ? definition.icon : undefined;
           return html`<button
             type="button"
@@ -329,15 +352,15 @@ export class DvPanelDockElement extends LitElement {
             data-panel=${definition.id}
             aria-selected=${selected && !collapsed ? 'true' : 'false'}
             aria-controls=${`dv-panel-${definition.id}`}
-            aria-label=${definition.title}
-            title=${selected && !collapsed ? nothing : definition.title}
+            aria-label=${title}
+            title=${selected && !collapsed ? nothing : title}
             tabindex=${selected ? 0 : -1}
             @click=${(): void => {
               this.selectedId = definition.id;
               this.collapsed = false;
             }}
           >
-            ${name === undefined ? nothing : icon(name)}<span class="tab-text">${definition.title}</span>
+            ${name === undefined ? nothing : icon(name)}<span class="tab-text">${title}</span>
           </button>`;
         })}
         </div>
@@ -346,9 +369,9 @@ export class DvPanelDockElement extends LitElement {
           part="collapse"
           class="collapse"
           data-action="collapse"
-          aria-label=${`${verb} the ${toward} panels`}
+          aria-label=${collapseLabel}
           aria-expanded=${collapsed ? 'false' : 'true'}
-          title=${`${verb} the ${toward} panels`}
+          title=${collapseLabel}
           @click=${(): void => {
             this.collapsed = !this.collapsed;
           }}

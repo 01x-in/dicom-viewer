@@ -92,6 +92,33 @@ const shown = (): string | undefined =>
   made.at(-1)?.viewer.getState().viewports[0]?.seriesInstanceUID;
 
 describe('<DicomViewer>', () => {
+  it('updates translated chrome without restarting the viewer or clearing measurements', async () => {
+    await render({ messages: { viewerLabel: 'DICOM viewer' } });
+    const before = made[0]?.viewer;
+    if (before === undefined) throw new Error('No viewer');
+    await before.measurements.add({
+      type: 'length',
+      reference: {
+        studyInstanceUID: FAKE_IDS.study,
+        seriesInstanceUID: FAKE_IDS.ct,
+        sopInstanceUID: `${FAKE_IDS.ct}.1`,
+        frameOfReferenceUID: '1.2.3',
+      },
+      points: [
+        [0, 0, 0],
+        [10, 0, 0],
+      ],
+    });
+    const measurements = before.measurements.list();
+    await render({ messages: { viewerLabel: 'Visor DICOM', toolPan: 'Desplazar' } });
+    expect(made).toHaveLength(1);
+    expect(element().viewer).toBe(before);
+    expect(before.measurements.list()).toEqual(measurements);
+    expect(element().shadowRoot?.querySelector('[role="region"]')?.getAttribute('aria-label')).toBe(
+      'Visor DICOM',
+    );
+  });
+
   it('renders the shell, sized to its parent, and shows the first series with pictures', async () => {
     await render();
     expect(element().style.height).toBe('100%');

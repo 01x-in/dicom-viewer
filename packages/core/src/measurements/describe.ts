@@ -1,5 +1,6 @@
 import { geometryValues, type GeometryValues } from './geometry';
 import type { Measurement, MeasurementType, RoiStats } from './model';
+import { resolveViewerMessages, type ViewerMessages } from '../messages';
 
 /** Every number a measurement has: from its shape, and from the pixels inside it when they have been read. */
 export interface MeasurementValues extends GeometryValues, Partial<RoiStats> {
@@ -14,6 +15,15 @@ export const MEASUREMENT_NAMES: Readonly<Record<MeasurementType, string>> = {
   rectangle: 'Rectangle',
   probe: 'Probe',
   angle: 'Angle',
+};
+
+const MEASUREMENT_MESSAGES: Readonly<Record<MeasurementType, keyof ViewerMessages>> = {
+  length: 'toolLength',
+  bidirectional: 'toolBidirectional',
+  ellipse: 'toolEllipse',
+  rectangle: 'toolRectangle',
+  probe: 'toolProbe',
+  angle: 'toolAngle',
 };
 
 export function measurementValues(measurement: Measurement): MeasurementValues {
@@ -39,7 +49,11 @@ function oneDecimal(value: number): string {
  * The lines to show for a measurement, such as `Area 123.4 mm²`. A number that has not been worked
  * out (the pixels of a shape that has not been read) leaves its line out.
  */
-export function measurementLines(measurement: Measurement): readonly string[] {
+export function measurementLines(
+  measurement: Measurement,
+  messages?: Partial<ViewerMessages>,
+): readonly string[] {
+  const text = resolveViewerMessages(messages);
   const values = measurementValues(measurement);
   const lines: string[] = [];
   const add = (name: string, value: number | undefined, unit: string): void => {
@@ -49,25 +63,25 @@ export function measurementLines(measurement: Measurement): readonly string[] {
   };
   switch (measurement.type) {
     case 'length':
-      add('Length', values.lengthMm, ' mm');
+      add(text.toolLength, values.lengthMm, ' mm');
       break;
     case 'bidirectional':
-      add('Long', values.lengthMm, ' mm');
-      add('Short', values.widthMm, ' mm');
+      add(text.measurementLong, values.lengthMm, ' mm');
+      add(text.measurementShort, values.widthMm, ' mm');
       break;
     case 'ellipse':
     case 'rectangle':
-      add('Area', values.areaMm2, ' mm²');
-      add('Mean', values.meanHu, ' HU');
-      add('SD', values.stdDevHu, ' HU');
-      add('Min', values.minHu, ' HU');
-      add('Max', values.maxHu, ' HU');
+      add(text.measurementArea, values.areaMm2, ' mm²');
+      add(text.measurementMean, values.meanHu, ' HU');
+      add(text.measurementStandardDeviation, values.stdDevHu, ' HU');
+      add(text.measurementMin, values.minHu, ' HU');
+      add(text.measurementMax, values.maxHu, ' HU');
       break;
     case 'probe':
-      add('Value', values.hu, ' HU');
+      add(text.measurementValue, values.hu, ' HU');
       break;
     case 'angle':
-      add('Angle', values.degrees, '°');
+      add(text.toolAngle, values.degrees, '°');
       break;
   }
   return lines;
@@ -82,9 +96,13 @@ export function measurementTitle(measurement: Measurement): string {
  * What a list calls a measurement: the name a person gave it, or its kind and its number among
  * those of that kind (`Length 2`), so two that nobody named can be told apart.
  */
-export function measurementName(measurement: Measurement, all: readonly Measurement[]): string {
+export function measurementName(
+  measurement: Measurement,
+  all: readonly Measurement[],
+  messages?: Partial<ViewerMessages>,
+): string {
   if (measurement.label !== undefined) return measurement.label;
   const sameKind = all.filter((other) => other.type === measurement.type);
   const number = sameKind.findIndex((other) => other.id === measurement.id) + 1;
-  return `${MEASUREMENT_NAMES[measurement.type]} ${number.toString()}`;
+  return `${resolveViewerMessages(messages)[MEASUREMENT_MESSAGES[measurement.type]]} ${number.toString()}`;
 }
