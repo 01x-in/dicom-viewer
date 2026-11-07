@@ -1,7 +1,7 @@
 # @01x/dicom-viewer-elements
 
 The styled interface of the DICOM viewer as web components: `<dv-viewer>` with its toolbar, series browser,
-measurement and segmentation panels, layouts, and light and dark themes. It works in plain HTML and in any framework.
+measurement and segmentation panels (the measurement panel loads a Structured Report and downloads a PDF report), layouts, and light and dark themes. It works in plain HTML and in any framework.
 
 ```html
 <dv-viewer id="viewer" style="display: block; height: 100vh"></dv-viewer>
