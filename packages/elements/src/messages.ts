@@ -8,7 +8,13 @@ import {
   type SegmentationWarning,
   type ViewerMessages,
 } from '@01x/dicom-viewer-core';
-import { TOOLBAR_ACTIONS, type MenuEntry, type MenuItem, type ToolbarItem } from './toolbar-config';
+import {
+  TOOLBAR_ACTIONS,
+  isBuiltInPresetEntry,
+  type MenuEntry,
+  type MenuItem,
+  type ToolbarItem,
+} from './toolbar-config';
 
 const TOOL_MESSAGES: Readonly<Record<PrimaryTool, keyof ViewerMessages>> = {
   'window-level': 'toolWindowLevel',
@@ -58,6 +64,7 @@ export const itemLabel = (
   const builtInItems = Object.values(TOOLBAR_ACTIONS);
   const isBuiltIn = builtInItems.some((builtIn) => builtIn === item || builtIn === parent);
   if (!isBuiltIn) return item.label;
+  if (parent === TOOLBAR_ACTIONS.presets && !isBuiltInPresetEntry(item)) return item.label;
   const key = ITEM_MESSAGES[item.id];
   return key !== undefined && item.label === DEFAULT_VIEWER_MESSAGES[key]
     ? resolveViewerMessages(messages)[key]

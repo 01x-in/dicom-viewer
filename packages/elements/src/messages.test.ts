@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
+import { createFakeViewer } from '@01x/dicom-viewer-core/testing';
 import { DEFAULT_TOOLBAR, TOOLBAR_ACTIONS } from './toolbar-config';
 import { fallbackMessage, itemLabel, toolLabel, warningMessage } from './messages';
 
 describe('shell messages', () => {
+  it('translates default presets and preserves matching host preset labels', () => {
+    const { viewer } = createFakeViewer();
+    const menu = TOOLBAR_ACTIONS.presets;
+    if (typeof menu.items !== 'function') throw new Error('No preset factory');
+    const context = { viewer, viewportId: 'vp-0' };
+    const defaults = menu.items(context);
+    const lung = defaults.find((entry) => entry.id === 'preset-lung');
+    if (lung === undefined) throw new Error('No lung preset');
+    expect(itemLabel(lung, { presetLung: 'Pulmón' }, menu)).toBe('Pulmón');
+    viewer.config.apply({
+      version: 1,
+      windowLevelPresets: [{ id: 'lung', label: 'Lung', center: 50, width: 250 }],
+    });
+    const custom = menu.items(context)[0];
+    if (custom === undefined) throw new Error('No custom preset');
+    expect(itemLabel(custom, { presetLung: 'Pulmón' }, menu)).toBe('Lung');
+    viewer.destroy();
+  });
   it('translates built-in actions and preserves custom labels', () => {
     const reset = DEFAULT_TOOLBAR.find((item) => item.type === 'action' && item.id === 'reset');
     if (reset?.type !== 'action') throw new Error('No reset action');
