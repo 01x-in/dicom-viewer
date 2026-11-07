@@ -24,8 +24,11 @@ const SOURCE_NAMES: Readonly<Record<MeasurementOrigin, string>> = {
 export interface ReportSeries {
   readonly modality: string;
   readonly description: string | undefined;
-  /** The SOP instance UIDs of the series, in the order of its slices. */
-  readonly sopInstanceUIDs: readonly string[];
+  /**
+   * The place of each image that can be shown, counting from 1, in the stack it is shown in: the
+   * number the overlay gives it. A series that splits into stacks numbers each of them from 1.
+   */
+  readonly slices: ReadonlyMap<string, number>;
 }
 
 /** Who the patient is, as the images say. Only used when the report is asked to show it. */
@@ -99,7 +102,7 @@ function dateOf(value: string): string {
 export function buildReport(input: ReportInput): ReportModel {
   const rows = input.measurements.map((measurement): ReportRow => {
     const series = input.series.get(measurement.reference.seriesInstanceUID);
-    const at = series?.sopInstanceUIDs.indexOf(measurement.reference.sopInstanceUID) ?? -1;
+    const slice = series?.slices.get(measurement.reference.sopInstanceUID);
     return {
       name: measurementName(measurement, input.measurements),
       type: TYPE_NAMES[measurement.type],
@@ -108,7 +111,7 @@ export function buildReport(input: ReportInput): ReportModel {
         series === undefined
           ? ''
           : [series.modality, series.description].filter(Boolean).join(', '),
-      slice: at < 0 ? '' : (at + 1).toString(),
+      slice: slice === undefined ? '' : slice.toString(),
       source: SOURCE_NAMES[input.origins.get(measurement.id) ?? 'user'],
     };
   });

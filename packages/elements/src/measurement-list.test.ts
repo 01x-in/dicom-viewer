@@ -409,6 +409,24 @@ describe('loading a report', () => {
     expect(reportStatus(list)).toContain('not a TID 1500 measurement report');
   });
 
+  it('ignores the answer to a request made through a viewer that was replaced', async () => {
+    const { list } = await mount();
+    const other = createFakeViewer();
+    open.push(other);
+    await other.viewer.loadStudy(FAKE_IDS.study);
+    const select = reportSelect(list);
+    if (select === null) throw new Error('No Load report control');
+    select.value = FAKE_IDS.sr;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    // The old viewer's request is on its way when the list is given another viewer.
+    list.viewer = other.viewer;
+    await settle(list);
+    await settle(list);
+    expect(reportStatus(list)).toBe('');
+    expect(reportSelect(list)?.disabled).toBe(false);
+    expect(other.viewer.measurements.list()).toEqual([]);
+  });
+
   it('forgets the message when another study is loaded', async () => {
     const { list, fake } = await mount();
     await choose(list, FAKE_IDS.sr);

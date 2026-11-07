@@ -74,6 +74,7 @@ describe('measurements.loadSr', () => {
             [3, 4, 0],
           ],
           sopInstanceUID: CT_FIRST,
+          position: 0,
         },
         {
           type: 'length',
@@ -82,6 +83,7 @@ describe('measurements.loadSr', () => {
             [3, 4, 0],
           ],
           sopInstanceUID: '9.9.9',
+          position: 1,
         },
       ],
       unreadable: 1,
@@ -146,6 +148,27 @@ describe('measurements.loadSr', () => {
       type: 'probe',
       imageIndex: 3,
     });
+  });
+
+  it('keeps what it can when the report names a series the study does not have', async () => {
+    const h = harness();
+    await h.viewer.loadStudy(STUDY);
+    h.port.reportReferences = ['1.9.9.9', CT];
+    const result = await h.viewer.measurements.loadSr(SR);
+    expect(result.added).toBe(2);
+    expect(h.port.reportReads[0]?.sopInstanceUIDs).toHaveLength(10);
+  });
+
+  it('counts every shape as left out when none of the series it names is in the study', async () => {
+    const h = harness();
+    await h.viewer.loadStudy(STUDY);
+    h.port.reportReferences = ['1.9.9.9'];
+    const result = await h.viewer.measurements.loadSr(SR);
+    expect(result.added).toBe(0);
+    expect(result.skipped).toEqual([
+      { reason: 'The report refers to an image that is not in this study.', count: 2 },
+    ]);
+    expect(h.port.reportReads[0]?.sopInstanceUIDs).toEqual([]);
   });
 
   it('rejects for a series that is not a report, and changes nothing', async () => {

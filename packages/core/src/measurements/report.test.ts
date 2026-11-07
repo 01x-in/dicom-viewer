@@ -48,7 +48,9 @@ const series = (uid: string, count: number, description?: string): [string, Repo
   {
     modality: 'CT',
     description,
-    sopInstanceUIDs: Array.from({ length: count }, (_, index) => `${uid}.0.${index.toString()}`),
+    slices: new Map(
+      Array.from({ length: count }, (_, index) => [`${uid}.0.${index.toString()}`, index + 1]),
+    ),
   },
 ];
 
@@ -101,6 +103,25 @@ describe('buildReport', () => {
     expect(second?.source).toBe('Imported');
     const code = buildReport(input({ origins: new Map([['a1', 'api']]) })).rows[0];
     expect(code?.source).toBe('API');
+  });
+
+  it('numbers a slice as the stack it is shown in does, not by the order of the series', () => {
+    const reversed: ReportSeries = {
+      modality: 'CT',
+      description: undefined,
+      // The first instance of the series is the last slice of the stack.
+      slices: new Map([
+        ['1.2.3.1.0.0', 10],
+        ['1.2.3.1.0.4', 6],
+      ]),
+    };
+    const row = buildReport(input({ series: new Map([['1.2.3.1', reversed]]) })).rows[0];
+    expect(row?.slice).toBe('6');
+  });
+
+  it('leaves a slice blank when the image is in no stack', () => {
+    const nothing: ReportSeries = { modality: 'CT', description: undefined, slices: new Map() };
+    expect(buildReport(input({ series: new Map([['1.2.3.1', nothing]]) })).rows[0]?.slice).toBe('');
   });
 
   it('leaves a slice blank when the series is not known', () => {

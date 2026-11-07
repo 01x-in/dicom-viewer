@@ -205,6 +205,7 @@ describe('shapesFromToolState', () => {
     const { shapes } = shapesFromToolState(
       { Length: [entry('1.2.3', [at(0, 0), at(1, 1)], 'Tumor')] },
       () => undefined,
+      0,
     );
     expect(shapes[0]?.label).toBe('Tumor');
   });
@@ -217,13 +218,14 @@ describe('shapesFromToolState', () => {
         PlanarFreehandROI: [entry('1.2.3', [at(0, 0), at(1, 1), at(2, 0)])],
       },
       () => undefined,
+      0,
     );
     expect(result.shapes).toHaveLength(1);
     expect(result.unsupported).toEqual(['ArrowAnnotate', 'ArrowAnnotate', 'PlanarFreehandROI']);
   });
 
   it('counts a shape the model cannot hold as one it could not read', () => {
-    const result = shapesFromToolState({ Length: [{ nonsense: true }] }, () => undefined);
+    const result = shapesFromToolState({ Length: [{ nonsense: true }] }, () => undefined, 0);
     expect(result.shapes).toEqual([]);
     expect(result.unreadable).toBe(1);
   });
@@ -231,6 +233,8 @@ describe('shapesFromToolState', () => {
 
 describe('liftSiblingCoordinates', () => {
   const coordinates = { ValueType: 'SCOORD', GraphicType: 'POLYLINE', GraphicData: [1, 2, 3, 4] };
+  // What the shape must still be after it was moved, written out so a change to the original shows.
+  const literal = [{ ValueType: 'SCOORD', GraphicType: 'POLYLINE', GraphicData: [1, 2, 3, 4] }];
   const group = (items: unknown[]): unknown => ({
     ContentSequence: [
       {
@@ -263,14 +267,23 @@ describe('liftSiblingCoordinates', () => {
         ),
       })
       .parse(dataset).ContentSequence[0]?.ContentSequence[0]?.ContentSequence;
-    expect(items?.find((item) => item.ValueType === 'NUM')?.ContentSequence).toEqual([coordinates]);
+    expect(items?.find((item) => item.ValueType === 'NUM')?.ContentSequence).toEqual(literal);
   });
 
   it('leaves a group alone when the shape is already inside the number', () => {
     const inside = { ValueType: 'NUM', ContentSequence: [coordinates] };
     const dataset = group([inside, coordinates]);
     liftSiblingCoordinates(dataset);
-    expect(inside.ContentSequence).toEqual([coordinates]);
+    expect(inside.ContentSequence).toEqual(literal);
+  });
+
+  it('leaves a group alone when more than one shape sits beside its numbers, as which number each belongs to cannot be told', () => {
+    const second = { ValueType: 'SCOORD', GraphicType: 'POLYLINE', GraphicData: [5, 6, 7, 8] };
+    const first = { ValueType: 'NUM' };
+    const other = { ValueType: 'NUM' };
+    liftSiblingCoordinates(group([first, other, coordinates, second]));
+    expect(first).toEqual({ ValueType: 'NUM' });
+    expect(other).toEqual({ ValueType: 'NUM' });
   });
 
   it('leaves a group that has no number alone', () => {
@@ -298,7 +311,9 @@ describe('readReportReferences', () => {
 });
 
 describe('the phantom report, written by highdicom and not by Cornerstone', () => {
-  const sliceOf = (index: number): { sop: string; imageId: string; position: Point3 } => {
+  const sliceOf = (
+    index: number,
+  ): { sop: string; imageId: string; position: Point3; series: string } => {
     const bytes = arrayBufferOf(`${PHANTOM}/ct-j2k/${(index + 1).toString().padStart(4, '0')}.dcm`);
     const dataset = ctSchema.parse(
       data.DicomMetaDictionary.naturalizeDataset(data.DicomMessage.readFile(bytes).dict),
@@ -307,9 +322,11 @@ describe('the phantom report, written by highdicom and not by Cornerstone', () =
       sop: dataset.SOPInstanceUID,
       imageId: `phantom-j2k:${index.toString()}`,
       position: dataset.ImagePositionPatient,
+      series: dataset.SeriesInstanceUID,
     };
   };
   const slices = new Map([20, 29, 30, 31].map((index) => [index, sliceOf(index)]));
+  const ctSeriesUid = slices.get(20)?.series;
   const byImageId = new Map([...slices.values()].map((slice) => [slice.imageId, slice]));
 
   const phantomProvider = (type: string, query: unknown): unknown => {
@@ -338,7 +355,7 @@ describe('the phantom report, written by highdicom and not by Cornerstone', () =
   };
 
   it('names the series its shapes are on', () => {
-    expect(readReportReferences(report)).toHaveLength(1);
+    expect(readReportReferences(report)).toEqual([ctSeriesUid]);
   });
 
   it('reads each shape the viewer has a place for, on the slice it names, where it was drawn', () => {
@@ -395,6 +412,26 @@ describe('the phantom report, written by highdicom and not by Cornerstone', () =
     const read = readStructuredReport(report, imageIds);
     expect(read.unsupported).toEqual(['CircleROI']);
     expect(read.unreadable).toBe(0);
+  });
+
+  it('gives each shape the place of its group in the report, whatever else was lost', () => {
+    const all = readStructuredReport(report, imageIds);
+    expect(all.shapes.map((shape) => [shape.type, shape.position]).sort()).toEqual([
+      ['angle', 4],
+      ['ellipse', 2],
+      ['length', 0],
+      ['probe', 1],
+      ['rectangle', 3],
+    ]);
+    // Without the image of the first shape, the others are where they were.
+    const without = new Map([...imageIds].filter(([, imageId]) => imageId !== 'phantom-j2k:30'));
+    const rest = readStructuredReport(report, without);
+    expect(rest.shapes.map((shape) => [shape.type, shape.position]).sort()).toEqual([
+      ['angle', 4],
+      ['ellipse', 2],
+      ['rectangle', 3],
+    ]);
+    expect(rest.unreadable).toBe(3);
   });
 
   it('counts a shape on an image it was not told about as unreadable', () => {

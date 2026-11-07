@@ -1,5 +1,6 @@
 import { optionalString } from '../data/dicom-json';
 import type { LoadedSeriesData, SeriesStack } from '../data/types';
+import { isNotFound } from '../data/errors';
 import { assertDicomUid } from '../data/uid';
 import type { MeasurementChange, RenderingPort, StackPort } from '../rendering-port';
 import { measurementValues, type MeasurementValues } from './describe';
@@ -81,8 +82,11 @@ export interface SrLoadResult {
   readonly skipped: readonly SrSkip[];
 }
 
+/** A title longer than this would not fit above the table on a page. */
+export const MAX_REPORT_TITLE_LENGTH = 120;
+
 export interface PdfOptions {
-  /** The name of the report, at the top of the first page. Default `Measurement report`. */
+  /** The name of the report, at the top of the first page, of at most 120 characters. Default `Measurement report`. */
   readonly title?: string;
 }
 
@@ -507,6 +511,12 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
   }
 
   async function exportPdfNow(options: PdfOptions): Promise<Blob> {
+    const title = options.title?.trim();
+    if (title !== undefined && title.length > MAX_REPORT_TITLE_LENGTH) {
+      throw new RangeError(
+        `A report title has at most ${MAX_REPORT_TITLE_LENGTH.toString()} characters.`,
+      );
+    }
     const studyInstanceUID = deps.study();
     if (studyInstanceUID === undefined) {
       throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
@@ -523,7 +533,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     deps.assertAlive();
     const report = buildReport({
       ...context,
-      title: options.title,
+      title: title === '' ? undefined : title,
       generatedAt: new Date(),
       studyInstanceUID,
       measurements: inStudy,
@@ -559,9 +569,19 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
 
     // Throws for a file that is not a TID 1500 report, before any image is asked for.
     const referencedSeries = port.readReportReferences(bytes);
-    const referenced = await Promise.all(
-      referencedSeries.map((uid) => deps.getSeries(studyInstanceUID, uid)),
+    // A series the study does not have (the report may name more than this study holds) is not a
+    // reason to refuse the rest: its shapes are counted as left out. Any other failure is.
+    const found = await Promise.all(
+      referencedSeries.map(async (uid) => {
+        try {
+          return await deps.getSeries(studyInstanceUID, uid);
+        } catch (error) {
+          if (isNotFound(error)) return undefined;
+          throw error;
+        }
+      }),
     );
+    const referenced = found.filter((series) => series !== undefined);
     deps.assertAlive();
     const references = new Map<string, MeasurementReference>();
     const instances = referenced.flatMap((series) =>

@@ -18,6 +18,7 @@ const length: SrShape = {
   type: 'length',
   points: [p(0, 0), p(3, 4)],
   sopInstanceUID: reference.sopInstanceUID,
+  position: 0,
 };
 
 describe('srMeasurementId', () => {
@@ -58,6 +59,7 @@ describe('measurementsFromSr', () => {
       type: 'probe',
       points: [p(7, 2)],
       sopInstanceUID: reference.sopInstanceUID,
+      position: 1,
     };
     const result = measurementsFromSr({
       srSopInstanceUID: SR_SOP,
@@ -74,7 +76,7 @@ describe('measurementsFromSr', () => {
     const elsewhere: SrShape = { ...length, sopInstanceUID: '9.9.9' };
     const result = measurementsFromSr({
       srSopInstanceUID: SR_SOP,
-      shapes: [elsewhere, length],
+      shapes: [elsewhere, { ...length, position: 1 }],
       referenceOf,
       unreadable: 0,
       unsupported: [],
@@ -92,8 +94,9 @@ describe('measurementsFromSr', () => {
       type: 'length',
       points: [p(0, 0)],
       sopInstanceUID: reference.sopInstanceUID,
+      position: 0,
     };
-    const notFinite: SrShape = { ...length, points: [p(0, 0), p(Number.NaN, 1)] };
+    const notFinite: SrShape = { ...length, points: [p(0, 0), p(Number.NaN, 1)], position: 1 };
     const result = measurementsFromSr({
       srSopInstanceUID: SR_SOP,
       shapes: [bad, notFinite],
@@ -133,6 +136,7 @@ describe('measurementsFromSr', () => {
       unreadable: 0,
       unsupported: [],
     });
+    expect(result.measurements).toHaveLength(1);
     expect(result.measurements[0]?.label).toBeUndefined();
   });
 });

@@ -372,6 +372,8 @@ export interface FakePort extends RenderingPort {
   segmentationDrawFaults: Map<string, 'refuse' | 'throw'>;
   /** Every report the viewer asked the engine to read: the report, and the instances it was read against. */
   readonly reportReads: { report: string; sopInstanceUIDs: readonly string[] }[];
+  /** The series the engine says a report is on. By default the CT. */
+  reportReferences: readonly string[];
   /** What the engine reads from a report. By default a length and a probe on the CT. */
   reportResult: SrRead;
   /** Makes the next `readReport` fail. */
@@ -591,6 +593,7 @@ export function fakePort(): FakePort {
     volumeUnsupported: false,
     destroyed: false,
     reportReads,
+    reportReferences: [CT],
     reportResult: {
       shapes: [
         {
@@ -601,8 +604,9 @@ export function fakePort(): FakePort {
           ],
           label: 'Aorta',
           sopInstanceUID: `${CT}.0.0`,
+          position: 0,
         },
-        { type: 'probe', points: [[7, 2, 7.5]], sopInstanceUID: `${CT}.0.3` },
+        { type: 'probe', points: [[7, 2, 7.5]], sopInstanceUID: `${CT}.0.3`, position: 1 },
       ],
       unreadable: 0,
       unsupported: [],
@@ -702,7 +706,7 @@ export function fakePort(): FakePort {
           'This is not a TID 1500 measurement report, the only kind the viewer reads.',
         );
       }
-      return [CT];
+      return port.reportReferences;
     },
     readReport(bytes, referenced): Promise<SrRead> {
       reportReads.push({

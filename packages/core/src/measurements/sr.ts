@@ -13,6 +13,8 @@ export interface SrShape {
   readonly label?: string | undefined;
   /** The image the shape is drawn on. */
   readonly sopInstanceUID: string;
+  /** The place of its measurement group in the report, whatever the others did. It makes the id. */
+  readonly position: number;
 }
 
 /** What the engine made of a report: the shapes it read, and what it could not. */
@@ -61,14 +63,14 @@ export function measurementsFromSr(input: SrMapInput): SrMapResult {
   const measurements: Measurement[] = [];
   let notInStudy = 0;
   let rejected = 0;
-  for (const [index, shape] of input.shapes.entries()) {
+  for (const shape of input.shapes) {
     const reference = input.referenceOf(shape.sopInstanceUID);
     if (reference === undefined) {
       notInStudy += 1;
       continue;
     }
     const parsed = parseMeasurement({
-      id: srMeasurementId(input.srSopInstanceUID, index),
+      id: srMeasurementId(input.srSopInstanceUID, shape.position),
       type: shape.type,
       label: shape.label,
       reference,

@@ -202,6 +202,8 @@ export class DvMeasurementListElement extends LitElement {
   #focusRowAfterUpdate = false;
   /** The study the message about a report is about. */
   #statusStudy: string | undefined;
+  /** Counts the attempts to load a report, so the answer to an old one (another viewer, another study) is ignored. */
+  #reportRequest = 0;
 
   constructor() {
     super();
@@ -228,6 +230,7 @@ export class DvMeasurementListElement extends LitElement {
 
   override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has('viewer')) {
+      this.#forgetReport();
       this.#listen();
       this.#sync();
     }
@@ -282,7 +285,7 @@ export class DvMeasurementListElement extends LitElement {
     }
     if (study !== this.#statusStudy) {
       this.#statusStudy = study;
-      this.reportStatus = undefined;
+      this.#forgetReport();
     }
     const picked = viewer?.measurements.getSelected();
     const selected = next.some((item) => item.id === picked) ? picked : undefined;
@@ -339,25 +342,36 @@ export class DvMeasurementListElement extends LitElement {
     );
   }
 
+  /** Drops the message about a report, and the answer to a request still on its way. */
+  #forgetReport(): void {
+    this.#reportRequest += 1;
+    this.loadingReport = false;
+    this.reportStatus = undefined;
+  }
+
   #loadReport(seriesInstanceUID: string): void {
     const { viewer } = this;
     if (viewer === undefined || seriesInstanceUID === '' || this.loadingReport) return;
+    this.#forgetReport();
+    const request = this.#reportRequest;
+    // Another viewer or another study since the request started: its answer is not about this list.
+    const current = (): boolean => this.#reportRequest === request;
     this.loadingReport = true;
-    this.reportStatus = undefined;
     viewer.measurements
       .loadSr(seriesInstanceUID)
       .then(
         (result) => {
-          this.reportStatus = { kind: 'loaded', result };
+          if (current()) this.reportStatus = { kind: 'loaded', result };
         },
         (error: unknown) => {
+          if (!current()) return;
           const failure = toError(error);
           this.reportStatus = { kind: 'failed', message: failure.message };
           this.#fail(failure);
         },
       )
       .finally(() => {
-        this.loadingReport = false;
+        if (current()) this.loadingReport = false;
       });
   }
 

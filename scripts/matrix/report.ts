@@ -14,7 +14,7 @@ function within(
   actual: number | undefined,
   expected: number,
 ): void {
-  if (actual === undefined || Math.abs(actual - expected) > TOLERANCE) {
+  if (actual === undefined || !Number.isFinite(actual) || Math.abs(actual - expected) > TOLERANCE) {
     failures.push(`${name} is ${String(actual)}, expected ${expected.toString()}`);
   }
 }

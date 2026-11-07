@@ -8,3 +8,8 @@ export class DataSourceError extends Error {
     this.status = status;
   }
 }
+
+/** Whether a request failed because the server has no such thing, which is not the same as the server failing. */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof DataSourceError && error.status === 404;
+}

@@ -7,6 +7,7 @@ import type {
   StudyData,
 } from './data/types';
 import { optionalString } from './data/dicom-json';
+import { isNotFound } from './data/errors';
 import { assertDicomUid } from './data/uid';
 import type { ReportSeries } from './measurements/report';
 import {
@@ -648,11 +649,25 @@ export function createViewerCore(
       const series = new Map<string, ReportSeries>();
       let first: SeriesInstance | undefined;
       for (const seriesInstanceUID of seriesInstanceUIDs) {
-        const loaded = await getSeries(studyInstanceUID, seriesInstanceUID);
+        // A measurement may be on a series this source does not have: its row has no series or
+        // slice. Any other failure is a failure of the report.
+        let loaded: LoadedSeriesData;
+        try {
+          loaded = await getSeries(studyInstanceUID, seriesInstanceUID);
+        } catch (error) {
+          if (isNotFound(error)) continue;
+          throw error;
+        }
+        const slices = new Map<string, number>();
+        for (const stack of loaded.stacks) {
+          for (const [at, instance] of stack.instances.entries()) {
+            slices.set(instance.sopInstanceUID, at + 1);
+          }
+        }
         series.set(seriesInstanceUID, {
           modality: loaded.modality,
           description: loaded.description,
-          sopInstanceUIDs: loaded.instances.map((instance) => instance.sopInstanceUID),
+          slices,
         });
         first ??= loaded.instances[0];
       }

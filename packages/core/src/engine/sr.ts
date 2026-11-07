@@ -43,11 +43,13 @@ function meaningOf(item: Record<string, unknown>): unknown {
   return name?.['CodeMeaning'];
 }
 
+function reportOf(dataset: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(dataset)) return undefined;
+  return itemsOf(dataset['ContentSequence']).find((item) => meaningOf(item) === REPORT_MEANING);
+}
+
 function measurementGroups(dataset: unknown): Record<string, unknown>[] {
-  if (!isRecord(dataset)) return [];
-  const report = itemsOf(dataset['ContentSequence']).find(
-    (item) => meaningOf(item) === REPORT_MEANING,
-  );
+  const report = reportOf(dataset);
   if (report === undefined) return [];
   return itemsOf(report['ContentSequence']).filter((item) => meaningOf(item) === GROUP_MEANING);
 }
@@ -60,14 +62,16 @@ function isCoordinates(item: Record<string, unknown>): boolean {
  * The reader looks for a shape inside the number of a measurement group. The DICOM template, and
  * tools that follow it (highdicom), put the shape beside the number, and with a number there the
  * reader finds no shape and gives up on the group. This moves such a shape into the number. A
- * group that already has its shape inside, or has no number, is left as it is.
+ * group that already has its shape inside, or has no number, is left as it is. So is a group with
+ * more than one shape beside its numbers: which number a shape belongs to cannot be told, and the
+ * reader fails on it, so it is counted as one it could not read.
  */
 export function liftSiblingCoordinates(dataset: unknown): void {
   for (const group of measurementGroups(dataset)) {
     const items = itemsOf(group['ContentSequence']);
     const number = items.find((item) => item['ValueType'] === 'NUM');
     const beside = items.filter(isCoordinates);
-    if (number === undefined || beside.length === 0) continue;
+    if (number === undefined || beside.length !== 1) continue;
     const inside = itemsOf(number['ContentSequence']);
     if (inside.some(isCoordinates)) continue;
     number['ContentSequence'] = [...inside, ...beside];
@@ -92,10 +96,12 @@ const toolStateSchema = z.record(z.string(), z.array(z.unknown()));
 /**
  * Turns the reader's result, which is typed `any`, into shapes. `columnOf` gives the direction of
  * increasing row of an image (down the picture), which says which axis of an ellipse is vertical.
+ * `position` is the place of the measurement group in the report, which every shape gets.
  */
 export function shapesFromToolState(
   toolState: unknown,
   columnOf: (imageId: string) => Point3 | undefined,
+  position: number,
 ): SrRead {
   const shapes: SrShape[] = [];
   const unsupported: string[] = [];
@@ -130,6 +136,7 @@ export function shapesFromToolState(
             : points,
         label: description,
         sopInstanceUID: sopInstanceUid,
+        position,
       });
     }
   }
@@ -193,21 +200,49 @@ export function readStructuredReport(
   imageIdBySop: ReadonlyMap<string, string>,
 ): SrRead {
   const dataset = naturalizedReport(bytes);
-  const groups = measurementGroups(dataset).length;
+  const groups = measurementGroups(dataset);
+  const report = reportOf(dataset);
   liftSiblingCoordinates(dataset);
 
   // The reader looks an image up by its SOP instance and frame. Single-frame images are frame 1.
   const imageIds: Record<string, string> = {};
   for (const [sopInstanceUID, imageId] of imageIdBySop) imageIds[`${sopInstanceUID}:1`] = imageId;
-  const toolState: unknown = adaptersSR.Cornerstone3D.MeasurementReport.generateToolState(
-    dataset,
-    imageIds,
-    adapterMetadata,
-    undefined,
-  );
 
-  const read = shapesFromToolState(toolState, columnOfImage);
-  // The reader drops a group it fails on, with only a log line. What did not come back failed.
-  const returned = read.shapes.length + read.unsupported.length + read.unreadable;
-  return { ...read, unreadable: read.unreadable + Math.max(0, groups - returned) };
+  // One group at a time. The reader gives its shapes by kind, not in the order of the report, and
+  // drops a group it fails on with only a log line. Alone, a group has its place in the report, and
+  // one that gave nothing back is known to have failed.
+  const shapes: SrShape[] = [];
+  const unsupported: string[] = [];
+  let unreadable = 0;
+  for (const [position, group] of groups.entries()) {
+    const alone = {
+      ...dataset,
+      ContentSequence: itemsOf(dataset['ContentSequence']).map((item) =>
+        item === report ? { ...item, ContentSequence: [group] } : item,
+      ),
+    };
+    let read: SrRead | undefined;
+    try {
+      const toolState: unknown = adaptersSR.Cornerstone3D.MeasurementReport.generateToolState(
+        alone,
+        imageIds,
+        adapterMetadata,
+        undefined,
+      );
+      read = shapesFromToolState(toolState, columnOfImage, position);
+    } catch {
+      read = undefined;
+    }
+    if (
+      read === undefined ||
+      read.shapes.length + read.unsupported.length + read.unreadable === 0
+    ) {
+      unreadable += 1;
+      continue;
+    }
+    shapes.push(...read.shapes);
+    unsupported.push(...read.unsupported);
+    unreadable += read.unreadable;
+  }
+  return { shapes, unreadable, unsupported };
 }

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NewMeasurement } from './measurements/registry';
-import { CT, SR, STUDY } from './testing/fakes';
+import { CT, CT_TWO_STACKS, SR, STUDY } from './testing/fakes';
 import { destroyViewersAfterEach, harness, type Harness } from './testing/harness';
 
 destroyViewersAfterEach();
@@ -131,6 +131,51 @@ describe('measurements.exportPdf', () => {
     expect(pdf).not.toContain('Other study');
   });
 
+  it('numbers a slice as the stack it is in does, from 1 in each stack', async () => {
+    const h = harness();
+    await ready(h);
+    // The second stack of this series has three images: its second image is slice 2.
+    await h.viewer.measurements.add({
+      ...length('b', 1),
+      reference: {
+        studyInstanceUID: STUDY,
+        seriesInstanceUID: CT_TWO_STACKS,
+        sopInstanceUID: `${CT_TWO_STACKS}.1.1`,
+      },
+    });
+    const pdf = await read(await h.viewer.measurements.exportPdf());
+    expect(pdf).toContain('(2)');
+    expect(pdf).not.toContain('(8)');
+  });
+
+  it('still makes the report when a measurement is on a series the source does not have, and leaves its series and slice blank', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add({
+      ...length('lost', 0),
+      reference: {
+        studyInstanceUID: STUDY,
+        seriesInstanceUID: '1.9.9.9',
+        sopInstanceUID: '1.9.9.9.0.0',
+      },
+    });
+    const pdf = await read(await h.viewer.measurements.exportPdf());
+    expect(pdf).toContain('(Length 1)');
+    expect(pdf).not.toContain('(CT');
+  });
+
+  it('rejects a title that would not fit on the page', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 0));
+    await expect(h.viewer.measurements.exportPdf({ title: 'x'.repeat(121) })).rejects.toThrow(
+      RangeError,
+    );
+    await expect(
+      h.viewer.measurements.exportPdf({ title: 'x'.repeat(120) }),
+    ).resolves.toBeInstanceOf(Blob);
+  });
+
   it('rejects when there is nothing to put in it', async () => {
     const h = harness();
     await ready(h);
@@ -186,6 +231,7 @@ describe('the measurements.downloadPdf command', () => {
     expect(names).toEqual(['measurement-report.pdf']);
     expect(made).toHaveLength(1);
     expect(made[0]?.type).toBe('application/pdf');
-    expect(revoked).toHaveBeenCalledWith('blob:fake');
+    // Not at once: the browser may not have started to read the address yet.
+    expect(revoked).not.toHaveBeenCalled();
   });
 });
