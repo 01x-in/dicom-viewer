@@ -1,11 +1,14 @@
 import type {
   DataSource,
   LoadedSeriesData,
+  SeriesInstance,
   SeriesStack,
   SeriesSummary,
   StudyData,
 } from './data/types';
+import { optionalString } from './data/dicom-json';
 import { assertDicomUid } from './data/uid';
+import type { ReportSeries } from './measurements/report';
 import {
   type HangingMatch,
   type HangingProtocol,
@@ -54,6 +57,7 @@ import {
 import {
   createOverlayView,
   describeOverlay,
+  nameOf,
   type OverlayOptions,
   renderOverlay,
   type OverlayView,
@@ -640,6 +644,33 @@ export function createViewerCore(
     getInstanceBytes: (studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality) =>
       dataSource.getInstanceBytes(studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality),
     port: () => portPromise,
+    reportContext: async (studyInstanceUID, seriesInstanceUIDs) => {
+      const series = new Map<string, ReportSeries>();
+      let first: SeriesInstance | undefined;
+      for (const seriesInstanceUID of seriesInstanceUIDs) {
+        const loaded = await getSeries(studyInstanceUID, seriesInstanceUID);
+        series.set(seriesInstanceUID, {
+          modality: loaded.modality,
+          description: loaded.description,
+          sopInstanceUIDs: loaded.instances.map((instance) => instance.sopInstanceUID),
+        });
+        first ??= loaded.instances[0];
+      }
+      const metadata = first?.metadata;
+      return {
+        studyDescription: metadata === undefined ? undefined : optionalString(metadata, '00081030'),
+        patient:
+          metadata === undefined
+            ? undefined
+            : {
+                name: nameOf(metadata['00100010']?.Value?.[0]),
+                id: optionalString(metadata, '00100020'),
+                birthDate: optionalString(metadata, '00100030'),
+              },
+        showPatientInfo: overlayOptions?.showPatientInfo === true,
+        series,
+      };
+    },
     fail: (error) => {
       events.emit('error', { error, context: 'measurement' });
     },

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isLayout, type LayoutId } from './layouts';
+import { downloadBlob } from './report/download';
 import type { KeyAction } from './keyboard';
 import type { Unsubscribe } from './state/events';
 import { isPrimaryTool, type PrimaryTool } from './tools';
@@ -30,7 +31,7 @@ export type CommandInput = Command | Command['run'];
 export interface CommandsApi {
   /**
    * Adds a command. The id has a namespace and a name, such as `acme.export`; the built-in ones are
-   * `tool`, `view`, `cine`, `layout`, `mpr`, and `preset`. Throws a `RangeError` for an id that is badly formed or
+   * `tool`, `view`, `cine`, `layout`, `mpr`, `measurements`, and `preset`. Throws a `RangeError` for an id that is badly formed or
    * taken. Returns what removes it again.
    */
   register(id: string, command: CommandInput): Unsubscribe;
@@ -168,6 +169,21 @@ function builtins(): Readonly<Record<string, Command>> {
       },
       check: (args) => {
         parse(noArgs, 'mpr.show', args);
+      },
+    },
+    'measurements.downloadPdf': {
+      run: async ({ viewer }) => {
+        downloadBlob(await viewer.measurements.exportPdf(), 'measurement-report.pdf');
+      },
+      // There is something to put in the report: a measurement of the study on screen.
+      enabled: ({ viewer }) => {
+        const study = viewer.getState().studyInstanceUID;
+        return (
+          study !== undefined && viewer.measurements.list({ studyInstanceUID: study }).length > 0
+        );
+      },
+      check: (args) => {
+        parse(noArgs, 'measurements.downloadPdf', args);
       },
     },
     'preset.apply': {

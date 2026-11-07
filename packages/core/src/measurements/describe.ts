@@ -77,3 +77,14 @@ export function measurementLines(measurement: Measurement): readonly string[] {
 export function measurementTitle(measurement: Measurement): string {
   return measurement.label ?? MEASUREMENT_NAMES[measurement.type];
 }
+
+/**
+ * What a list calls a measurement: the name a person gave it, or its kind and its number among
+ * those of that kind (`Length 2`), so two that nobody named can be told apart.
+ */
+export function measurementName(measurement: Measurement, all: readonly Measurement[]): string {
+  if (measurement.label !== undefined) return measurement.label;
+  const sameKind = all.filter((other) => other.type === measurement.type);
+  const number = sameKind.findIndex((other) => other.id === measurement.id) + 1;
+  return `${MEASUREMENT_NAMES[measurement.type]} ${number.toString()}`;
+}

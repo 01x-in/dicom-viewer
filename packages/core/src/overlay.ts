@@ -60,7 +60,7 @@ function clip(text: string): string {
 }
 
 /** A PN value as DICOM JSON carries it, in the form a person reads: `DOE^JANE^^^` becomes `DOE JANE`. */
-function nameOf(value: unknown): string | undefined {
+export function nameOf(value: unknown): string | undefined {
   const text =
     typeof value === 'string'
       ? value

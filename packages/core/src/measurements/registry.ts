@@ -17,6 +17,7 @@ import {
   type Point3,
   type RoiStats,
 } from './model';
+import { buildReport, type ReportContext } from './report';
 import { measurementsFromSr, type SrSkip } from './sr';
 import { probeHu, roiStats } from './stats';
 
@@ -80,6 +81,11 @@ export interface SrLoadResult {
   readonly skipped: readonly SrSkip[];
 }
 
+export interface PdfOptions {
+  /** The name of the report, at the top of the first page. Default `Measurement report`. */
+  readonly title?: string;
+}
+
 export interface JumpOptions {
   /** Default `vp-0`. */
   readonly viewportId?: string;
@@ -122,6 +128,14 @@ export interface MeasurementsApi {
    * series that is not an SR, and with an `Error` for a report that is not TID 1500.
    */
   loadSr(seriesInstanceUID: string): Promise<SrLoadResult>;
+  /**
+   * A PDF report of the measurements of the study on screen: one row each, with its numbers, its
+   * series and slice, and whether it was drawn, added by code, or imported. It is made in the
+   * browser, and it leaves out who the patient is unless the viewer is set to show that, as its
+   * overlay is. Text the PDF's standard font cannot draw is shown as `?`, and the report says so.
+   * Rejects with a `RangeError` when there are no measurements.
+   */
+  exportPdf(options?: PdfOptions): Promise<Blob>;
 }
 
 /** A stack on screen, with the engine drawing it. */
@@ -152,6 +166,11 @@ export interface MeasurementDeps {
     modality: string,
   ): Promise<ArrayBuffer>;
   port(): Promise<RenderingPort>;
+  /** What the report says about the study, and the series that are named. */
+  reportContext(
+    studyInstanceUID: string,
+    seriesInstanceUIDs: readonly string[],
+  ): Promise<ReportContext>;
   /** A failure nobody is waiting for, such as a slice that could not be read for its pixels. */
   fail(error: Error): void;
 }
@@ -238,6 +257,8 @@ function checked(input: unknown): Measurement {
  */
 export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsRegistry {
   const items = new Map<string, Measurement>();
+  /** How each measurement came to be. */
+  const origins = new Map<string, MeasurementOrigin>();
   const attached = new Set<ShownStack>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   let selected: string | undefined;
@@ -304,6 +325,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     const measurement = items.get(id);
     if (measurement === undefined) return undefined;
     items.delete(id);
+    origins.delete(id);
     const timer = timers.get(id);
     if (timer !== undefined) clearTimeout(timer);
     timers.delete(id);
@@ -397,6 +419,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
           return;
         }
         items.set(id, measurement);
+        origins.set(id, 'user');
         deps.emit('measurement:added', { measurement, origin: 'user' });
         schedulePixels(id, 'user', 0);
         return;
@@ -476,10 +499,39 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
         deps.emit('measurement:added', { measurement, origin: 'import' });
         added += 1;
       }
+      origins.set(measurement.id, 'import');
       draw(measurement);
       if (needsPixels(measurement)) schedulePixels(measurement.id, 'import', 0);
     }
     return { added, replaced };
+  }
+
+  async function exportPdfNow(options: PdfOptions): Promise<Blob> {
+    const studyInstanceUID = deps.study();
+    if (studyInstanceUID === undefined) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    const inStudy = [...items.values()].filter(
+      (measurement) => measurement.reference.studyInstanceUID === studyInstanceUID,
+    );
+    if (inStudy.length === 0) {
+      throw new RangeError('There are no measurements of this study to put in a report.');
+    }
+    const context = await deps.reportContext(studyInstanceUID, [
+      ...new Set(inStudy.map((measurement) => measurement.reference.seriesInstanceUID)),
+    ]);
+    deps.assertAlive();
+    const report = buildReport({
+      ...context,
+      title: options.title,
+      generatedAt: new Date(),
+      studyInstanceUID,
+      measurements: inStudy,
+      origins,
+    });
+    // The writer is its own chunk, so a page that never makes a report never loads it.
+    const { renderPdf } = await import('../report/pdf');
+    return new Blob([renderPdf(report)], { type: 'application/pdf' });
   }
 
   async function loadSrNow(seriesInstanceUID: string): Promise<SrLoadResult> {
@@ -553,6 +605,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
           throw new RangeError(`There is already a measurement ${measurement.id}.`);
         }
         items.set(measurement.id, measurement);
+        origins.set(measurement.id, 'api');
         draw(measurement);
         deps.emit('measurement:added', { measurement, origin: 'api' });
         if (needsPixels(measurement)) await readPixelsNow(measurement.id, 'api');
@@ -654,6 +707,9 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
         }
         return Promise.resolve(insertImported(incoming));
       });
+    },
+    exportPdf(options = {}): Promise<Blob> {
+      return call(() => exportPdfNow(options));
     },
     loadSr(seriesInstanceUID): Promise<SrLoadResult> {
       try {
