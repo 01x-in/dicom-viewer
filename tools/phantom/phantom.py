@@ -489,6 +489,8 @@ class SrShape:
     slice_index: int
     points: tuple[tuple[float, float], ...]
     measurement: tuple[Code, float, Code]
+    # What the report calls the finding. A reader shows it as the name of the measurement.
+    finding: str
 
 
 # Pixel positions come from the phantom's regions (see the README): the water insert is centred at
@@ -496,24 +498,31 @@ class SrShape:
 # air insert at row 36, column 64. Each insert is a disc of radius 9 pixels, on slices 9-56.
 SR_SHAPES: tuple[SrShape, ...] = (
     # Across the water insert: 18 pixels of 1.5 mm.
-    SrShape("Length", GraphicType.POLYLINE, 30, ((55, 92), (73, 92)), (LENGTH, 27.0, MM)),
+    SrShape(
+        "Length", GraphicType.POLYLINE, 30, ((55, 92), (73, 92)), (LENGTH, 27.0, MM), "Water insert"
+    ),
     # The centre of the water insert, which is 0 HU.
-    SrShape("Probe", GraphicType.POINT, 30, ((64, 92),), (ATTENUATION, 0.0, HOUNSFIELD)),
-    # Around the bone insert. The first axis is the longer one, as the adapters write it.
+    SrShape(
+        "Probe", GraphicType.POINT, 30, ((64, 92),), (ATTENUATION, 0.0, HOUNSFIELD), "Water centre"
+    ),
+    # Inside the bone insert, so every pixel in it is 1000 HU. The first axis is the longer one,
+    # as the adapters write it: 16 by 10 pixels, which is 24 by 15 mm.
     SrShape(
         "EllipticalROI",
         GraphicType.ELLIPSE,
         31,
-        ((80, 64), (104, 64), (92, 56), (92, 72)),
-        (AREA, 904.8, MM2),
+        ((84, 64), (100, 64), (92, 59), (92, 69)),
+        (AREA, 282.7, MM2),
+        "Bone insert",
     ),
-    # Around the fat insert; the line closes on its first corner.
+    # Inside the fat insert, so every pixel in it is -100 HU; the line closes on its first corner.
     SrShape(
         "RectangleROI",
         GraphicType.POLYLINE,
         29,
-        ((27, 55), (45, 55), (45, 73), (27, 73), (27, 55)),
-        (AREA, 729.0, MM2),
+        ((31, 59), (41, 59), (41, 69), (31, 69), (31, 59)),
+        (AREA, 225.0, MM2),
+        "Fat insert",
     ),
     # A right angle, drawn as two lines that meet at (64, 64).
     SrShape(
@@ -522,6 +531,7 @@ SR_SHAPES: tuple[SrShape, ...] = (
         20,
         ((40, 40), (64, 64), (64, 64), (88, 40)),
         (ANGLE, 90.0, DEGREE),
+        "Body angle",
     ),
     # A circle: a kind of shape the viewer has no place for, so the loader must count it as skipped.
     SrShape(
@@ -529,7 +539,8 @@ SR_SHAPES: tuple[SrShape, ...] = (
         GraphicType.CIRCLE,
         30,
         ((64, 36), (73, 36)),
-        (AREA, 254.5, MM2),
+        (AREA, 572.6, MM2),
+        "Air insert",
     ),
 )
 
@@ -558,7 +569,9 @@ def sr_dataset(spec: CtSpec) -> Dataset:
                         sources[shape.slice_index]
                     ),
                 ),
-                finding_type=TISSUE,
+                finding_type=Code(
+                    shape.finding.lower().replace(" ", "-"), "99PHANTOM", shape.finding
+                ),
                 measurements=[hd.sr.Measurement(name=name, value=value, unit=unit)],
             )
         )

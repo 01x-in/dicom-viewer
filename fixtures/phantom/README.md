@@ -45,14 +45,14 @@ The five SEGs name instances of `ct-j2k`. Their dates, UIDs, and `ContributionDa
 
 The SR is written by highdicom, not by Cornerstone's adapters, so it tests a reader on a report from another tool. It has one group for each of these shapes. The names are what the Cornerstone reader chooses a kind by, and the pixel positions are the centres of pixels (written as image coordinates, which start at the corner of the first pixel).
 
-| Tool name | Graphic | Slice (0-based) | Where |
-|---|---|---|---|
-| `Length` | polyline of 2 points | 30 | across the water insert, columns 55–73 on row 92 (27 mm) |
-| `Probe` | point | 30 | the centre of the water insert (0 HU) |
-| `EllipticalROI` | ellipse, the longer axis first | 31 | around the bone insert: 24 pixels wide and 16 high |
-| `RectangleROI` | closed polyline of 5 points | 29 | around the fat insert, columns 27–45 and rows 55–73 |
-| `Angle` | polyline of 4 points (two lines that meet) | 20 | a right angle with its vertex at row 64, column 64 |
-| `CircleROI` | circle | 30 | around the air insert; the viewer has no place for it, so a loader counts it as left out |
+| Tool name | Finding (the name) | Graphic | Slice (0-based) | Where |
+|---|---|---|---|---|
+| `Length` | Water insert | polyline of 2 points | 30 | across the water insert, columns 55–73 on row 92 (27 mm) |
+| `Probe` | Water centre | point | 30 | the centre of the water insert (0 HU) |
+| `EllipticalROI` | Bone insert | ellipse, the longer axis first | 31 | inside the bone insert, 16 pixels wide and 10 high (every pixel is 1000 HU) |
+| `RectangleROI` | Fat insert | closed polyline of 5 points | 29 | inside the fat insert, columns 31–41 and rows 59–69 (every pixel is −100 HU) |
+| `Angle` | Body angle | polyline of 4 points (two lines that meet) | 20 | a right angle with its vertex at row 64, column 64 |
+| `CircleROI` | Air insert | circle | 30 | around the air insert; the viewer has no place for it, so a loader counts it as left out |
 
 There is no bidirectional measurement: highdicom's measurement groups hold one shape each, and a bidirectional one has two. The tests write that one with Cornerstone's own writer.
 

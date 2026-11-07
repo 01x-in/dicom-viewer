@@ -59,6 +59,13 @@ export interface ViewerHandle {
     remove(id: string): Promise<boolean>;
     exportJson(): { format: string; measurements: (MeasurementSummary & { values: Values })[] };
     importJson(input: string): Promise<{ added: number; replaced: number }>;
+    loadSr(seriesInstanceUID: string): Promise<{
+      added: number;
+      replaced: number;
+      skipped: { reason: string; count: number }[];
+    }>;
+    /** What `exportPdf` made, as its type and its bytes read as Latin-1 (every byte one character). */
+    exportPdf(): Promise<Blob>;
   };
   segmentations: {
     load(seriesInstanceUID: string): Promise<SegmentationSummary>;
@@ -113,6 +120,7 @@ export type Values = Record<string, number | undefined>;
 export interface MeasurementSummary {
   id: string;
   type: string;
+  label?: string;
   reference: { sopInstanceUID: string; seriesInstanceUID: string; frameOfReferenceUID?: string };
   points: number[][];
   stats?: { pixelCount: number; meanHu: number; stdDevHu: number; minHu: number; maxHu: number };
@@ -123,7 +131,7 @@ declare global {
   interface Window {
     __dvViewer?: ViewerHandle;
     __dvDiagnostics?: () =>
-      | { annotations: number; segmentations: number; cacheBytes: number }
+      | { annotations: number; segmentations: number; cacheBytes: number; imagesInUse: number }
       | undefined;
   }
 }

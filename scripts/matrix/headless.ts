@@ -19,6 +19,7 @@ import {
   scenarioSegmentationViewports,
 } from './segmentation.ts';
 import { scenarioMpr, scenarioMprFallback } from './mpr.ts';
+import { scenarioReport } from './report.ts';
 import { EXPECTED_HU, litFraction, MID_SLICE_INDEX } from './smoke.ts';
 
 interface SourceHandle {
@@ -88,7 +89,7 @@ async function scenarioDicomWeb(browser: Browser, input: HeadlessInput): Promise
         disabled: (node as HTMLButtonElement).disabled,
       })),
     );
-    // The study has the two CT series and every SEG of the phantom (the other study has the series that cannot be reformatted).
+    // The study has the two CT series, every SEG of the phantom, and its SR (the other study has the series that cannot be reformatted).
     const seriesInStudy = input.mock.fixtures.series.filter(
       (item) => item.studyUid === input.studyUid,
     ).length;
@@ -97,7 +98,9 @@ async function scenarioDicomWeb(browser: Browser, input: HeadlessInput): Promise
         `expected ${seriesInStudy.toString()} series in the list, got ${buttons.length.toString()}`,
       );
     if (buttons.filter((button) => button.disabled).length !== seriesInStudy - 2)
-      failures.push('every SEG should be listed but not selectable, and the two CTs selectable');
+      failures.push(
+        'every SEG and the SR should be listed but not selectable, and the two CTs selectable',
+      );
     const seg = buttons.find((button) => button.series === input.segSeriesUid);
     if (seg?.disabled !== true) failures.push('the SEG series should be listed but not selectable');
     if ((await page.evaluate(() => window.__dv?.imageCount)) !== 64)
@@ -1342,6 +1345,7 @@ export async function smokeHeadless(
     ['segmentation', scenarioSegmentation],
     ['segmentation in two viewports', scenarioSegmentationViewports],
     ['segmentation budget', scenarioSegmentationBudget],
+    ['structured report', scenarioReport],
     ['mpr', scenarioMpr],
     ['mpr fallback', scenarioMprFallback],
     ['auth', scenarioAuth],

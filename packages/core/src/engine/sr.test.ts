@@ -359,14 +359,22 @@ describe('the phantom report, written by highdicom and not by Cornerstone', () =
     expect(byType.get('rectangle')?.sopInstanceUID).toBe(sop(29));
     expect(byType.get('angle')?.sopInstanceUID).toBe(sop(20));
 
+    // The name of a shape is the finding the report gives it.
+    expect(read.shapes.map((shape) => [shape.type, shape.label]).sort()).toEqual([
+      ['angle', 'Body angle'],
+      ['ellipse', 'Bone insert'],
+      ['length', 'Water insert'],
+      ['probe', 'Water centre'],
+      ['rectangle', 'Fat insert'],
+    ]);
     closeTo(byType.get('length')?.points ?? [], [pixel(30, 55, 92), pixel(30, 73, 92)]);
     closeTo(byType.get('probe')?.points ?? [], [pixel(30, 64, 92)]);
     // The reader gives a rectangle's corners as top left, top right, bottom left, bottom right.
     closeTo(byType.get('rectangle')?.points ?? [], [
-      pixel(29, 27, 55),
-      pixel(29, 45, 55),
-      pixel(29, 27, 73),
-      pixel(29, 45, 73),
+      pixel(29, 31, 59),
+      pixel(29, 41, 59),
+      pixel(29, 31, 69),
+      pixel(29, 41, 69),
     ]);
     // An angle is the two ends and the vertex between them.
     closeTo(byType.get('angle')?.points ?? [], [
@@ -376,10 +384,10 @@ describe('the phantom report, written by highdicom and not by Cornerstone', () =
     ]);
     // The report puts the longer, horizontal axis first. The viewer keeps the vertical one first.
     closeTo(byType.get('ellipse')?.points ?? [], [
-      pixel(31, 92, 56),
-      pixel(31, 92, 72),
-      pixel(31, 80, 64),
-      pixel(31, 104, 64),
+      pixel(31, 92, 59),
+      pixel(31, 92, 69),
+      pixel(31, 84, 64),
+      pixel(31, 100, 64),
     ]);
   });
 
