@@ -1,7 +1,7 @@
 # @01x/dicom-viewer-core
 
 The headless core of the DICOM viewer: the Cornerstone3D engine (prebundled, loaded on first use), the viewer state,
-the tools, measurements, DICOM SEG overlays, layouts and reformatted planes, and the DICOMweb and local-file data
+the tools, measurements (drawn, or read from a DICOM Structured Report, and written out as JSON or a PDF report), DICOM SEG overlays, layouts and reformatted planes, and the DICOMweb and local-file data
 sources. It has no interface of its own; pair it with `@01x/dicom-viewer-elements`, or use it from your own UI.
 
 ```ts
