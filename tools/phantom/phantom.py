@@ -30,6 +30,7 @@ import highdicom as hd
 import numpy as np
 from numpy.typing import NDArray
 from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom.sr.codedict import codes
 from pydicom.sr.coding import Code
 from pydicom.uid import (
     CTImageStorage,
@@ -463,6 +464,158 @@ def seg_dataset(spec: CtSpec, seg: SegSpec | None = None) -> Dataset:
     return dataset
 
 
+SR_SERIES = "sr-measurements"
+SR_SERIES_NUMBER = 50
+# The reader of the Cornerstone adapters chooses the kind of shape from this, then the tool's name.
+SR_TRACKING_PREFIX = "Cornerstone3DTools@^0.1.0:"
+GraphicType = hd.sr.GraphicTypeValues
+MM = Code("mm", "UCUM", "millimeter")
+MM2 = Code("mm2", "UCUM", "square millimeter")
+DEGREE = Code("deg", "UCUM", "degree")
+HOUNSFIELD = Code("[hnsf'U]", "UCUM", "Hounsfield unit")
+LENGTH = Code("410668003", "SCT", "Length")
+AREA = Code("42798000", "SCT", "Area")
+# Codes of our own (scheme designator 99...): the standard has none for these two quantities here.
+ANGLE = Code("angle", "99PHANTOM", "Angle")
+ATTENUATION = Code("attenuation", "99PHANTOM", "Attenuation")
+
+
+@dataclass(frozen=True)
+class SrShape:
+    """One measurement group of the SR: a shape on one slice, as (column, row) pairs of pixel centres."""
+
+    tool: str
+    graphic_type: hd.sr.GraphicTypeValues
+    slice_index: int
+    points: tuple[tuple[float, float], ...]
+    measurement: tuple[Code, float, Code]
+    # What the report calls the finding. A reader shows it as the name of the measurement.
+    finding: str
+
+
+# Pixel positions come from the phantom's regions (see the README): the water insert is centred at
+# row 92, column 64; the bone insert at row 64, column 92; the fat insert at row 64, column 36; the
+# air insert at row 36, column 64. Each insert is a disc of radius 9 pixels, on slices 9-56.
+SR_SHAPES: tuple[SrShape, ...] = (
+    # Across the water insert: 18 pixels of 1.5 mm.
+    SrShape(
+        "Length", GraphicType.POLYLINE, 30, ((55, 92), (73, 92)), (LENGTH, 27.0, MM), "Water insert"
+    ),
+    # The centre of the water insert, which is 0 HU.
+    SrShape(
+        "Probe", GraphicType.POINT, 30, ((64, 92),), (ATTENUATION, 0.0, HOUNSFIELD), "Water centre"
+    ),
+    # Inside the bone insert, so every pixel in it is 1000 HU. The first axis is the longer one,
+    # as the adapters write it: 16 by 10 pixels, which is 24 by 15 mm.
+    SrShape(
+        "EllipticalROI",
+        GraphicType.ELLIPSE,
+        31,
+        ((84, 64), (100, 64), (92, 59), (92, 69)),
+        (AREA, 282.7, MM2),
+        "Bone insert",
+    ),
+    # Inside the fat insert, so every pixel in it is -100 HU; the line closes on its first corner.
+    SrShape(
+        "RectangleROI",
+        GraphicType.POLYLINE,
+        29,
+        ((31, 59), (41, 59), (41, 69), (31, 69), (31, 59)),
+        (AREA, 225.0, MM2),
+        "Fat insert",
+    ),
+    # A right angle, drawn as two lines that meet at (64, 64).
+    SrShape(
+        "Angle",
+        GraphicType.POLYLINE,
+        20,
+        ((40, 40), (64, 64), (64, 64), (88, 40)),
+        (ANGLE, 90.0, DEGREE),
+        "Body angle",
+    ),
+    # A circle: a kind of shape the viewer has no place for, so the loader must count it as skipped.
+    SrShape(
+        "CircleROI",
+        GraphicType.CIRCLE,
+        30,
+        ((64, 36), (73, 36)),
+        (AREA, 572.6, MM2),
+        "Air insert",
+    ),
+)
+
+
+def sr_dataset(spec: CtSpec) -> Dataset:
+    """A TID 1500 measurement report written by highdicom, not by Cornerstone, on the J2K series."""
+    sources = {
+        index: ct_dataset(spec, index, SEG_SOURCE_SERIES, 2)
+        for index in sorted({shape.slice_index for shape in SR_SHAPES})
+    }
+    groups = []
+    for number, shape in enumerate(SR_SHAPES):
+        name, value, unit = shape.measurement
+        groups.append(
+            hd.sr.PlanarROIMeasurementsAndQualitativeEvaluations(
+                tracking_identifier=hd.sr.TrackingIdentifier(
+                    uid=uid(f"{SR_SERIES}/group/{number}"),
+                    identifier=f"{SR_TRACKING_PREFIX}{shape.tool}",
+                ),
+                referenced_region=hd.sr.ImageRegion(
+                    graphic_type=shape.graphic_type,
+                    # DICOM puts the origin of image coordinates at the top left corner of the
+                    # first pixel, so the centre of the pixel in column 0, row 0 is (0.5, 0.5).
+                    graphic_data=np.array(shape.points, dtype=float) + 0.5,
+                    source_image=hd.sr.SourceImageForRegion.from_source_image(
+                        sources[shape.slice_index]
+                    ),
+                ),
+                finding_type=Code(
+                    shape.finding.lower().replace(" ", "-"), "99PHANTOM", shape.finding
+                ),
+                measurements=[hd.sr.Measurement(name=name, value=value, unit=unit)],
+            )
+        )
+    report = hd.sr.MeasurementReport(
+        observation_context=hd.sr.ObservationContext(
+            observer_person_context=hd.sr.ObserverContext(
+                observer_type=codes.DCM.Person,
+                observer_identifying_attributes=hd.sr.PersonObserverIdentifyingAttributes(
+                    name="Phantom^Generator"
+                ),
+            ),
+            observer_device_context=hd.sr.ObserverContext(
+                observer_type=codes.DCM.Device,
+                observer_identifying_attributes=hd.sr.DeviceObserverIdentifyingAttributes(
+                    uid=uid(f"{SR_SERIES}/device")
+                ),
+            ),
+        ),
+        procedure_reported=codes.LN.CTUnspecifiedBodyRegion,
+        imaging_measurements=groups,
+    )
+    dataset = hd.sr.Comprehensive3DSR(
+        evidence=list(sources.values()),
+        content=report[0],
+        series_instance_uid=uid(f"{SR_SERIES}/series"),
+        series_number=SR_SERIES_NUMBER,
+        sop_instance_uid=uid(f"{SR_SERIES}/instance"),
+        instance_number=1,
+        manufacturer="dicom-viewer phantom",
+        series_description=f"Phantom SR ({SR_SERIES})",
+    )
+    # highdicom stamps the wall clock. Replace it so the file is reproducible.
+    for keyword in ("InstanceCreationDate", "ContentDate", "SeriesDate"):
+        if keyword in dataset:
+            setattr(dataset, keyword, SEG_DATE)
+    for keyword in ("InstanceCreationTime", "ContentTime", "SeriesTime"):
+        if keyword in dataset:
+            setattr(dataset, keyword, SEG_TIME)
+    for item in dataset.ContributingEquipmentSequence:
+        if "ContributionDateTime" in item:
+            item.ContributionDateTime = f"{SEG_DATE}{SEG_TIME}.000000"
+    return dataset
+
+
 def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
     """Writes every phantom series under out_dir and returns the written files."""
     written: list[Path] = []
@@ -508,6 +661,14 @@ def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
         seg_path = seg_dir / "0001.dcm"
         seg_dataset(spec, seg).save_as(seg_path, enforce_file_format=True)
         written.append(seg_path)
+
+    sr_dir = out_dir / SR_SERIES
+    sr_dir.mkdir(parents=True, exist_ok=True)
+    for stale in sr_dir.glob("*.dcm"):
+        stale.unlink()
+    sr_path = sr_dir / "0001.dcm"
+    sr_dataset(spec).save_as(sr_path, enforce_file_format=True)
+    written.append(sr_path)
     return written
 
 

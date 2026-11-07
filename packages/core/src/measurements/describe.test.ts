@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { measurementLines, measurementTitle, measurementValues } from './describe';
+import {
+  measurementLines,
+  measurementName,
+  measurementNames,
+  measurementTitle,
+  measurementValues,
+} from './describe';
 import type { EllipseMeasurement, Measurement, Point3 } from './model';
 
 const reference = {
@@ -108,5 +114,37 @@ describe('measurementTitle', () => {
   it('is the label, or the kind of measurement', () => {
     expect(measurementTitle(length)).toBe('Length');
     expect(measurementTitle({ ...length, label: 'Aorta' })).toBe('Aorta');
+  });
+});
+
+describe('measurementNames', () => {
+  const line = (id: string, label?: string): Measurement => ({
+    ...length,
+    id,
+    ...(label === undefined ? {} : { label }),
+  });
+  const probe: Measurement = {
+    id: 'probe',
+    type: 'probe',
+    reference,
+    points: [[1, 1, 1]],
+  };
+
+  it('gives every measurement the name measurementName gives it', () => {
+    const all = [line('a'), probe, line('b', 'Aorta'), line('c')];
+    const names = measurementNames(all);
+    for (const measurement of all) {
+      expect(names.get(measurement.id)).toBe(measurementName(measurement, all));
+    }
+    expect([...names.values()]).toEqual(['Length 1', 'Probe 1', 'Aorta', 'Length 3']);
+  });
+
+  it('counts a named measurement among those of its kind, as measurementName does', () => {
+    const names = measurementNames([line('a', 'Aorta'), line('b')]);
+    expect(names.get('b')).toBe('Length 2');
+  });
+
+  it('names an empty list as nothing', () => {
+    expect(measurementNames([]).size).toBe(0);
   });
 });

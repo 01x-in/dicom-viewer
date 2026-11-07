@@ -25,6 +25,11 @@
     "limit": "500 B"
   },
   {
+    "name": "core: PDF report chunk (lazy)",
+    "path": "packages/core/dist/pdf-*.js",
+    "limit": "3 kB"
+  },
+  {
     "name": "core: engine chunk (lazy)",
     "path": "packages/core/dist/engine-*.js",
     "limit": "880 kB"

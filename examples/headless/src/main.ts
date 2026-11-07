@@ -4,6 +4,7 @@ import {
   decodeViewerState,
   encodeViewerState,
   getEngineDiagnostics,
+  isDisplayableModality,
   type DataSource,
   type StudyData,
   type Viewer,
@@ -117,7 +118,8 @@ function renderSeriesList(current: Viewer, study: StudyData): void {
     const button = document.createElement('button');
     button.textContent = describeSeries(study)[index] ?? item.seriesInstanceUID;
     button.dataset['series'] = item.seriesInstanceUID;
-    button.disabled = item.modality === 'SEG';
+    // A SEG and an SR have no pictures of their own.
+    button.disabled = !isDisplayableModality(item.modality);
     button.addEventListener('click', () => {
       current.setViewportSeries('vp-0', item.seriesInstanceUID).catch(fail);
     });

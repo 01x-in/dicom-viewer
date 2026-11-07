@@ -16,6 +16,8 @@ import {
   SEG_OVERLAP,
   SEG_SECOND,
   SEG_UNREADABLE,
+  SR,
+  SR_NOT_A_REPORT,
   STUDY,
 } from './testing/fakes';
 import { createViewerCore, type Viewer, type ViewerCoreOptions } from './viewer-core';
@@ -43,6 +45,10 @@ export const FAKE_IDS: {
   readonly noPixels: string;
   /** A study whose only series is the SEG: nothing in it can be shown. */
   readonly onlySegStudy: string;
+  /** A TID 1500 measurement report on `ct`: a length on its first image and a probe on its fourth. */
+  readonly sr: string;
+  /** An SR the engine refuses, as it does one that is not a TID 1500 measurement report. */
+  readonly srNotAReport: string;
   /** The frame of reference of every instance. */
   readonly frameOfReference: string;
 } = {
@@ -57,6 +63,8 @@ export const FAKE_IDS: {
   segUnreadable: SEG_UNREADABLE,
   noPixels: NO_PIXELS,
   onlySegStudy: ONLY_SEG_STUDY,
+  sr: SR,
+  srNotAReport: SR_NOT_A_REPORT,
   frameOfReference: FRAME_OF_REFERENCE,
 };
 

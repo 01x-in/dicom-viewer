@@ -17,6 +17,15 @@ export const MEASUREMENT_NAMES: Readonly<Record<MeasurementType, string>> = {
   angle: 'Angle',
 };
 
+const MEASUREMENT_MESSAGES: Readonly<Record<MeasurementType, keyof ViewerMessages>> = {
+  length: 'toolLength',
+  bidirectional: 'toolBidirectional',
+  ellipse: 'toolEllipse',
+  rectangle: 'toolRectangle',
+  probe: 'toolProbe',
+  angle: 'toolAngle',
+};
+
 export function measurementValues(measurement: Measurement): MeasurementValues {
   const shape = geometryValues(measurement);
   switch (measurement.type) {
@@ -81,4 +90,41 @@ export function measurementLines(
 /** What a list calls a measurement: its label, or its kind when nobody named it. */
 export function measurementTitle(measurement: Measurement): string {
   return measurement.label ?? MEASUREMENT_NAMES[measurement.type];
+}
+
+/**
+ * What a list calls a measurement: the name a person gave it, or its kind and its number among
+ * those of that kind (`Length 2`), so two that nobody named can be told apart.
+ */
+export function measurementName(
+  measurement: Measurement,
+  all: readonly Measurement[],
+  messages?: Partial<ViewerMessages>,
+): string {
+  if (measurement.label !== undefined) return measurement.label;
+  const sameKind = all.filter((other) => other.type === measurement.type);
+  const number = sameKind.findIndex((other) => other.id === measurement.id) + 1;
+  return `${resolveViewerMessages(messages)[MEASUREMENT_MESSAGES[measurement.type]]} ${number.toString()}`;
+}
+
+/**
+ * The names of a whole list at once, by id. Each one is what `measurementName` gives, worked out in
+ * one pass instead of once for each measurement, so a long list costs a visit for each item.
+ */
+export function measurementNames(
+  all: readonly Measurement[],
+  messages?: Partial<ViewerMessages>,
+): ReadonlyMap<string, string> {
+  const text = resolveViewerMessages(messages);
+  const seen = new Map<MeasurementType, number>();
+  const names = new Map<string, string>();
+  for (const measurement of all) {
+    const number = (seen.get(measurement.type) ?? 0) + 1;
+    seen.set(measurement.type, number);
+    names.set(
+      measurement.id,
+      measurement.label ?? `${text[MEASUREMENT_MESSAGES[measurement.type]]} ${number.toString()}`,
+    );
+  }
+  return names;
 }

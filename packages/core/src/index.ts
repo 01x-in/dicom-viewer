@@ -70,6 +70,8 @@ export type { CineApi, CineOptions } from './cine';
 export {
   MEASUREMENT_NAMES,
   measurementLines,
+  measurementName,
+  measurementNames,
   measurementTitle,
   measurementValues,
 } from './measurements/describe';
@@ -105,7 +107,10 @@ export type {
   MeasurementsApi,
   MeasurementsExportV1,
   NewMeasurement,
+  PdfOptions,
+  SrLoadResult,
 } from './measurements/registry';
+export type { SrSkip } from './measurements/sr';
 export type {
   HighlightOptions,
   JumpToSegmentOptions,

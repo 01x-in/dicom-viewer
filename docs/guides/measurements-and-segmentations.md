@@ -57,6 +57,42 @@ viewer.on('measurement:added', ({ measurement, origin }) => {
 });
 ```
 
+### Structured reports
+
+`viewer.measurements.loadSr(seriesInstanceUID)` reads a DICOM Structured Report (a TID 1500 measurement report) of the
+study on screen, and keeps its shapes as measurements. Lengths, bidirectional measurements, ellipses, rectangles, probes,
+and angles are kept, each on the image the report puts it on. The numbers in the report are not used: the viewer works
+them out again from the points and the pixels, so they match the image.
+
+```ts
+const { added, replaced, skipped } = await viewer.measurements.loadSr(srSeriesUid);
+// skipped: [{ reason: 'The viewer has no place for this kind of shape (CircleROI).', count: 1 }]
+```
+
+A report comes from outside, so part of it may be of no use. A shape the viewer cannot keep is counted in `skipped`, with
+the reason, and the rest is kept. Measurements from a report have the origin `import`, and an id made from the report and
+the place of the shape in it, so loading the same report again replaces them. The call rejects with a `RangeError` for a
+series that is not an SR, and with an `Error` for a report that is not TID 1500. The report is read by Cornerstone's
+adapters, and shapes are found by the names its tools write, so a report from another tool is read only when it follows
+them. The measurements panel has a "Load report" control for this.
+
+### A PDF report
+
+`viewer.measurements.exportPdf()` makes a PDF of the measurements of the study on screen, in the browser: one row for
+each, with its numbers, its series and slice, and whether it was drawn, added by code, or imported. It resolves to a
+`Blob`, and rejects with a `RangeError` when there is nothing to put in it.
+
+```ts
+const pdf = await viewer.measurements.exportPdf({ title: 'Follow-up' });
+// or save it with the command the panel's "Download PDF" button runs:
+await viewer.commands.run('measurements.downloadPdf');
+```
+
+The report leaves out the name, the ID, and the birth date of the patient unless the viewer is set to show them (the
+overlay's `showPatientInfo`). It uses the two standard PDF fonts, so a character outside Latin-1 (such as a Chinese
+label) is shown as `?`, and the page says how many. The writer is its own lazy chunk, about 2 kB, loaded when a report is
+made. A config file can put the button on the toolbar with the command `measurements.downloadPdf`.
+
 ## Segmentations (DICOM SEG)
 
 A SEG is loaded against the series it names. It belongs to the study on screen, and goes when the study does.

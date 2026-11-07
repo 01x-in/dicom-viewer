@@ -2,6 +2,10 @@ import {
   MAX_LABEL_LENGTH,
   type Measurement,
   measurementLines,
+  measurementName,
+  measurementNames,
+  type SeriesSummary,
+  type SrLoadResult,
   type Viewer,
   resolveViewerMessages,
   type ViewerMessages,
@@ -18,7 +22,6 @@ import {
 } from 'lit';
 import { baseStyles, themeStyles } from './theme';
 import { nextFocusIndex } from './toolbar-config';
-import { toolLabel } from './messages';
 
 const EVENTS = [
   'measurement:added',
@@ -29,20 +32,12 @@ const EVENTS = [
   'state:changed',
 ] as const;
 
-/**
- * What a row calls a measurement: the name a person gave it, or its kind and its number among
- * those of that kind (`Length 2`), so two that nobody named can be told apart.
- */
-export function measurementName(
-  measurement: Measurement,
-  all: readonly Measurement[],
-  messages?: Partial<ViewerMessages>,
-): string {
-  if (measurement.label !== undefined) return measurement.label;
-  const sameKind = all.filter((other) => other.type === measurement.type);
-  const number = sameKind.findIndex((other) => other.id === measurement.id) + 1;
-  return `${toolLabel(measurement.type, messages)} ${number.toString()}`;
-}
+export { measurementName };
+
+/** What the panel says about the last report it was asked to load. */
+type ReportStatus =
+  | { readonly kind: 'loaded'; readonly result: SrLoadResult }
+  | { readonly kind: 'failed'; readonly message: string };
 
 function sameList(a: readonly Measurement[], b: readonly Measurement[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
@@ -66,6 +61,9 @@ export class DvMeasurementListElement extends LitElement {
     items: { state: true },
     selectedId: { state: true },
     renamingId: { state: true },
+    reports: { state: true },
+    reportStatus: { state: true },
+    loadingReport: { state: true },
   };
 
   /** @internal The component's own CSS. */
@@ -130,7 +128,29 @@ export class DvMeasurementListElement extends LitElement {
         gap: calc(var(--dv-space, 0.25rem) * 2);
         align-items: center;
       }
-      input {
+      .report {
+        display: flex;
+        flex-wrap: wrap;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        align-items: center;
+        padding: calc(var(--dv-space, 0.25rem) * 2);
+        border-top: 1px solid var(--dv-color-border, #667284);
+      }
+      .report-status {
+        flex-basis: 100%;
+        color: var(--dv-color-text-muted, #a7b0be);
+        font-size: 0.8125rem;
+        overflow-wrap: anywhere;
+      }
+      .report-status p,
+      .report-status ul {
+        margin: 0;
+      }
+      .report-status ul {
+        padding-left: calc(var(--dv-space, 0.25rem) * 4);
+      }
+      input,
+      select {
         flex: 1;
         min-width: 0;
         font: inherit;
@@ -174,12 +194,21 @@ export class DvMeasurementListElement extends LitElement {
   declare selectedId: string | undefined;
   /** The measurement whose name is being typed. */
   declare renamingId: string | undefined;
+  /** The Structured Reports of the study, which can be loaded. */
+  declare reports: readonly SeriesSummary[];
+  /** What the last attempt to load a report did, in words. */
+  declare reportStatus: ReportStatus | undefined;
+  declare loadingReport: boolean;
 
   #off: (() => void)[] = [];
   #listeningTo: Viewer | undefined;
   /** The row that has the tab stop, and that Rename and Delete act on. */
   #rovingIndex = 0;
   #focusRowAfterUpdate = false;
+  /** The study the message about a report is about. */
+  #statusStudy: string | undefined;
+  /** Counts the attempts to load a report, so the answer to an old one (another viewer, another study) is ignored. */
+  #reportRequest = 0;
 
   constructor() {
     super();
@@ -188,6 +217,9 @@ export class DvMeasurementListElement extends LitElement {
     this.items = [];
     this.selectedId = undefined;
     this.renamingId = undefined;
+    this.reports = [];
+    this.reportStatus = undefined;
+    this.loadingReport = false;
   }
 
   override connectedCallback(): void {
@@ -203,6 +235,7 @@ export class DvMeasurementListElement extends LitElement {
 
   override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has('viewer')) {
+      this.#forgetReport();
       this.#listen();
       this.#sync();
     }
@@ -248,6 +281,17 @@ export class DvMeasurementListElement extends LitElement {
         ? []
         : viewer.measurements.list({ studyInstanceUID: study });
     if (!sameList(next, this.items)) this.items = next;
+    const reports = viewer?.getStudy()?.series.filter((series) => series.modality === 'SR') ?? [];
+    if (
+      reports.length !== this.reports.length ||
+      reports.some((report, at) => report.seriesInstanceUID !== this.reports[at]?.seriesInstanceUID)
+    ) {
+      this.reports = reports;
+    }
+    if (study !== this.#statusStudy) {
+      this.#statusStudy = study;
+      this.#forgetReport();
+    }
     const picked = viewer?.measurements.getSelected();
     const selected = next.some((item) => item.id === picked) ? picked : undefined;
     if (selected !== this.selectedId) {
@@ -303,6 +347,47 @@ export class DvMeasurementListElement extends LitElement {
     );
   }
 
+  /** Drops the message about a report, and the answer to a request still on its way. */
+  #forgetReport(): void {
+    this.#reportRequest += 1;
+    this.loadingReport = false;
+    this.reportStatus = undefined;
+  }
+
+  #loadReport(seriesInstanceUID: string): void {
+    const { viewer } = this;
+    if (viewer === undefined || seriesInstanceUID === '' || this.loadingReport) return;
+    this.#forgetReport();
+    const request = this.#reportRequest;
+    // Another viewer or another study since the request started: its answer is not about this list.
+    const current = (): boolean => this.#reportRequest === request;
+    this.loadingReport = true;
+    viewer.measurements
+      .loadSr(seriesInstanceUID)
+      .then(
+        (result) => {
+          if (current()) this.reportStatus = { kind: 'loaded', result };
+        },
+        (error: unknown) => {
+          if (!current()) return;
+          const failure = toError(error);
+          this.reportStatus = { kind: 'failed', message: failure.message };
+          this.#fail(failure);
+        },
+      )
+      .finally(() => {
+        if (current()) this.loadingReport = false;
+      });
+  }
+
+  #downloadPdf(): void {
+    const { viewer } = this;
+    if (viewer === undefined || this.items.length === 0) return;
+    viewer.commands.run('measurements.downloadPdf').catch((error: unknown) => {
+      this.#fail(error);
+    });
+  }
+
   #startRename(measurement: Measurement | undefined): void {
     if (measurement === undefined) return;
     const at = this.items.findIndex((item) => item.id === measurement.id);
@@ -347,8 +432,13 @@ export class DvMeasurementListElement extends LitElement {
     rows[next]?.focus();
   }
 
-  #renderRow(measurement: Measurement, position: number): TemplateResult {
-    const title = measurementName(measurement, this.items, this.messages);
+  #renderRow(
+    measurement: Measurement,
+    position: number,
+    names: ReadonlyMap<string, string>,
+  ): TemplateResult {
+    const title =
+      names.get(measurement.id) ?? measurementName(measurement, this.items, this.messages);
     const lines = measurementLines(measurement, this.messages);
     return html`<li
       role="option"
@@ -449,16 +539,88 @@ export class DvMeasurementListElement extends LitElement {
     </div>`;
   }
 
+  #renderReportStatus(): TemplateResult | typeof nothing {
+    const status = this.reportStatus;
+    if (status === undefined) return nothing;
+    if (status.kind === 'failed') {
+      return html`<div class="report-status" role="status" data-report-status>
+        <p>The report could not be loaded: ${status.message}</p>
+      </div>`;
+    }
+    const { added, replaced, skipped } = status.result;
+    return html`<div class="report-status" role="status" data-report-status>
+      <p>
+        ${
+          added + replaced === 0
+            ? 'No measurements were added.'
+            : `Report loaded: ${added.toString()} added, ${replaced.toString()} replaced.`
+        }
+      </p>
+      ${
+        skipped.length === 0
+          ? nothing
+          : html`<p>Left out:</p>
+            <ul>
+              ${skipped.map((skip) => html`<li>${skip.reason} (${skip.count.toString()})</li>`)}
+            </ul>`
+      }
+    </div>`;
+  }
+
+  #renderReport(): TemplateResult {
+    const empty = this.items.length === 0;
+    return html`<div class="report" role="group" aria-label="Report">
+      ${
+        this.reports.length === 0
+          ? nothing
+          : html`<select
+            part="select"
+            data-action="load-report"
+            aria-label="Load report"
+            ?disabled=${this.loadingReport}
+            @change=${(event: Event): void => {
+              const select = event.currentTarget as HTMLSelectElement;
+              const chosen = select.value;
+              select.value = '';
+              this.#loadReport(chosen);
+            }}
+          >
+            <option value="">Load report…</option>
+            ${this.reports.map(
+              (report) =>
+                html`<option value=${report.seriesInstanceUID}>
+                  ${report.description ?? `SR ${report.seriesInstanceUID}`}
+                </option>`,
+            )}
+          </select>`
+      }
+      <button
+        type="button"
+        part="button"
+        data-action="download-pdf"
+        aria-disabled=${empty ? 'true' : nothing}
+        @click=${(): void => {
+          this.#downloadPdf();
+        }}
+      >
+        Download PDF
+      </button>
+      ${this.#renderReportStatus()}
+    </div>`;
+  }
+
   override render(): TemplateResult {
     const text = resolveViewerMessages(this.messages);
     if (this.items.length === 0) {
       return html`<p class="empty" role="status">
         ${text.noMeasurements}
-      </p>`;
+      </p>
+      ${this.#renderReport()}`;
     }
+    const names = measurementNames(this.items, this.messages);
     return html`<ul role="listbox" aria-label=${this.label === 'Measurements' ? text.measurementsPanel : this.label}>
-        ${this.items.map((measurement, position) => this.#renderRow(measurement, position))}
+        ${this.items.map((measurement, position) => this.#renderRow(measurement, position, names))}
       </ul>
-      ${this.#renderActions()}`;
+      ${this.#renderActions()} ${this.#renderReport()}`;
   }
 }

@@ -19,6 +19,7 @@ import {
   utilities as metadataUtilities,
 } from '@cornerstonejs/metadata';
 import type { FrameRequestPolicy, SeriesInstance, SeriesStack } from '../data/types';
+import type { SrRead } from '../measurements/sr';
 import { provideEngineDiagnostics } from '../diagnostics';
 import {
   VolumeUnsupportedError,
@@ -42,6 +43,7 @@ import {
   type StackSegmentations,
 } from './segmentation';
 import { readSegmentationHeader } from './segmentation-header';
+import { readReportReferences, readStructuredReport } from './sr';
 import { trackMeasurements, type StackMeasurements } from './measurements';
 import { attachStackTools, attachVolumeTools, type StackTools } from './tools';
 import {
@@ -63,9 +65,35 @@ let engineCount = 0;
 
 /** Tells Cornerstone what the instance's headers say, so its image can be loaded and drawn. */
 function registerInstance(instance: SeriesInstance): Promise<void> {
-  return isLocalFileImageId(instance.imageId)
-    ? registerLocalFile(instance.imageId)
-    : metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata);
+  const pending = registering.get(instance.imageId);
+  if (pending !== undefined) return pending;
+  // `addDicomWebInstance` does not always give a promise back.
+  const run = Promise.resolve(
+    isLocalFileImageId(instance.imageId)
+      ? registerLocalFile(instance.imageId)
+      : metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata),
+  );
+  registering.set(instance.imageId, run);
+  const done = (): void => {
+    if (registering.get(instance.imageId) === run) registering.delete(instance.imageId);
+  };
+  run.then(done, done);
+  return run;
+}
+
+/**
+ * Registrations that have not finished. A stack claims its images before it has registered them, so
+ * an image that has users may still have no metadata: whoever needs it waits for the one in flight.
+ */
+const registering = new Map<string, Promise<void>>();
+
+/** Tells Cornerstone about the instances that nobody holds, and waits for those that are still being told. */
+function ensureRegistered(instances: readonly SeriesInstance[]): Promise<unknown> {
+  return Promise.all(
+    instances
+      .filter((instance) => !imageUsers.has(instance.imageId) || registering.has(instance.imageId))
+      .map(registerInstance),
+  );
 }
 
 /** The picture on a black square, with the image fitted inside it. */
@@ -686,11 +714,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       // A SEG can be loaded before its series was ever shown, and the labelmap images are made from
       // what Cornerstone knows about the images they sit on. Tell it, for the images no stack has,
       // and hold the images until the SEG is gone.
-      await Promise.all(
-        stack.instances
-          .filter((instance) => !imageUsers.has(instance.imageId))
-          .map(registerInstance),
-      );
+      await ensureRegistered(stack.instances);
       claimImages(stack.imageIds);
       try {
         return await parseSegmentation(stack.imageIds, bytes, header, () => {
@@ -699,6 +723,23 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       } catch (error) {
         releaseImages(stack.imageIds);
         throw error;
+      }
+    },
+    readReportReferences,
+    async readReport(bytes, instances): Promise<SrRead> {
+      // The reader turns pixel positions into millimetres with what Cornerstone knows about each
+      // image, and a report can name series no stack shows. Tell it, for the images nobody has,
+      // and hold the images only while the report is read.
+      await ensureRegistered(instances);
+      const imageIds = instances.map((instance) => instance.imageId);
+      claimImages(imageIds);
+      try {
+        return readStructuredReport(
+          bytes,
+          new Map(instances.map((instance) => [instance.sopInstanceUID, instance.imageId])),
+        );
+      } finally {
+        releaseImages(imageIds);
       }
     },
     destroy(): void {

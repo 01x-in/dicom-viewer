@@ -1,11 +1,15 @@
 import type {
   DataSource,
   LoadedSeriesData,
+  SeriesInstance,
   SeriesStack,
   SeriesSummary,
   StudyData,
 } from './data/types';
+import { optionalString } from './data/dicom-json';
+import { isNotFound } from './data/errors';
 import { assertDicomUid } from './data/uid';
+import type { ReportSeries } from './measurements/report';
 import {
   type HangingMatch,
   type HangingProtocol,
@@ -54,6 +58,7 @@ import {
 import {
   createOverlayView,
   describeOverlay,
+  nameOf,
   type OverlayOptions,
   renderOverlay,
   type OverlayView,
@@ -635,6 +640,52 @@ export function createViewerCore(
     },
     study: () => store.getState().studyInstanceUID,
     navigateNow: (target) => navigateNow(target),
+    getSeries: (studyInstanceUID, seriesInstanceUID) =>
+      getSeries(studyInstanceUID, seriesInstanceUID),
+    getInstanceBytes: (studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality) =>
+      dataSource.getInstanceBytes(studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality),
+    port: () => portPromise,
+    reportContext: async (studyInstanceUID, seriesInstanceUIDs) => {
+      const series = new Map<string, ReportSeries>();
+      let first: SeriesInstance | undefined;
+      for (const seriesInstanceUID of seriesInstanceUIDs) {
+        // A measurement may be on a series this source does not have: its row has no series or
+        // slice. Any other failure is a failure of the report.
+        let loaded: LoadedSeriesData;
+        try {
+          loaded = await getSeries(studyInstanceUID, seriesInstanceUID);
+        } catch (error) {
+          if (isNotFound(error)) continue;
+          throw error;
+        }
+        const slices = new Map<string, number>();
+        for (const stack of loaded.stacks) {
+          for (const [at, instance] of stack.instances.entries()) {
+            slices.set(instance.sopInstanceUID, at + 1);
+          }
+        }
+        series.set(seriesInstanceUID, {
+          modality: loaded.modality,
+          description: loaded.description,
+          slices,
+        });
+        first ??= loaded.instances[0];
+      }
+      const metadata = first?.metadata;
+      return {
+        studyDescription: metadata === undefined ? undefined : optionalString(metadata, '00081030'),
+        patient:
+          metadata === undefined
+            ? undefined
+            : {
+                name: nameOf(metadata['00100010']?.Value?.[0]),
+                id: optionalString(metadata, '00100020'),
+                birthDate: optionalString(metadata, '00100030'),
+              },
+        showPatientInfo: overlayOptions?.showPatientInfo === true,
+        series,
+      };
+    },
     fail: (error) => {
       events.emit('error', { error, context: 'measurement' });
     },

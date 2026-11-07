@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@01x/dicom-viewer-core/testing';
 import type { Measurement, Point3 } from '@01x/dicom-viewer-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import './define';
 import { measurementName } from './index';
 import type { DvMeasurementListElement } from './measurement-list';
@@ -339,5 +339,145 @@ describe('when it is removed', () => {
     list.remove();
     await fake.viewer.measurements.add(length('b'));
     expect(list.items.map((item) => item.id)).toEqual(['a']);
+  });
+});
+
+const reportSelect = (list: DvMeasurementListElement): HTMLSelectElement | null =>
+  list.shadowRoot?.querySelector<HTMLSelectElement>('[data-action="load-report"]') ?? null;
+const reportStatus = (list: DvMeasurementListElement): string =>
+  list.shadowRoot?.querySelector('[data-report-status]')?.textContent.replace(/\s+/g, ' ').trim() ??
+  '';
+
+async function choose(list: DvMeasurementListElement, value: string): Promise<void> {
+  const select = reportSelect(list);
+  if (select === null) throw new Error('No Load report control');
+  select.value = value;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await settle(list);
+}
+
+describe('loading a report', () => {
+  it('lists the SR series of the study in a control with a name, and says nothing is chosen', async () => {
+    const { list } = await mount();
+    const select = reportSelect(list);
+    expect(select?.getAttribute('aria-label')).toBe('Load report');
+    const options = [...(select?.options ?? [])].map((option) => [option.value, option.text]);
+    expect(options[0]).toEqual(['', 'Load report…']);
+    expect(options.map(([value]) => value)).toContain(FAKE_IDS.sr);
+    expect(options.map(([value]) => value)).not.toContain(FAKE_IDS.ct);
+    expect(options.map(([value]) => value)).not.toContain(FAKE_IDS.seg);
+  });
+
+  it('has no control when the study has no report', async () => {
+    const { list, fake } = await mount();
+    await fake.viewer.loadStudy('1.2.5');
+    await settle(list);
+    expect(reportSelect(list)).toBeNull();
+  });
+
+  it('keeps the shapes of the report as measurements, and says how many', async () => {
+    const { list, fake } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    expect(fake.viewer.measurements.list()).toHaveLength(2);
+    expect(rows(list)).toHaveLength(2);
+    expect(reportStatus(list)).toBe('Report loaded: 2 added, 0 replaced.');
+    // The control is ready for another choice.
+    expect(reportSelect(list)?.value).toBe('');
+  });
+
+  it('says what it left out, and why', async () => {
+    const { list, fake } = await mount();
+    fake.port.reportResult = { shapes: [], unreadable: 2, unsupported: ['ArrowAnnotate'] };
+    await choose(list, FAKE_IDS.sr);
+    expect(reportStatus(list)).toContain('No measurements were added.');
+    expect(reportStatus(list)).toContain('The reader could not read the shape. (2)');
+    expect(reportStatus(list)).toContain(
+      'The viewer has no place for this kind of shape (ArrowAnnotate). (1)',
+    );
+  });
+
+  it('reports a report that cannot be loaded as dv-error, and says so', async () => {
+    const { list } = await mount();
+    const errors: { error: Error; context: string }[] = [];
+    list.addEventListener('dv-error', (event) => {
+      errors.push((event as CustomEvent<{ error: Error; context: string }>).detail);
+    });
+    await choose(list, FAKE_IDS.srNotAReport);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.context).toBe('measurement');
+    expect(reportStatus(list)).toContain('The report could not be loaded');
+    expect(reportStatus(list)).toContain('not a TID 1500 measurement report');
+  });
+
+  it('ignores the answer to a request made through a viewer that was replaced', async () => {
+    const { list } = await mount();
+    const other = createFakeViewer();
+    open.push(other);
+    await other.viewer.loadStudy(FAKE_IDS.study);
+    const select = reportSelect(list);
+    if (select === null) throw new Error('No Load report control');
+    select.value = FAKE_IDS.sr;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    // The old viewer's request is on its way when the list is given another viewer.
+    list.viewer = other.viewer;
+    await settle(list);
+    await settle(list);
+    expect(reportStatus(list)).toBe('');
+    expect(reportSelect(list)?.disabled).toBe(false);
+    expect(other.viewer.measurements.list()).toEqual([]);
+  });
+
+  it('forgets the message when another study is loaded', async () => {
+    const { list, fake } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    expect(reportStatus(list)).not.toBe('');
+    await fake.viewer.loadStudy('1.2.4');
+    await settle(list);
+    expect(reportStatus(list)).toBe('');
+  });
+});
+
+describe('the PDF button', () => {
+  it('is there with no measurements, and can not be used', async () => {
+    const { list } = await mount();
+    const button = action(list, 'download-pdf');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.textContent.trim()).toBe('Download PDF');
+  });
+
+  it('can be used when there are measurements, and saves the report', async () => {
+    const { list } = await mount([length('a')]);
+    const button = action(list, 'download-pdf');
+    expect(button.hasAttribute('aria-disabled')).toBe(false);
+    const made: Blob[] = [];
+    URL.createObjectURL = (blob: Blob | MediaSource): string => {
+      if (blob instanceof Blob) made.push(blob);
+      return 'blob:fake';
+    };
+    URL.revokeObjectURL = (): void => undefined;
+    const names: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    try {
+      button.click();
+      await vi.waitFor(() => {
+        expect(names).toEqual(['measurement-report.pdf']);
+      });
+    } finally {
+      click.mockRestore();
+    }
+    expect(made[0]?.type).toBe('application/pdf');
+  });
+
+  it('does nothing when it can not be used', async () => {
+    const { list } = await mount();
+    const errors: unknown[] = [];
+    list.addEventListener('dv-error', (event) => errors.push(event));
+    action(list, 'download-pdf').click();
+    await settle(list);
+    expect(errors).toEqual([]);
   });
 });
