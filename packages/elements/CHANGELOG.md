@@ -1,5 +1,23 @@
 # @01x/dicom-viewer-elements
 
+## 1.2.0
+
+### Minor Changes
+
+- 15cca81: Read DICOM Structured Reports and download a PDF report of the measurements.
+  
+  - `viewer.measurements.loadSr(seriesInstanceUID)` reads a TID 1500 measurement report of the study on screen and keeps its lengths, bidirectional measurements, ellipses, rectangles, probes, and angles as measurements. The numbers are worked out again from the pixels. A shape that cannot be kept is counted in `skipped`, with the reason. Loading a report again replaces what it made.
+  - `viewer.measurements.exportPdf()` makes a PDF of the measurements of the study on screen, in the browser. It leaves out who the patient is unless `showPatientInfo` is on. The command `measurements.downloadPdf` saves it, and a config file can put it on the toolbar.
+  - The measurements panel has a "Load report" control, which lists the SR series of the study, and a "Download PDF" button.
+  - `measurementName` moves into the core package and is exported from it. The elements package still exports it.
+
+### Patch Changes
+
+- e38b2cf: Document the `messages` property in the API reference: the full key list, placeholders, an example, and what is not translated.
+- Updated dependencies [e38b2cf]
+- Updated dependencies [15cca81]
+  - @01x/dicom-viewer-core@1.2.0
+
 ## 1.1.0
 
 ### Minor Changes

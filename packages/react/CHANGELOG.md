@@ -1,5 +1,15 @@
 # @01x/dicom-viewer-react
 
+## 1.2.0
+
+### Patch Changes
+
+- e38b2cf: Document the `messages` property in the API reference: the full key list, placeholders, an example, and what is not translated.
+- Updated dependencies [e38b2cf]
+- Updated dependencies [15cca81]
+  - @01x/dicom-viewer-core@1.2.0
+  - @01x/dicom-viewer-elements@1.2.0
+
 ## 1.1.0
 
 ### Minor Changes
