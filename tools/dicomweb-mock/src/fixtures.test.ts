@@ -18,6 +18,17 @@ describe('loadFixtures', () => {
     expect(store.studyUids[0]).toBe(main?.studyUid);
   });
 
+  it('reads the report, which has no pixels, with its whole file and no frames', async () => {
+    const store = await loadFixtures(FIXTURES);
+    const report = store.series.find((item) => item.modality === 'SR');
+    expect(report?.description).toBe('Phantom SR (sr-measurements)');
+    expect(report?.instances).toHaveLength(1);
+    expect(report?.instances[0]?.frames).toEqual([]);
+    expect(report?.instances[0]?.file.byteLength).toBeGreaterThan(1000);
+    const main = store.series.find((item) => item.description.includes('ct-evrle'));
+    expect(report?.studyUid).toBe(main?.studyUid);
+  });
+
   it('puts the fallback series in the second study', async () => {
     const store = await loadFixtures(FIXTURES);
     const [, second] = store.studyUids;

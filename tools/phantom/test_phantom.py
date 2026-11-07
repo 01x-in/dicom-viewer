@@ -25,6 +25,8 @@ from phantom import (
     OVERLAP_SEG_SERIES,
     PARTIAL_SLICES,
     SEG_SERIES,
+    SR_SERIES,
+    SR_SHAPES,
     Insert,
     generate,
 )
@@ -322,3 +324,98 @@ def test_the_fallback_series_hold_the_same_picture_as_the_main_one(out_dir: Path
         series = _load_series(out_dir / name)
         # The first slices of the main series: the inserts are absent from them, so the body is all there is.
         assert np.array_equal(series[0].pixel_array, main[0].pixel_array)
+
+
+def _sr_groups(sr: pydicom.Dataset) -> list[pydicom.Dataset]:
+    report = next(
+        item
+        for item in sr.ContentSequence
+        if item.get("ConceptNameCodeSequence") is not None
+        and item.ConceptNameCodeSequence[0].CodeMeaning == "Imaging Measurements"
+    )
+    return [
+        item
+        for item in report.ContentSequence
+        if item.ConceptNameCodeSequence[0].CodeMeaning == "Measurement Group"
+    ]
+
+
+def _scoords(item: pydicom.Dataset) -> list[pydicom.Dataset]:
+    found = []
+    for child in item.get("ContentSequence", []):
+        if child.ValueType in ("SCOORD", "SCOORD3D"):
+            found.append(child)
+        found.extend(_scoords(child))
+    return found
+
+
+def test_the_sr_is_a_tid_1500_report_in_the_main_study(out_dir: Path) -> None:
+    j2k = _load_series(out_dir / "ct-j2k")
+    sr = pydicom.dcmread(out_dir / SR_SERIES / "0001.dcm")
+
+    assert sr.Modality == "SR"
+    assert sr.StudyInstanceUID == j2k[0].StudyInstanceUID
+    assert sr.SeriesInstanceUID not in {ds.SeriesInstanceUID for ds in j2k}
+    assert sr.ContentTemplateSequence[0].TemplateIdentifier == "1500"
+    assert sr.SeriesDescription == f"Phantom SR ({SR_SERIES})"
+
+
+def test_the_sr_has_one_group_for_each_shape_with_its_tool_name(out_dir: Path) -> None:
+    sr = pydicom.dcmread(out_dir / SR_SERIES / "0001.dcm")
+    groups = _sr_groups(sr)
+
+    assert len(groups) == len(SR_SHAPES) == 6
+    tracking = [
+        next(item for item in group.ContentSequence if item.ValueType == "TEXT").TextValue
+        for group in groups
+    ]
+    assert tracking == [f"Cornerstone3DTools@^0.1.0:{shape.tool}" for shape in SR_SHAPES]
+    assert {shape.tool for shape in SR_SHAPES} == {
+        "Length",
+        "Probe",
+        "EllipticalROI",
+        "RectangleROI",
+        "Angle",
+        "CircleROI",
+    }
+
+
+def test_the_sr_shapes_are_drawn_where_they_say_on_the_slice_they_name(out_dir: Path) -> None:
+    j2k = _load_series(out_dir / "ct-j2k")
+    by_sop = {ds.SOPInstanceUID: index for index, ds in enumerate(j2k)}
+    groups = _sr_groups(pydicom.dcmread(out_dir / SR_SERIES / "0001.dcm"))
+
+    for shape, group in zip(SR_SHAPES, groups, strict=True):
+        [scoord] = _scoords(group)
+        assert scoord.GraphicType == shape.graphic_type.value
+        # Image coordinates start at the corner of the first pixel, so a pixel's centre is at +0.5.
+        assert [float(v) for v in scoord.GraphicData] == [
+            v + 0.5 for pair in shape.points for v in pair
+        ]
+        image = next(
+            child for child in scoord.ContentSequence if child.ValueType == "IMAGE"
+        ).ReferencedSOPSequence[0]
+        assert by_sop[image.ReferencedSOPInstanceUID] == shape.slice_index
+
+
+def test_the_sr_names_only_the_j2k_slices_its_shapes_are_on(out_dir: Path) -> None:
+    j2k = _load_series(out_dir / "ct-j2k")
+    sr = pydicom.dcmread(out_dir / SR_SERIES / "0001.dcm")
+
+    evidence = sr.CurrentRequestedProcedureEvidenceSequence[0].ReferencedSeriesSequence[0]
+    assert evidence.SeriesInstanceUID == j2k[0].SeriesInstanceUID
+    named = {item.ReferencedSOPInstanceUID for item in evidence.ReferencedSOPSequence}
+    assert named == {j2k[shape.slice_index].SOPInstanceUID for shape in SR_SHAPES}
+
+
+def test_the_sr_probe_is_on_the_water_insert_and_the_length_crosses_it(out_dir: Path) -> None:
+    j2k = _load_series(out_dir / "ct-j2k")
+    probe = next(shape for shape in SR_SHAPES if shape.tool == "Probe")
+    length = next(shape for shape in SR_SHAPES if shape.tool == "Length")
+
+    hu = _hu(j2k[probe.slice_index])
+    column, row = probe.points[0]
+    assert hu[int(row), int(column)] == 0
+    (c1, r1), (c2, r2) = length.points
+    # 18 pixels of 1.5 mm, as the measurement says.
+    assert length.measurement[1] == pytest.approx(((c2 - c1) ** 2 + (r2 - r1) ** 2) ** 0.5 * 1.5)

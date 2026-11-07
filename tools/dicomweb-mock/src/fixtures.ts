@@ -106,7 +106,8 @@ async function loadInstance(path: string): Promise<InstanceRecord> {
     transferSyntax,
     instanceNumber: numberValue(dict, '00200013'),
     metadata: toMetadata(dict, transferSyntax),
-    frames: splitFrames(dict, numberOfFrames, encapsulated),
+    // A SR has no pixels, so it has no frames: only its whole file can be retrieved.
+    frames: dict[PIXEL_DATA] === undefined ? [] : splitFrames(dict, numberOfFrames, encapsulated),
     file,
   };
 }

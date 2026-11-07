@@ -296,3 +296,103 @@ describe('readReportReferences', () => {
     expect(() => readReportReferences(ctBytes)).toThrow(/not a TID 1500 measurement report/);
   });
 });
+
+describe('the phantom report, written by highdicom and not by Cornerstone', () => {
+  const sliceOf = (index: number): { sop: string; imageId: string; position: Point3 } => {
+    const bytes = arrayBufferOf(`${PHANTOM}/ct-j2k/${(index + 1).toString().padStart(4, '0')}.dcm`);
+    const dataset = ctSchema.parse(
+      data.DicomMetaDictionary.naturalizeDataset(data.DicomMessage.readFile(bytes).dict),
+    );
+    return {
+      sop: dataset.SOPInstanceUID,
+      imageId: `phantom-j2k:${index.toString()}`,
+      position: dataset.ImagePositionPatient,
+    };
+  };
+  const slices = new Map([20, 29, 30, 31].map((index) => [index, sliceOf(index)]));
+  const byImageId = new Map([...slices.values()].map((slice) => [slice.imageId, slice]));
+
+  const phantomProvider = (type: string, query: unknown): unknown => {
+    const slice = typeof query === 'string' ? byImageId.get(query) : undefined;
+    if (slice === undefined || type !== 'imagePlaneModule') return undefined;
+    return {
+      ...plane,
+      frameOfReferenceUID: ctInfo.FrameOfReferenceUID,
+      imagePositionPatient: slice.position,
+    };
+  };
+
+  beforeEach(() => {
+    metaData.addProvider(phantomProvider, providerPriority + 1);
+  });
+  afterEach(() => {
+    metaData.removeProvider(phantomProvider);
+  });
+
+  const report = arrayBufferOf(`${PHANTOM}/sr-measurements/0001.dcm`);
+  const imageIds = new Map([...slices.values()].map((slice) => [slice.sop, slice.imageId]));
+  /** A pixel of the slice, in patient millimetres. */
+  const pixel = (index: number, column: number, row: number): Point3 => {
+    const [x, y, z] = slices.get(index)?.position ?? [0, 0, 0];
+    return [x + column * SPACING, y + row * SPACING, z];
+  };
+
+  it('names the series its shapes are on', () => {
+    expect(readReportReferences(report)).toHaveLength(1);
+  });
+
+  it('reads each shape the viewer has a place for, on the slice it names, where it was drawn', () => {
+    const read = readStructuredReport(report, imageIds);
+    const byType = new Map(read.shapes.map((shape) => [shape.type, shape]));
+
+    expect(read.shapes.map((shape) => shape.type).sort()).toEqual([
+      'angle',
+      'ellipse',
+      'length',
+      'probe',
+      'rectangle',
+    ]);
+    const sop = (index: number): string => slices.get(index)?.sop ?? '';
+    expect(byType.get('length')?.sopInstanceUID).toBe(sop(30));
+    expect(byType.get('probe')?.sopInstanceUID).toBe(sop(30));
+    expect(byType.get('ellipse')?.sopInstanceUID).toBe(sop(31));
+    expect(byType.get('rectangle')?.sopInstanceUID).toBe(sop(29));
+    expect(byType.get('angle')?.sopInstanceUID).toBe(sop(20));
+
+    closeTo(byType.get('length')?.points ?? [], [pixel(30, 55, 92), pixel(30, 73, 92)]);
+    closeTo(byType.get('probe')?.points ?? [], [pixel(30, 64, 92)]);
+    // The reader gives a rectangle's corners as top left, top right, bottom left, bottom right.
+    closeTo(byType.get('rectangle')?.points ?? [], [
+      pixel(29, 27, 55),
+      pixel(29, 45, 55),
+      pixel(29, 27, 73),
+      pixel(29, 45, 73),
+    ]);
+    // An angle is the two ends and the vertex between them.
+    closeTo(byType.get('angle')?.points ?? [], [
+      pixel(20, 40, 40),
+      pixel(20, 64, 64),
+      pixel(20, 88, 40),
+    ]);
+    // The report puts the longer, horizontal axis first. The viewer keeps the vertical one first.
+    closeTo(byType.get('ellipse')?.points ?? [], [
+      pixel(31, 92, 56),
+      pixel(31, 92, 72),
+      pixel(31, 80, 64),
+      pixel(31, 104, 64),
+    ]);
+  });
+
+  it('counts the circle, which the viewer has no place for, and loses nothing else', () => {
+    const read = readStructuredReport(report, imageIds);
+    expect(read.unsupported).toEqual(['CircleROI']);
+    expect(read.unreadable).toBe(0);
+  });
+
+  it('counts a shape on an image it was not told about as unreadable', () => {
+    const without = new Map([...imageIds].filter(([, imageId]) => imageId !== 'phantom-j2k:20'));
+    const read = readStructuredReport(report, without);
+    expect(read.shapes.map((shape) => shape.type)).not.toContain('angle');
+    expect(read.unreadable).toBe(1);
+  });
+});
