@@ -162,6 +162,10 @@ describe('measurements.exportPdf', () => {
     const pdf = await read(await h.viewer.measurements.exportPdf());
     expect(pdf).toContain('(Length 1)');
     expect(pdf).not.toContain('(CT');
+    // Neither the UID of the missing series nor a slice number is printed: the measurement is on
+    // the first image of its series, so a slice would be written as `(1)`.
+    expect(pdf).not.toContain('1.9.9.9');
+    expect(pdf).not.toContain('(1)');
   });
 
   it('rejects a title that would not fit on the page', async () => {
