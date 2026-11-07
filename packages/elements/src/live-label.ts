@@ -1,4 +1,9 @@
-import type { WindowLevel } from '@01x/dicom-viewer-core';
+import {
+  formatViewerMessage,
+  resolveViewerMessages,
+  type ViewerMessages,
+  type WindowLevel,
+} from '@01x/dicom-viewer-core';
 
 export interface ViewportDescription {
   /** The series' description, or its modality. `undefined` when no series is shown. */
@@ -19,31 +24,58 @@ export interface ViewportDescription {
 const round = (value: number): string => Math.round(value).toString();
 
 /** What a viewport shows, in words: the label a screen reader gets for a picture. */
-export function describeViewport(viewport: ViewportDescription): string {
+export function describeViewport(
+  viewport: ViewportDescription,
+  messages?: Partial<ViewerMessages>,
+): string {
+  const text = resolveViewerMessages(messages);
   const { position } = viewport;
   const where =
     position === undefined || position.count < 2
       ? ''
-      : `Viewport ${(position.index + 1).toString()} of ${position.count.toString()}, `;
-  return `${where}${describeContent(viewport)}`;
+      : formatViewerMessage(text.viewportIndex, {
+          index: position.index + 1,
+          count: position.count,
+        });
+  return `${where}${describeContent(viewport, text)}`;
 }
 
-function describeContent(viewport: ViewportDescription): string {
+function describeContent(viewport: ViewportDescription, text: ViewerMessages): string {
   const { name, imageIndex, imageCount } = viewport;
   if (name === undefined || imageIndex === undefined || imageCount <= 0) {
-    return 'No image shown';
+    return text.viewportNoImage;
   }
   // A state a host patched may name a slice past the end for a moment, until the core clamps it.
   const shown = Math.min(Math.max(imageIndex, 0), imageCount - 1);
   const parts = [
     name,
-    ...(viewport.plane === undefined ? [] : [`${viewport.plane} plane`]),
-    `image ${(shown + 1).toString()} of ${imageCount.toString()}`,
+    ...(viewport.plane === undefined
+      ? []
+      : [
+          formatViewerMessage(text.viewportPlane, {
+            plane:
+              viewport.plane === 'axial'
+                ? text.planeAxial
+                : viewport.plane === 'sagittal'
+                  ? text.planeSagittal
+                  : viewport.plane === 'coronal'
+                    ? text.planeCoronal
+                    : viewport.plane,
+          }),
+        ]),
+    formatViewerMessage(text.viewportImage, { index: shown + 1, count: imageCount }),
     ...(viewport.window === undefined
       ? []
-      : [`window ${round(viewport.window.width)}, level ${round(viewport.window.center)}`]),
-    ...(viewport.invert === true ? ['inverted'] : []),
-    ...(viewport.zoom === undefined ? [] : [`zoom ${viewport.zoom.toFixed(1)} times`]),
+      : [
+          formatViewerMessage(text.viewportWindow, {
+            width: round(viewport.window.width),
+            center: round(viewport.window.center),
+          }),
+        ]),
+    ...(viewport.invert === true ? [text.viewportInverted] : []),
+    ...(viewport.zoom === undefined
+      ? []
+      : [formatViewerMessage(text.viewportZoom, { zoom: viewport.zoom.toFixed(1) })]),
   ];
   return parts.join(', ');
 }

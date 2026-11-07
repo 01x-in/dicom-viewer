@@ -256,7 +256,11 @@ describe('segmentation warnings', () => {
     await show(h);
     const info = await h.viewer.segmentations.load(SEG_OVERLAP);
     expect(info.warnings).toEqual([
-      { code: 'overlapping-segments', message: 'Segments share pixels: Slab and Disc.' },
+      {
+        code: 'overlapping-segments',
+        message: 'Segments share pixels: Slab and Disc.',
+        parameters: { pairs: 'Slab / Disc', count: 0 },
+      },
     ]);
   });
 
@@ -280,7 +284,11 @@ describe('segmentation warnings', () => {
     });
     const info = await h.viewer.segmentations.load(SEG);
     expect(info.warnings).toEqual([
-      { code: 'empty-segment', message: 'The segment Lesion has no pixels.' },
+      {
+        code: 'empty-segment',
+        message: 'The segment Lesion has no pixels.',
+        parameters: { name: 'Lesion' },
+      },
     ]);
     expect(info.segments[1]).toMatchObject({ voxelCount: 0, imageCount: 0, centroid: undefined });
   });

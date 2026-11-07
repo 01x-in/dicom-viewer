@@ -3,6 +3,7 @@ import { createFakeViewer, FAKE_IDS, type FakeViewer } from '@01x/dicom-viewer-c
 import type { ViewerOptions } from '@01x/dicom-viewer-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DvViewerElement } from './viewer-element';
+import type { DvToolbarElement } from './toolbar';
 
 const made: FakeViewer[] = [];
 
@@ -57,6 +58,31 @@ const shadow = (element: DvViewerElement, selector: string): Element | null =>
   element.shadowRoot?.querySelector(selector) ?? null;
 
 describe('<dv-viewer> structure', () => {
+  it('changes messages without replacing the viewer, panels, study, or measurements', async () => {
+    const { element, fake } = await ready();
+    const viewer = element.viewer;
+    const state = fake.viewer.getState();
+    const panels = fake.viewer.ui.panels();
+    element.messages = {
+      viewerLabel: 'Visor DICOM',
+      seriesPanel: 'Series traducidas',
+      toolPan: 'Desplazar',
+    };
+    await element.updateComplete;
+    await Promise.resolve();
+    expect(element.viewer).toBe(viewer);
+    expect(made).toHaveLength(1);
+    expect(fake.viewer.getState()).toEqual(state);
+    expect(fake.viewer.ui.panels()).toEqual(panels);
+    expect(shadow(element, '[role="region"]')?.getAttribute('aria-label')).toBe('Visor DICOM');
+    const toolbar = shadow(element, 'dv-toolbar');
+    if (!(toolbar instanceof HTMLElement)) throw new Error('No toolbar');
+    await (toolbar as DvToolbarElement).updateComplete;
+    expect(toolbar.shadowRoot?.querySelector('[data-tool="pan"]')?.getAttribute('aria-label')).toBe(
+      'Desplazar',
+    );
+  });
+
   it('draws its chrome in shadow DOM and its viewports in the light DOM, shown through named slots', async () => {
     const { element } = await ready();
     const viewport = element.querySelector('[data-viewport-id="vp-0"]');

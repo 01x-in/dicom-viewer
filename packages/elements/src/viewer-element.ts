@@ -2,13 +2,14 @@ import {
   type CommandInput,
   createDicomWebDataSource,
   createViewer,
-  describeFallback,
   parseViewerConfig,
   type ResolvedViewerConfig,
   type Viewer,
   type ViewerConfigV1,
   type ViewerOptions,
   type ViewportApi,
+  resolveViewerMessages,
+  type ViewerMessages,
 } from '@01x/dicom-viewer-core';
 import {
   css,
@@ -31,6 +32,7 @@ import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
 import type { PaletteName, ThemeName } from './tokens';
 import type { ToolbarLabels } from './toolbar';
 import { toolbarFromConfig } from './toolbar-from-config';
+import { fallbackMessage } from './messages';
 
 export type ViewerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -117,6 +119,7 @@ export class DvViewerElement extends LitElement {
     hideMeasurementsPanel: { type: Boolean, attribute: 'hide-measurements-panel' },
     hideSegmentationsPanel: { type: Boolean, attribute: 'hide-segmentations-panel' },
     label: {},
+    messages: { attribute: false },
     status: { reflect: true },
     shown: { state: true },
     announcement: { state: true },
@@ -280,6 +283,8 @@ export class DvViewerElement extends LitElement {
   declare hideSegmentationsPanel: boolean;
   /** The accessible name of the viewer as a whole, a landmark. Default `DICOM viewer`. */
   declare label: string;
+  /** Host text. Changing this updates chrome without restarting the viewer. */
+  declare messages: Partial<ViewerMessages> | undefined;
   declare status: ViewerStatus;
   declare shown: boolean;
   declare announcement: string;
@@ -294,6 +299,9 @@ export class DvViewerElement extends LitElement {
   #removeSegmentationsPanel: (() => void) | undefined;
   #announcer: ThrottledAnnouncer | undefined;
   #viewportElements: HTMLElement[] = [];
+  #messageTargets = new Set<
+    DvSeriesBrowserElement | DvMeasurementListElement | DvSegmentationListElement
+  >();
 
   constructor() {
     super();
@@ -353,6 +361,10 @@ export class DvViewerElement extends LitElement {
     if (INPUTS.some((name) => changed.has(name))) {
       void this.#load();
       return;
+    }
+    if (changed.has('messages')) {
+      for (const target of this.#messageTargets) target.messages = this.messages;
+      this.#refreshLabels(true);
     }
     if (changed.has('hideSeriesPanel') && this.#viewer !== undefined) {
       this.#syncSeriesPanel(this.#viewer);
@@ -634,21 +646,24 @@ export class DvViewerElement extends LitElement {
       const summary = series.find((item) => item.seriesInstanceUID === viewport?.seriesInstanceUID);
       const mpr = api?.mpr;
       if (id !== undefined && mpr?.mode === 'stack' && mpr.reason !== undefined) {
-        notices[id] = describeFallback(mpr.reason);
+        notices[id] = fallbackMessage(mpr.reason, this.messages);
       }
-      const text = describeViewport({
-        name: summary === undefined ? undefined : (summary.description ?? summary.modality),
-        imageIndex: viewport?.imageIndex,
-        imageCount: api?.imageCount ?? 0,
-        window: viewport?.window,
-        invert: viewport?.invert,
-        zoom: viewport?.zoom,
-        plane: mpr?.mode === 'volume' ? mpr.requested : undefined,
-        position: {
-          index: state.viewports.findIndex((candidate) => candidate.id === id),
-          count: state.viewports.length,
+      const text = describeViewport(
+        {
+          name: summary === undefined ? undefined : (summary.description ?? summary.modality),
+          imageIndex: viewport?.imageIndex,
+          imageCount: api?.imageCount ?? 0,
+          window: viewport?.window,
+          invert: viewport?.invert,
+          zoom: viewport?.zoom,
+          plane: mpr?.mode === 'volume' ? mpr.requested : undefined,
+          position: {
+            index: state.viewports.findIndex((candidate) => candidate.id === id),
+            count: state.viewports.length,
+          },
         },
-      });
+        this.messages,
+      );
       element.setAttribute('aria-label', text);
       spoken.push(text);
     }
@@ -677,8 +692,11 @@ export class DvViewerElement extends LitElement {
       mount: (container) => {
         const browser = document.createElement('dv-series-browser') as DvSeriesBrowserElement;
         browser.viewer = viewer;
+        browser.messages = this.messages;
+        this.#messageTargets.add(browser);
         container.append(browser);
         return (): void => {
+          this.#messageTargets.delete(browser);
           browser.remove();
         };
       },
@@ -700,8 +718,11 @@ export class DvViewerElement extends LitElement {
       mount: (container) => {
         const list = document.createElement('dv-measurement-list') as DvMeasurementListElement;
         list.viewer = viewer;
+        list.messages = this.messages;
+        this.#messageTargets.add(list);
         container.append(list);
         return (): void => {
+          this.#messageTargets.delete(list);
           list.remove();
         };
       },
@@ -723,8 +744,11 @@ export class DvViewerElement extends LitElement {
       mount: (container) => {
         const list = document.createElement('dv-segmentation-list') as DvSegmentationListElement;
         list.viewer = viewer;
+        list.messages = this.messages;
+        this.#messageTargets.add(list);
         container.append(list);
         return (): void => {
+          this.#messageTargets.delete(list);
           list.remove();
         };
       },
@@ -879,19 +903,20 @@ export class DvViewerElement extends LitElement {
 
   override render(): TemplateResult {
     const viewer = this.#viewer;
+    const text = resolveViewerMessages(this.messages);
     const { cells, columns, rows } = layoutCells(viewer?.getState().layout ?? '1x1');
-    return html`<div class="shell" part="shell" role="region" aria-label=${this.label}>
+    return html`<div class="shell" part="shell" role="region" aria-label=${this.label === 'DICOM viewer' ? text.viewerLabel : this.label}>
       <div class="banner" part="banner"><slot name="banner"></slot></div>
       ${
         this.hideToolbar || this.resolved?.toolbar.hidden === true
           ? nothing
-          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .items=${this.#toolbarItems(viewer)} .labels=${this.toolbarLabels ?? this.resolved?.toolbar.labels ?? 'tooltip'}>
+          : html`<dv-toolbar part="toolbar" .viewer=${viewer} .messages=${this.messages} .items=${this.#toolbarItems(viewer)} .labels=${this.toolbarLabels ?? this.resolved?.toolbar.labels ?? 'tooltip'}>
             <slot name="toolbar-start" slot="start"></slot>
             <slot name="toolbar-end" slot="end"></slot>
           </dv-toolbar>`
       }
       <div class="body" part="body">
-        <dv-panel-dock part="dock-left" .viewer=${viewer} placement="left"></dv-panel-dock>
+        <dv-panel-dock part="dock-left" .viewer=${viewer} .messages=${this.messages} placement="left"></dv-panel-dock>
         <slot name="panel-left"></slot>
         <div
           class="stage"
@@ -904,20 +929,20 @@ export class DvViewerElement extends LitElement {
                 event: DragEvent,
               ): void => {
                 this.#onDrop(event, cell.id);
-              }} style=${`grid-column: ${cell.column.toString()} / span ${cell.columnSpan.toString()}; grid-row: ${cell.row.toString()} / span ${cell.rowSpan.toString()};`}><slot name="viewport-${cell.id}"></slot>${this.notices[cell.id] === undefined ? nothing : html`<div class="notice" role="note"><strong>Slices</strong> ${this.notices[cell.id]}</div>`}</div>`,
+              }} style=${`grid-column: ${cell.column.toString()} / span ${cell.columnSpan.toString()}; grid-row: ${cell.row.toString()} / span ${cell.rowSpan.toString()};`}><slot name="viewport-${cell.id}"></slot>${this.notices[cell.id] === undefined ? nothing : html`<div class="notice" role="note"><strong>${text.slices}</strong> ${this.notices[cell.id]}</div>`}</div>`,
           )}
           <div class="overlay"><slot name="viewport-overlay"></slot></div>
           ${
             this.shown || this.status === 'loading'
               ? nothing
-              : html`<div class="empty"><slot name="empty-state">Choose a series to view.</slot></div>`
+              : html`<div class="empty"><slot name="empty-state">${this.status === 'error' ? text.error : text.chooseSeries}</slot></div>`
           }
           <div class="dv-visually-hidden" role="status" aria-live="polite" aria-atomic="true">
             ${this.announcement}
           </div>
         </div>
         <slot name="panel-right"></slot>
-        <dv-panel-dock part="dock-right" .viewer=${viewer} placement="right"></dv-panel-dock>
+        <dv-panel-dock part="dock-right" .viewer=${viewer} .messages=${this.messages} placement="right"></dv-panel-dock>
       </div>
     </div>`;
   }

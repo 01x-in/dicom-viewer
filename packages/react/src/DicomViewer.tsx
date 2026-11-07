@@ -5,6 +5,7 @@ import type {
   Viewer,
   ViewerConfigV1,
   ViewerOptions,
+  ViewerMessages,
   ViewerStateV1,
   ViewportApi,
 } from '@01x/dicom-viewer-core';
@@ -47,6 +48,8 @@ export interface DicomViewerProps {
    * is merged into it when the viewer starts.
    */
   readonly options: ViewerOptions;
+  /** Host text for the shell. Changes preserve the viewer and its study. Omitted entries stay English. */
+  readonly messages?: Partial<ViewerMessages> | undefined;
   readonly studyInstanceUID: string;
   /** Default: the series a restored `initialState` had, else the first with pictures. */
   readonly seriesInstanceUID?: string | undefined;
@@ -213,12 +216,19 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     seriesInstanceUID,
   ]);
 
-  const { toolbar, toolbarLabels, hideSeriesPanel, hideMeasurementsPanel, hideSegmentationsPanel } =
-    props;
+  const {
+    toolbar,
+    toolbarLabels,
+    hideSeriesPanel,
+    hideMeasurementsPanel,
+    hideSegmentationsPanel,
+    messages,
+  } = props;
   useEffect(() => {
     const element = elementRef.current;
     if (!defined || element === null) return;
     element.theme = theme;
+    element.messages = messages;
     element.palette = palette;
     element.hideToolbar = toolbar === false;
     element.toolbarLabels = toolbarLabels;
@@ -229,6 +239,7 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
   }, [
     defined,
     theme,
+    messages,
     palette,
     toolbar,
     toolbarLabels,

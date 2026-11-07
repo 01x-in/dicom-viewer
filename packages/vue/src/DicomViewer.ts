@@ -5,6 +5,7 @@ import type {
   Viewer,
   ViewerConfigV1,
   ViewerOptions,
+  ViewerMessages,
   ViewerStateV1,
   ViewportApi,
 } from '@01x/dicom-viewer-core';
@@ -48,6 +49,8 @@ export interface VuePanel {
 export interface DicomViewerProps {
   /** A new object restarts the viewer: keep it stable. `initialState` is merged into it when the viewer starts. */
   readonly options: ViewerOptions;
+  /** Host text for the shell. Changes preserve the viewer and its study. */
+  readonly messages?: Partial<ViewerMessages>;
   readonly studyInstanceUid: string;
   /** Default: the series a restored `initialState` had, else the first with pictures. */
   readonly seriesInstanceUid?: string;
@@ -121,6 +124,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
   name: 'DicomViewer',
   props: {
     options: { type: Object as PropType<ViewerOptions>, required: true },
+    messages: { type: Object as PropType<Partial<ViewerMessages>>, default: undefined },
     studyInstanceUid: { type: String, required: true },
     seriesInstanceUid: { type: String, default: undefined },
     navigate: { type: Object as PropType<NavigateTarget>, default: undefined },
@@ -182,6 +186,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       const target = element.value;
       if (!defined.value || target === null) return;
       target.theme = props.theme;
+      target.messages = props.messages === undefined ? undefined : toRaw(props.messages);
       target.palette = props.palette;
       target.hideToolbar = props.toolbar === false;
       target.toolbarLabels = props.toolbarLabels;
@@ -283,6 +288,7 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       [
         defined,
         () => props.theme,
+        () => props.messages,
         () => props.palette,
         () => props.toolbar,
         () => props.toolbarLabels,

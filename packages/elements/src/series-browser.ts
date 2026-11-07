@@ -2,6 +2,8 @@ import {
   isDisplayableModality as coreIsDisplayableModality,
   type SeriesSummary,
   type Viewer,
+  resolveViewerMessages,
+  type ViewerMessages,
 } from '@01x/dicom-viewer-core';
 import {
   css,
@@ -23,15 +25,19 @@ export function isDisplayableModality(modality: string): boolean {
 }
 
 /** What a row says about its series. Pure, so the wording is tested without a DOM. */
-export function describeSeries(series: SeriesSummary): {
+export function describeSeries(
+  series: SeriesSummary,
+  messages?: Partial<ViewerMessages>,
+): {
   readonly title: string;
   readonly detail: string;
 } {
   const number = series.seriesNumber === undefined ? '' : `${series.seriesNumber.toString()}. `;
+  const text = resolveViewerMessages(messages);
   const count =
     series.instanceCount === undefined
       ? ''
-      : ` · ${series.instanceCount.toString()} ${series.instanceCount === 1 ? 'image' : 'images'}`;
+      : ` · ${series.instanceCount.toString()} ${series.instanceCount === 1 ? text.image : text.images}`;
   return {
     title: `${number}${series.description ?? series.modality}`,
     detail: `${series.modality}${count}`,
@@ -52,6 +58,7 @@ const THUMBNAIL_SIZE = 96;
 export class DvSeriesBrowserElement extends LitElement {
   static override properties: PropertyDeclarations = {
     viewer: { attribute: false },
+    messages: { attribute: false },
     viewportId: { attribute: 'viewport-id' },
     label: {},
     series: { state: true },
@@ -132,6 +139,7 @@ export class DvSeriesBrowserElement extends LitElement {
   ];
 
   declare viewer: Viewer | undefined;
+  declare messages: Partial<ViewerMessages> | undefined;
   /** The viewport the browser shows and fills. Default: the active one, which follows the person. */
   declare viewportId: string | undefined;
   declare label: string;
@@ -317,7 +325,7 @@ export class DvSeriesBrowserElement extends LitElement {
   }
 
   #renderRow(summary: SeriesSummary, position: number): TemplateResult {
-    const { title, detail } = describeSeries(summary);
+    const { title, detail } = describeSeries(summary, this.messages);
     const selected = summary.seriesInstanceUID === this.shownUid;
     const displayable = isDisplayableModality(summary.modality);
     const thumbnail = this.thumbnails.get(summary.seriesInstanceUID);
@@ -360,9 +368,9 @@ export class DvSeriesBrowserElement extends LitElement {
 
   override render(): TemplateResult {
     if (this.series.length === 0) {
-      return html`<p class="empty" role="status">No series.</p>`;
+      return html`<p class="empty" role="status">${resolveViewerMessages(this.messages).noSeries}</p>`;
     }
-    return html`<ul role="listbox" aria-label=${this.label}>
+    return html`<ul role="listbox" aria-label=${this.label === 'Series' ? resolveViewerMessages(this.messages).seriesPanel : this.label}>
       ${this.series.map((summary, position) => this.#renderRow(summary, position))}
     </ul>`;
   }
