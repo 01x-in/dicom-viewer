@@ -42,11 +42,14 @@ The shell uses English unless the host supplies `messages`. Import `ViewerMessag
 `<dv-viewer>`. Missing entries keep their English text. The host chooses the language and owns its translations.
 
 ```tsx
-<DicomViewer
-  options={options}
-  studyInstanceUID={studyUid}
-  messages={{ viewerLabel: 'Visor DICOM', toolPan: 'Desplazar', measurementsPanel: 'Mediciones' }}
-/>
+// Defined outside the component, so every render passes the same object.
+const messages = {
+  viewerLabel: 'Visor DICOM',
+  toolPan: 'Desplazar',
+  measurementsPanel: 'Mediciones',
+};
+
+<DicomViewer options={options} studyInstanceUID={studyUid} messages={messages} />;
 ```
 
 Messages with values use named single-brace placeholders, such as `showItem: 'Mostrar {name}'`.
