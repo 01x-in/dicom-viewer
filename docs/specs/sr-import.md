@@ -1,6 +1,6 @@
 # Spec: read Structured Reports (TID 1500), and download a PDF report
 
-Status: draft. Nothing is built. Milestone ID for commits: `M10` (proposed; v1 shipped at M8).
+Status: built (M10). The decisions are in [ADR 0013](../adr/0013-structured-reports-and-pdf.md): the PDF is a report of the measurements, written by a small writer of our own (no library, no print fallback).
 
 ## Why
 
@@ -151,7 +151,7 @@ Run in Node against `@cornerstonejs/adapters` 5.11.4, with one SR made by highdi
   - **Ellipse:** the writer puts the longer axis first. When the horizontal axis is the longer one, the reader gives back (horizontal axis, vertical axis), while the model wants (vertical, horizontal). The reader's result cannot be used as it is. The engine knows the image's row and column directions, so it puts the axes in the model's order before it returns a shape.
   - **Rectangle, angle, bidirectional:** the order came back as written, and equals the model's order.
 - **Writing the test files.** The Cornerstone writer needs `sopCommonModule`, `instance` and `frameNumber` for each image, which the script supplied from a phantom CT slice. It stamps random UIDs, so a committed file made with it is not byte-for-byte reproducible. Decision: the engine tests write their SRs at test time with the writer (all six types), and the committed fixture is made with highdicom, which is reproducible. highdicom writes the single-shape types (`Length`, `Probe`, `Angle`, `EllipticalROI`, `RectangleROI`) and a shape of an unsupported type. `Bidirectional` has two shapes in two number items, a layout highdicom's planar template does not make, so it is covered by the test-time round trip only.
-- **Still open from step 0:** engine-chunk growth, and the PDF library measurement.
+- **Closed in the build:** the engine chunk is 801 kB brotli against its 880 kB budget. jsPDF is about 99 kB and pdf-lib about 164 kB, so the PDF is written by our own 2 kB writer (see the ADR).
 
 ## Risks
 
