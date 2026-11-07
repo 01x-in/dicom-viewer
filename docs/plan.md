@@ -159,9 +159,10 @@ Vue mirrors these with emits and slots.
 | M7 | Layouts + MPR | All four layouts, series drag-and-drop into viewports, hanging protocols, streaming volume, memory policy, crosshairs, VOI sync, and SEG in MPR. Tilted and non-uniform phantoms fall back correctly. | 8 |
 | M8 | Hardening + 1.0 | Visual regression suite, size-limit budgets, publint + attw, TypeDoc + guides, and `1.0.0` published with provenance. | 5 |
 | M9 | OncoTrace readiness | `examples/oncotrace-like` covers the restricted mock proxy, a 10-minute token refresh, the banner slot, organ/tumor toggles, and navigate-by-SOP with segment highlight. A doc maps each bridge message to the API. No OncoTrace changes. | 2 |
+| M10 | Structured Reports + PDF | `viewer.measurements.loadSr` keeps the shapes of a TID 1500 report (Cornerstone's or highdicom's) as measurements whose numbers are worked out again from the pixels; what is left out is counted, by reason. `exportPdf` makes a PDF of the measurements in the browser, with no patient identity unless asked. The panel has both controls. See [ADR 0013](adr/0013-structured-reports-and-pdf.md). | 4 |
 
 **Total:** about 63 days, plus a 20% buffer, so roughly 76 days (about 7 months at 2.5 days a week). M6.5 and M6.6 were added after M6: the first look at the shell showed it was plain, and OHIF's configurable layer showed what ours lacks.
-**Stretch:** SR TID1500 (4 days) and per-lesion connected components (3 days).
+**Stretch:** per-lesion connected components (3 days). The other stretch goal, reading SR TID1500, became M10, which also took a PDF report.
 
 OncoTrace bridge mapping, for M9:
 
@@ -311,3 +312,12 @@ Reference files:
 - **Docs are Markdown guides plus a generated API reference** (`pnpm docs:api` writes `.docs/api`), not a VitePress site. A site is a hosting decision for later.
 - **A release is a changeset and a manual run of one workflow,** apart from pull requests: the run applies the changesets, publishes with provenance, and pushes the release commit and tags to `main`. It is behind the repository variable `RELEASE_ENABLED`, because a publish cannot be taken back. The placeholder `@scope/viewer-*` names were replaced by `@01x/dicom-viewer-*` after M8.
 - Still open: the package name and npm scope, committing the visual baselines, Safari and Firefox, React 18, touch input, and (for M9) the OncoTrace-like example.
+
+## M10 outcome
+
+**Done**, with the limits in [m10-report.md](m10-report.md); the decisions are in [ADR 0013](adr/0013-structured-reports-and-pdf.md). It was not in the first plan: it is the SR stretch goal, and a person's request for a PDF. Changes to this plan that came out of the milestone:
+- **A report becomes measurements, and nothing else.** `measurements.loadSr(seriesInstanceUID)` keeps the six shape types as ordinary measurements with the origin `import` and the id `sr:<SR SOP UID>:<position>`, so loading again replaces. Stored numbers are not shown; the viewer works them out again. A shape it cannot keep is counted in `skipped`, with the reason, and a report never replaces a measurement something else made.
+- **The engine reads, the core maps.** `engine/sr.ts` is the only code that uses the report adapters. It needed three workarounds for Cornerstone's reader: a shape beside a number is lifted into it (highdicom's layout), groups are read one at a time so a failed one is counted, and an ellipse's axes are put in the model's order. Images are held only while the report is read.
+- **The PDF is a writer of our own,** 2 kB brotli in a lazy chunk, against about 99 kB for jsPDF and 164 kB for pdf-lib. It writes Latin-1 text with the standard fonts; other characters show as `?` and the page says how many. The patient is named only with `showPatientInfo`.
+- **`measurements.downloadPdf` is a command,** so a config file can put it on the toolbar as data.
+- Still open: a report from a vendor (only Cornerstone's and highdicom's are tried), writing an SR (`exportSr`), GSPS, shapes with no model type (circle, arrow, free-hand outline, Cobb angle), the visual baselines for the two new panel controls, and Safari and Firefox.
