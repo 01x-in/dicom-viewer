@@ -973,6 +973,37 @@ describe('the Download menu', () => {
     ]);
   });
 
+  it('saves the DICOM SR as a file, and the file is the report, with a type another tool knows', async () => {
+    const { list } = await mount([length('a')]);
+    const saved = captureDownloads();
+    try {
+      await openMenu(list);
+      action(list, 'download-sr').click();
+      await vi.waitFor(() => {
+        expect(saved.names).toEqual(['measurements.dcm']);
+      });
+    } finally {
+      saved.restore();
+    }
+    expect(saved.made[0]?.type).toBe('application/dicom');
+    expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('says so when the report can not be written, and keeps the menu usable', async () => {
+    const { list, fake } = await mount([length('a')]);
+    const errors: Error[] = [];
+    list.addEventListener('dv-error', (event) => {
+      errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+    });
+    fake.viewer.measurements.exportSr = (): Promise<Blob> => Promise.reject(new Error('no'));
+    await openMenu(list);
+    action(list, 'download-sr').click();
+    await settle(list);
+    expect(errors.map((error) => error.message)).toEqual(['no']);
+    await openMenu(list);
+    expect(menuItems(list)).toHaveLength(3);
+  });
+
   it('is used from the keyboard: Enter or the Down arrow opens it on the first item, the arrows go round, Home and End, Escape closes', async () => {
     const { list } = await mount([length('a')]);
     menuKey(menuButton(list), 'ArrowDown');

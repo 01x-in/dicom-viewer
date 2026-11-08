@@ -9,6 +9,7 @@ import type {
 import { optionalString } from './data/dicom-json';
 import { isNotFound } from './data/errors';
 import { assertDicomUid } from './data/uid';
+import { newUid } from './measurements/ids';
 import type { ReportSeries } from './measurements/report';
 import { sliceNumbers } from './measurements/slice-numbers';
 import {
@@ -646,6 +647,7 @@ export function createViewerCore(
     getInstanceBytes: (studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality) =>
       dataSource.getInstanceBytes(studyInstanceUID, seriesInstanceUID, sopInstanceUID, modality),
     port: () => portPromise,
+    newUid: newUid,
     reportContext: async (studyInstanceUID, seriesInstanceUIDs) => {
       const series = new Map<string, ReportSeries>();
       let first: SeriesInstance | undefined;

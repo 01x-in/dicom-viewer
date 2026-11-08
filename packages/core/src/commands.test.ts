@@ -19,6 +19,7 @@ describe('viewer.commands', () => {
       'layout.set',
       'measurements.copyText',
       'measurements.downloadPdf',
+      'measurements.downloadSr',
       'measurements.downloadText',
       'mpr.show',
       'preset.apply',

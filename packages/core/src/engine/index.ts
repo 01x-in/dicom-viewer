@@ -44,6 +44,7 @@ import {
 } from './segmentation';
 import { readSegmentationHeader } from './segmentation-header';
 import { readReportReferences, readStructuredReport } from './sr';
+import { writeStructuredReport } from './sr-write';
 import { trackMeasurements, type StackMeasurements } from './measurements';
 import { attachStackTools, attachVolumeTools, type StackTools } from './tools';
 import {
@@ -738,6 +739,19 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
           bytes,
           new Map(instances.map((instance) => [instance.sopInstanceUID, instance.imageId])),
         );
+      } finally {
+        releaseImages(imageIds);
+      }
+    },
+    async writeReport(input): Promise<ArrayBuffer> {
+      // The writer turns patient millimetres into pixels with what Cornerstone knows about each
+      // image, and the measurements may be on series no stack shows. Tell it, for the images
+      // nobody has, and hold the images only while the report is written.
+      await ensureRegistered(input.instances);
+      const imageIds = input.instances.map((instance) => instance.imageId);
+      claimImages(imageIds);
+      try {
+        return writeStructuredReport(input);
       } finally {
         releaseImages(imageIds);
       }

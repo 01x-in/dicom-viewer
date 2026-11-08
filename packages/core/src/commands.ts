@@ -194,6 +194,15 @@ function builtins(): Readonly<Record<string, Command>> {
         parse(noArgs, 'measurements.downloadText', args);
       },
     },
+    'measurements.downloadSr': {
+      run: async ({ viewer }) => {
+        downloadBlob(await viewer.measurements.exportSr(), 'measurements.dcm');
+      },
+      enabled: hasMeasurements,
+      check: (args) => {
+        parse(noArgs, 'measurements.downloadSr', args);
+      },
+    },
     'measurements.copyText': {
       run: async ({ viewer }) => {
         const text = await viewer.measurements.exportText();

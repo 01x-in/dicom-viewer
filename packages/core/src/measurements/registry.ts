@@ -1,5 +1,5 @@
 import { optionalString } from '../data/dicom-json';
-import type { LoadedSeriesData, SeriesStack } from '../data/types';
+import type { LoadedSeriesData, SeriesInstance, SeriesStack } from '../data/types';
 import { isNotFound } from '../data/errors';
 import { assertDicomUid } from '../data/uid';
 import type { MeasurementChange, RenderingPort, StackPort } from '../rendering-port';
@@ -101,6 +101,16 @@ export interface TextOptions {
   readonly title?: string;
 }
 
+/** How long a series description can be: the value is a long string (LO), of at most 64 characters. */
+export const MAX_SERIES_DESCRIPTION_LENGTH = 64;
+
+export interface SrExportOptions {
+  /** The description of the report's series, at most 64 characters. Default `Measurements`. */
+  readonly seriesDescription?: string;
+  /** The number of the report's series: a whole number from 0. Default 60. */
+  readonly seriesNumber?: number;
+}
+
 export interface JumpOptions {
   /** Default `vp-0`. */
   readonly viewportId?: string;
@@ -165,6 +175,17 @@ export interface MeasurementsApi {
    * title is too long.
    */
   exportText(options?: TextOptions): Promise<string>;
+  /**
+   * The measurements of the study on screen as a DICOM Structured Report (a TID 1500 measurement
+   * report), a `Blob` of type `application/dicom`, made in the browser and kept in the order of the
+   * list. The file is the report only: the measurements, with a reference to each image by UID.
+   * It has no pixel data. It is in the study of the images and names the same patient, as a PACS
+   * needs, so **the file has the patient's identity in it**, whatever the viewer is set to show.
+   * Each export is a new series, and each measurement has the same identifier every time. Rejects
+   * with a `RangeError` when there are no measurements or an option does not fit, and with an
+   * `Error` for a measurement on a series the data source does not have.
+   */
+  exportSr(options?: SrExportOptions): Promise<Blob>;
 }
 
 /** A stack on screen, with the engine drawing it. */
@@ -200,6 +221,8 @@ export interface MeasurementDeps {
     studyInstanceUID: string,
     seriesInstanceUIDs: readonly string[],
   ): Promise<ReportContext>;
+  /** A new UID, for the series and the instance of a report. */
+  newUid(): string;
   /** A failure nobody is waiting for, such as a slice that could not be read for its pixels. */
   fail(error: Error): void;
 }
@@ -583,6 +606,76 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     return renderText(await reportModelNow(options));
   }
 
+  async function exportSrNow(options: SrExportOptions): Promise<Blob> {
+    const seriesDescription = options.seriesDescription ?? 'Measurements';
+    const seriesNumber = options.seriesNumber ?? 60;
+    if (Array.from(seriesDescription).length > MAX_SERIES_DESCRIPTION_LENGTH) {
+      throw new RangeError(
+        `A series description has at most ${MAX_SERIES_DESCRIPTION_LENGTH.toString()} characters.`,
+      );
+    }
+    if (!Number.isInteger(seriesNumber) || seriesNumber < 0) {
+      throw new RangeError('A series number is a whole number from 0.');
+    }
+    const studyInstanceUID = deps.study();
+    if (studyInstanceUID === undefined) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    const inStudy = [...items.values()].filter(
+      (measurement) => measurement.reference.studyInstanceUID === studyInstanceUID,
+    );
+    if (inStudy.length === 0) {
+      throw new RangeError('There are no measurements of this study to put in a report.');
+    }
+    // The report names each image by UID and takes the patient and study from it, so every
+    // measurement needs its image from the source.
+    const instances = new Map<string, SeriesInstance>();
+    let missing = 0;
+    for (const seriesInstanceUID of new Set(
+      inStudy.map((measurement) => measurement.reference.seriesInstanceUID),
+    )) {
+      let loaded: LoadedSeriesData | undefined;
+      try {
+        loaded = await deps.getSeries(studyInstanceUID, seriesInstanceUID);
+      } catch (error) {
+        if (!isNotFound(error)) throw toError(error);
+      }
+      for (const measurement of inStudy) {
+        if (measurement.reference.seriesInstanceUID !== seriesInstanceUID) continue;
+        const instance = loaded?.instances.find(
+          (candidate) => candidate.sopInstanceUID === measurement.reference.sopInstanceUID,
+        );
+        if (instance === undefined) missing += 1;
+        else instances.set(instance.sopInstanceUID, instance);
+      }
+    }
+    if (missing > 0) {
+      throw new Error(
+        `${missing.toString()} ${missing === 1 ? 'measurement is' : 'measurements are'} on images this data source does not have, so a report cannot refer to ${missing === 1 ? 'it' : 'them'}.`,
+      );
+    }
+    deps.assertAlive();
+    const port = await deps.port();
+    const bytes = await port.writeReport({
+      measurements: inStudy.map((measurement) => ({
+        id: measurement.id,
+        type: measurement.type,
+        points: measurement.points,
+        label: measurement.label,
+        sopInstanceUID: measurement.reference.sopInstanceUID,
+        values: measurementValues(measurement),
+      })),
+      instances: [...instances.values()],
+      seriesInstanceUID: deps.newUid(),
+      sopInstanceUID: deps.newUid(),
+      seriesDescription,
+      seriesNumber,
+      madeAt: new Date(),
+    });
+    deps.assertAlive();
+    return new Blob([bytes], { type: 'application/dicom' });
+  }
+
   async function loadSrNow(seriesInstanceUID: string): Promise<SrLoadResult> {
     const studyInstanceUID = deps.study();
     if (studyInstanceUID === undefined) {
@@ -815,6 +908,9 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     },
     exportText(options = {}): Promise<string> {
       return call(() => exportTextNow(options));
+    },
+    exportSr(options = {}): Promise<Blob> {
+      return call(() => exportSrNow(options));
     },
     loadSr(seriesInstanceUID): Promise<SrLoadResult> {
       try {

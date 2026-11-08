@@ -395,8 +395,10 @@ describe('writeStructuredReport', () => {
   });
 
   it('refuses a measurement on an image it was not given', () => {
+    const [, base] = LIST;
+    if (base === undefined) throw new Error('No measurement');
     const lost: SrWriteMeasurement = {
-      ...(LIST[1] as SrWriteMeasurement),
+      ...base,
       sopInstanceUID: '9.9.9',
     };
     expect(() => writeStructuredReport(inputOf([lost]))).toThrow(/image the report was not given/);

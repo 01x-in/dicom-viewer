@@ -19,7 +19,8 @@ import type {
 } from '../rendering-port';
 import { VolumeUnsupportedError } from '../rendering-port';
 import type { MprOrientation } from '../mpr';
-import type { SrRead } from '../measurements/sr';
+import type { SrRead, SrShape } from '../measurements/sr';
+import type { SrWriteInput } from '../measurements/sr-write';
 import type { SegmentationDisplay } from '../segmentations/display';
 import type { SegmentationHeader } from '../segmentations/header';
 import type { SegmentIndexEntry, SegmentIndexResult } from '../segmentations/segment-index';
@@ -190,6 +191,8 @@ export interface FakeSegmentationHandle extends SegmentationHandle {
 }
 
 export interface FakeSource extends DataSource {
+  /** Serves a report as a series of the study, as a server that was given it would. */
+  addReport(seriesInstanceUID: string, bytes: ArrayBuffer): void;
   readonly calls: string[];
   /** Makes the next getSeries or getStudy fail with this status. */
   failNext(status: number): void;
@@ -205,6 +208,7 @@ export function fakeSource(): FakeSource {
     failure = undefined;
     throw new DataSourceError(`HTTP ${status.toString()}`, status);
   }
+  const reports = new Map<string, ArrayBuffer>();
   const series: Record<string, LoadedSeriesData> = {
     [NO_PIXELS]: {
       studyInstanceUID: STUDY,
@@ -259,6 +263,17 @@ export function fakeSource(): FakeSource {
   };
   return {
     calls,
+    addReport(seriesInstanceUID, bytes): void {
+      reports.set(seriesInstanceUID, bytes);
+      series[seriesInstanceUID] = {
+        studyInstanceUID: STUDY,
+        seriesInstanceUID,
+        modality: 'SR',
+        description: `SR ${seriesInstanceUID}`,
+        instances: instances(seriesInstanceUID, 0, 1),
+        stacks: [],
+      };
+    },
     failNext(status): void {
       failure = status;
     },
@@ -300,6 +315,8 @@ export function fakeSource(): FakeSource {
     },
     getInstanceBytes(_study, seriesInstanceUID, _sop, modality): Promise<ArrayBuffer> {
       calls.push(`getInstanceBytes ${seriesInstanceUID} ${modality}`);
+      const stored = reports.get(seriesInstanceUID);
+      if (stored !== undefined) return Promise.resolve(stored);
       // The fake port reads the series back out of these bytes to know which SEG it is.
       return Promise.resolve(new TextEncoder().encode(seriesInstanceUID).buffer);
     },
@@ -378,6 +395,10 @@ export interface FakePort extends RenderingPort {
   reportResult: SrRead;
   /** Makes the next `readReport` fail. */
   failNextReportRead(): void;
+  /** Every report the viewer asked the engine to write, as it was asked. */
+  readonly reportWrites: SrWriteInput[];
+  /** Makes the next `writeReport` fail. */
+  failNextReportWrite(): void;
   /** Makes the next `loadSegmentation` fail. */
   failNextSegmentationLoad(): void;
   /** Holds every `loadSegmentation` until `release()`. */
@@ -392,6 +413,24 @@ export interface FakePort extends RenderingPort {
   sliceOf: (imageId: string, imageIndex: number) => PixelSlice;
 }
 
+/** The text the fake port writes for a report, and reads back. */
+interface FakeReport {
+  readonly fakeReport: true;
+  readonly shapes: readonly SrShape[];
+}
+
+function writtenBy(bytes: ArrayBuffer): FakeReport | undefined {
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (typeof parsed === 'object' && parsed !== null && 'fakeReport' in parsed) {
+      return parsed as FakeReport;
+    }
+  } catch {
+    // Not one the fake wrote: the text of a series id.
+  }
+  return undefined;
+}
+
 export function fakePort(): FakePort {
   const stacks: FakeStackPort[] = [];
   const log: string[] = [];
@@ -399,6 +438,8 @@ export function fakePort(): FakePort {
   const segmentationHandles: FakeSegmentationHandle[] = [];
   let segmentationFailure = false;
   let reportFailure = false;
+  let reportWriteFailure = false;
+  const reportWrites: SrWriteInput[] = [];
   const reportReads: FakePort['reportReads'] = [];
   let segmentationGate: Promise<void> | undefined;
   const volumeCalls: string[] = [];
@@ -593,6 +634,7 @@ export function fakePort(): FakePort {
     volumeUnsupported: false,
     destroyed: false,
     reportReads,
+    reportWrites,
     reportReferences: [CT],
     reportResult: {
       shapes: [
@@ -613,6 +655,9 @@ export function fakePort(): FakePort {
     },
     failNextReportRead(): void {
       reportFailure = true;
+    },
+    failNextReportWrite(): void {
+      reportWriteFailure = true;
     },
     segmentationLoads,
     segmentationHandles,
@@ -699,6 +744,26 @@ export function fakePort(): FakePort {
       if (header === undefined) throw new Error(`The fake knows no SEG ${uid}.`);
       return header;
     },
+    writeReport(input): Promise<ArrayBuffer> {
+      if (reportWriteFailure) {
+        reportWriteFailure = false;
+        return Promise.reject(new Error('The report could not be written.'));
+      }
+      reportWrites.push(input);
+      // The fake's own report: the shapes it was given, as text. `readReport` reads it back, so a
+      // report that was written can be loaded again, and what comes out is what went in.
+      const fake: FakeReport = {
+        fakeReport: true,
+        shapes: input.measurements.map((measurement, position) => ({
+          type: measurement.type,
+          points: measurement.points,
+          label: measurement.label,
+          sopInstanceUID: measurement.sopInstanceUID,
+          position,
+        })),
+      };
+      return Promise.resolve(new TextEncoder().encode(JSON.stringify(fake)).buffer);
+    },
     readReportReferences(bytes): readonly string[] {
       const uid = new TextDecoder().decode(bytes);
       if (uid === SR_NOT_A_REPORT) {
@@ -716,6 +781,10 @@ export function fakePort(): FakePort {
       if (reportFailure) {
         reportFailure = false;
         return Promise.reject(new Error('The report could not be read.'));
+      }
+      const written = writtenBy(bytes);
+      if (written !== undefined) {
+        return Promise.resolve({ shapes: written.shapes, unreadable: 0, unsupported: [] });
       }
       return Promise.resolve(port.reportResult);
     },

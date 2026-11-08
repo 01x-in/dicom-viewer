@@ -51,7 +51,10 @@ const WINDOWS_1252_HIGH = [
 
 /** A string that dcmjs read one byte to a character, which was written in UTF-8, as the original text. */
 function repairedString(value: string): string {
-  if (/^[\u0000-\u007f]*$/.test(value)) return value;
+  // Plain ASCII is the same in every character set.
+  let ascii = true;
+  for (let at = 0; at < value.length && ascii; at += 1) ascii = value.charCodeAt(at) < 0x80;
+  if (ascii) return value;
   const bytes = new Uint8Array(value.length);
   for (let at = 0; at < value.length; at += 1) {
     const code = value.charCodeAt(at);

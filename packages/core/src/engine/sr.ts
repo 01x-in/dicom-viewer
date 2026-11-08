@@ -19,7 +19,6 @@ import {
   meaningOf,
   repairUtf8,
   reportOf,
-  toArray,
 } from './sr-items';
 
 /** The reader's names for the shapes the model keeps. */
