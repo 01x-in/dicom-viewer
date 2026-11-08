@@ -258,6 +258,39 @@ describe('the slice of each measurement', () => {
     expect(row(list, 'far').getAttribute('aria-label')).not.toMatch(/Slice/);
   });
 
+  it('asks again when an id is given another series with the same image id: the series is part of what the slice depends on', async () => {
+    const { list, fake } = await mount([length('a', 2)]);
+    expect(slice(list, 'a')).toBe('Slice 3');
+    await fake.viewer.measurements.importJson({
+      format: 'measurements/v1',
+      measurements: [
+        {
+          ...length('a', 2),
+          reference: { ...reference(2), seriesInstanceUID: '9.9.9' },
+        },
+      ],
+    });
+    await settle(list);
+    expect(fake.viewer.measurements.get('a')?.reference.seriesInstanceUID).toBe('9.9.9');
+    expect(slice(list, 'a')).toBeUndefined();
+  });
+
+  it('does not show the number of another viewer while the new one is read', async () => {
+    const { list } = await mount([length('a', 2)]);
+    expect(slice(list, 'a')).toBe('Slice 3');
+    const other = createFakeViewer();
+    open.push(other);
+    other.viewer.viewports.attach('vp-0', document.createElement('div'));
+    await other.viewer.loadStudy(FAKE_IDS.study);
+    await other.viewer.measurements.add(length('a', 6));
+    list.viewer = other.viewer;
+    // One update, with the read still on its way.
+    await list.updateComplete;
+    expect(slice(list, 'a')).not.toBe('Slice 3');
+    await settle(list);
+    expect(slice(list, 'a')).toBe('Slice 7');
+  });
+
   it('uses the words the host gives', async () => {
     const { list } = await mount([length('a', 2)]);
     list.messages = { measurementSlice: 'Corte {slice}' };
@@ -695,6 +728,31 @@ describe('loading a report', () => {
     // The control says which report it is.
     expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
     expect(reportSelect(list)?.selectedOptions[0]?.text.trim()).toBe(`SR ${FAKE_IDS.sr}`);
+  });
+
+  it('has no reload button until a report is loaded, and then loads the same report again, replacing what it made', async () => {
+    const { list, fake } = await mount();
+    expect(list.shadowRoot?.querySelector('[data-action="reload-report"]')).toBeNull();
+    await choose(list, FAKE_IDS.sr);
+    await fake.viewer.measurements.remove(fake.viewer.measurements.list()[0]?.id ?? '');
+    await settle(list);
+    expect(rows(list)).toHaveLength(1);
+    action(list, 'reload-report').click();
+    await settle(list);
+    expect(rows(list)).toHaveLength(2);
+    expect(reportStatus(list)).toBe('Report loaded: 1 added, 1 replaced.');
+    expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
+  });
+
+  it('takes the reload button away when the study changes, and uses the words the host gives', async () => {
+    const { list, fake } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    list.messages = { reloadReport: 'Cargar de nuevo' };
+    await settle(list);
+    expect(action(list, 'reload-report').textContent.trim()).toBe('Cargar de nuevo');
+    await fake.viewer.loadStudy('1.2.5');
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[data-action="reload-report"]')).toBeNull();
   });
 
   it('shows the prompt again when the prompt is chosen, with the report still loaded', async () => {

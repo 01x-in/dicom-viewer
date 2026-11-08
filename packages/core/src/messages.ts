@@ -93,6 +93,7 @@ export const DEFAULT_VIEWER_MESSAGES = {
   measurementSlice: 'Slice {slice}',
   previousMeasurement: 'Previous',
   nextMeasurement: 'Next',
+  reloadReport: 'Reload report',
   measurementSelection: 'Selection',
   selectAll: 'Select all',
   selectedCount: '{count} selected',

@@ -286,6 +286,7 @@ export class DvMeasurementListElement extends LitElement {
   #reportRequest = 0;
   /** The measurements and images the slices were asked for, so a drag that moves a point asks again for nothing. */
   #slicesKey = '';
+  #slicesRefs: ReadonlyMap<string, string> = new Map();
   #slicesRequest = 0;
 
   constructor() {
@@ -317,7 +318,10 @@ export class DvMeasurementListElement extends LitElement {
 
   override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has('viewer')) {
+      // Another viewer: its numbers are not these.
       this.#slicesKey = '';
+      this.#slicesRefs = new Map();
+      if (this.slices.size > 0) this.slices = new Map();
       this.#forgetReport();
       this.#listen();
       this.#sync();
@@ -473,15 +477,26 @@ export class DvMeasurementListElement extends LitElement {
   /** Asks the viewer which slice each measurement is on, when the measurements or their images changed. */
   #refreshSlices(items: readonly Measurement[]): void {
     const { viewer } = this;
-    const key = items.map((item) => `${item.id}@${item.reference.sopInstanceUID}`).join('|');
+    // What the slice of a measurement depends on: the image it is on, in its series and study.
+    const refs = new Map(
+      items.map((item) => [
+        item.id,
+        `${item.reference.studyInstanceUID}/${item.reference.seriesInstanceUID}/${item.reference.sopInstanceUID}`,
+      ]),
+    );
+    const key = [...refs].map(([id, ref]) => `${id}@${ref}`).join('|');
     if (key === this.#slicesKey) return;
+    const before = this.#slicesRefs;
     this.#slicesKey = key;
+    this.#slicesRefs = refs;
     this.#slicesRequest += 1;
     const request = this.#slicesRequest;
-    if (viewer === undefined || items.length === 0) {
-      if (this.slices.size > 0) this.slices = new Map();
-      return;
-    }
+    // A measurement on another image does not keep the number of the old one while the new one is read.
+    const kept = new Map(
+      [...this.slices].filter(([id]) => refs.has(id) && before.get(id) === refs.get(id)),
+    );
+    if (kept.size !== this.slices.size) this.slices = kept;
+    if (viewer === undefined || items.length === 0) return;
     viewer.measurements.slices().then(
       (slices) => {
         // An answer to an older question, or from a viewer that was replaced, is not about this list.
@@ -890,6 +905,7 @@ export class DvMeasurementListElement extends LitElement {
 
   #renderReport(): TemplateResult {
     const empty = this.items.length === 0;
+    const text = resolveViewerMessages(this.messages);
     return html`<div class="report" role="group" aria-label="Report">
       ${
         this.reports.length === 0
@@ -918,6 +934,21 @@ export class DvMeasurementListElement extends LitElement {
                 </option>`,
             )}
           </select>`
+      }
+      ${
+        this.loadedReport === undefined
+          ? nothing
+          : html`<button
+              type="button"
+              part="button"
+              data-action="reload-report"
+              aria-disabled=${this.loadingReport ? 'true' : nothing}
+              @click=${(): void => {
+                if (this.loadedReport !== undefined) this.#loadReport(this.loadedReport);
+              }}
+            >
+              ${text.reloadReport}
+            </button>`
       }
       <button
         type="button"
