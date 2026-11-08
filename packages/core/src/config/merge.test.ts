@@ -126,6 +126,21 @@ describe('mergeLayers', () => {
   });
 });
 
+describe('the measurements key', () => {
+  it('replaces the list of formats and keeps the copy flag the later layer does not mention', () => {
+    const merged = mergeLayers([
+      { measurements: { downloadFormats: ['text', 'pdf', 'sr'], copyText: false } },
+      { measurements: { downloadFormats: ['pdf'] } },
+    ]);
+    expect(merged.measurements).toEqual({ downloadFormats: ['pdf'], copyText: false });
+  });
+
+  it('puts both back to their defaults with null', () => {
+    const merged = mergeLayers([{ measurements: { copyText: false } }, { measurements: null }]);
+    expect(merged.measurements).toBeUndefined();
+  });
+});
+
 describe('resolveConfig', () => {
   it('is the defaults for no layers: no theme or palette chosen, the usual presets, the keyboard on', () => {
     const resolved = resolveConfig([]);
@@ -146,6 +161,18 @@ describe('resolveConfig', () => {
       'liver',
     ]);
     expect(resolved.tools).toEqual({ active: 'window-level' });
+    // Everything is on, in the order of the menu.
+    expect(resolved.measurements).toEqual({
+      downloadFormats: ['text', 'pdf', 'sr'],
+      copyText: true,
+    });
+  });
+
+  it('keeps a list of formats that is empty: it hides the menu', () => {
+    expect(resolveConfig([{ measurements: { downloadFormats: [] } }]).measurements).toEqual({
+      downloadFormats: [],
+      copyText: true,
+    });
   });
 
   it('takes what the layers say over the defaults', () => {

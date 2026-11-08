@@ -107,6 +107,33 @@ describe('parseViewerConfig', () => {
     expect(errorsOf({ version: 1, panels: { hide: ['notes'] } }).join()).toContain('panels.hide');
   });
 
+  it('accepts the measurements key, with the formats of the Download menu and the Copy button', () => {
+    const config = {
+      version: 1,
+      measurements: { downloadFormats: ['pdf', 'text'], copyText: false },
+    };
+    expect(parseViewerConfig(config)).toEqual({ ok: true, config });
+    expect(parseViewerConfig({ version: 1, measurements: { downloadFormats: [] } }).ok).toBe(true);
+    expect(parseViewerConfig({ version: 1, measurements: null }).ok).toBe(true);
+  });
+
+  it('refuses a download format that does not exist, and names where it is', () => {
+    const errors = errorsOf({ version: 1, measurements: { downloadFormats: ['pdf', 'docx'] } });
+    expect(errors.join()).toContain('measurements.downloadFormats.1');
+  });
+
+  it('refuses a format that is listed twice, a copy flag that is not a boolean, and a key it does not know', () => {
+    expect(
+      errorsOf({ version: 1, measurements: { downloadFormats: ['sr', 'sr'] } }).join(),
+    ).toContain('The download format "sr" is listed twice.');
+    expect(errorsOf({ version: 1, measurements: { copyText: 'yes' } }).join()).toContain(
+      'measurements.copyText',
+    );
+    expect(errorsOf({ version: 1, measurements: { download: ['pdf'] } }).join()).toContain(
+      'measurements',
+    );
+  });
+
   it('does not let the result be changed through the input', () => {
     const input = { version: 1, panels: { hide: ['series'] } };
     const result = parseViewerConfig(input);

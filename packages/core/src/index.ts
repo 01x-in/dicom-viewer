@@ -150,13 +150,16 @@ export type { PanelDefinition, PanelPlacement, UiApi } from './ui';
 export { createViewer } from './viewer';
 export type { ViewerOptions } from './viewer';
 export {
+  DOWNLOAD_FORMATS,
   PALETTE_NAMES,
   PANEL_IDS,
   THEME_NAMES,
   TOOLBAR_LABELS,
 } from './config/types';
 export type {
+  DownloadFormat,
   KeybindingsConfig,
+  MeasurementsConfig,
   OverlayConfig,
   PaletteName,
   PanelId,

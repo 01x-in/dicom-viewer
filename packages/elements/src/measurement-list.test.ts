@@ -880,47 +880,292 @@ describe('loading a report', () => {
   });
 });
 
-describe('the PDF button', () => {
-  it('is there with no measurements, and can not be used', async () => {
+/** Records the files the page saves, in place of the browser saving them. */
+function captureDownloads(): { names: string[]; made: Blob[]; restore: () => void } {
+  const made: Blob[] = [];
+  const names: string[] = [];
+  URL.createObjectURL = (blob: Blob | MediaSource): string => {
+    if (blob instanceof Blob) made.push(blob);
+    return 'blob:fake';
+  };
+  URL.revokeObjectURL = (): void => undefined;
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    names.push(this.download);
+  });
+  return {
+    names,
+    made,
+    restore: (): void => {
+      click.mockRestore();
+    },
+  };
+}
+
+const menuButton = (list: DvMeasurementListElement): HTMLButtonElement =>
+  action(list, 'download-menu');
+const menuItems = (list: DvMeasurementListElement): HTMLButtonElement[] => [
+  ...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []),
+];
+const menuKey = (element: HTMLElement, key: string): void => {
+  element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+};
+async function openMenu(list: DvMeasurementListElement): Promise<void> {
+  menuButton(list).click();
+  await settle(list);
+}
+
+describe('the Download menu', () => {
+  it('is a button named Download that says it opens a menu, and can not be used with no measurements', async () => {
     const { list } = await mount();
-    const button = action(list, 'download-pdf');
+    const button = menuButton(list);
+    expect(button.textContent.trim()).toBe('Download');
+    expect(button.getAttribute('aria-haspopup')).toBe('menu');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(button.getAttribute('aria-disabled')).toBe('true');
-    expect(button.textContent.trim()).toBe('Download PDF');
+    button.click();
+    await settle(list);
+    expect(menuItems(list)).toEqual([]);
   });
 
-  it('can be used when there are measurements, and saves the report', async () => {
+  it('opens with the formats of the config in its order, the PDF keeping the name it always had', async () => {
     const { list } = await mount([length('a')]);
-    const button = action(list, 'download-pdf');
-    expect(button.hasAttribute('aria-disabled')).toBe(false);
-    const made: Blob[] = [];
-    URL.createObjectURL = (blob: Blob | MediaSource): string => {
-      if (blob instanceof Blob) made.push(blob);
-      return 'blob:fake';
-    };
-    URL.revokeObjectURL = (): void => undefined;
-    const names: string[] = [];
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      names.push(this.download);
-    });
+    await openMenu(list);
+    expect(menuButton(list).getAttribute('aria-expanded')).toBe('true');
+    expect(menuItems(list).map((item) => item.dataset['action'])).toEqual([
+      'download-text',
+      'download-pdf',
+      'download-sr',
+    ]);
+    expect(menuItems(list).map((item) => item.textContent.trim())).toEqual([
+      'Text (.txt)',
+      'PDF (.pdf)',
+      'DICOM SR (.dcm, includes patient identity)',
+    ]);
+    expect(list.shadowRoot?.querySelector('[role="menu"]')?.getAttribute('aria-labelledby')).toBe(
+      menuButton(list).id,
+    );
+  });
+
+  it('saves the text and the PDF as files, closes, and gives the focus back to the button', async () => {
+    const { list } = await mount([length('a')]);
+    const saved = captureDownloads();
     try {
-      button.click();
+      await openMenu(list);
+      action(list, 'download-text').click();
       await vi.waitFor(() => {
-        expect(names).toEqual(['measurement-report.pdf']);
+        expect(saved.names).toEqual(['measurement-report.txt']);
+      });
+      expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+      expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
+      await openMenu(list);
+      action(list, 'download-pdf').click();
+      await vi.waitFor(() => {
+        expect(saved.names).toEqual(['measurement-report.txt', 'measurement-report.pdf']);
       });
     } finally {
-      click.mockRestore();
+      saved.restore();
     }
-    expect(made[0]?.type).toBe('application/pdf');
+    expect(saved.made.map((blob) => blob.type)).toEqual([
+      'text/plain;charset=utf-8',
+      'application/pdf',
+    ]);
   });
 
-  it('does nothing when it can not be used', async () => {
-    const { list } = await mount();
-    const errors: unknown[] = [];
-    list.addEventListener('dv-error', (event) => errors.push(event));
-    action(list, 'download-pdf').click();
+  it('is used from the keyboard: Enter or the Down arrow opens it on the first item, the arrows go round, Home and End, Escape closes', async () => {
+    const { list } = await mount([length('a')]);
+    menuKey(menuButton(list), 'ArrowDown');
     await settle(list);
-    expect(errors).toEqual([]);
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[0]);
+    menuKey(menuItems(list)[0] as HTMLElement, 'ArrowDown');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[1]);
+    menuKey(menuItems(list)[1] as HTMLElement, 'End');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[2]);
+    menuKey(menuItems(list)[2] as HTMLElement, 'ArrowDown');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[0]);
+    menuKey(menuItems(list)[0] as HTMLElement, 'ArrowUp');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[2]);
+    menuKey(menuItems(list)[2] as HTMLElement, 'Home');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[0]);
+    menuKey(menuItems(list)[0] as HTMLElement, 'Escape');
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+    expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
+  });
+
+  it('closes when the focus goes somewhere else', async () => {
+    const { list } = await mount([length('a')]);
+    await openMenu(list);
+    menuItems(list)[0]?.focus();
+    menuItems(list)[0]?.dispatchEvent(
+      new FocusEvent('focusout', { bubbles: true, composed: true, relatedTarget: document.body }),
+    );
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('has the formats the host chose, in its order, and none at all hides the menu', async () => {
+    const { list, fake } = await mount([length('a')]);
+    fake.viewer.config.apply({ version: 1, measurements: { downloadFormats: ['pdf', 'text'] } });
+    await settle(list);
+    await openMenu(list);
+    expect(menuItems(list).map((item) => item.dataset['action'])).toEqual([
+      'download-pdf',
+      'download-text',
+    ]);
+    fake.viewer.config.apply({ version: 1, measurements: { downloadFormats: [] } });
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[data-action="download-menu"]')).toBeNull();
+    expect(menuItems(list)).toEqual([]);
+    fake.viewer.config.apply({ version: 1, measurements: null });
+    await settle(list);
+    expect(menuButton(list)).not.toBeNull();
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a')]);
+    list.messages = {
+      download: 'Descargar',
+      downloadText: 'Texto',
+      downloadPdf: 'PDF',
+      downloadSr: 'DICOM SR',
+    };
+    await settle(list);
+    expect(menuButton(list).textContent.trim()).toBe('Descargar');
+    await openMenu(list);
+    expect(menuItems(list).map((item) => item.textContent.trim())).toEqual([
+      'Texto',
+      'PDF',
+      'DICOM SR',
+    ]);
+  });
+});
+
+describe('the Copy button', () => {
+  const clipboard = (value: unknown): void => {
+    Object.defineProperty(navigator, 'clipboard', { value, configurable: true });
+  };
+  const copyStatus = (list: DvMeasurementListElement): string | undefined =>
+    list.shadowRoot?.querySelector('[data-copy-status]')?.textContent.replace(/\s+/g, ' ').trim();
+  const box = (list: DvMeasurementListElement): HTMLTextAreaElement | null =>
+    list.shadowRoot?.querySelector<HTMLTextAreaElement>('textarea[data-copy-box]') ?? null;
+
+  it('is there, named Copy, and can not be used with no measurements', async () => {
+    const { list } = await mount();
+    const button = action(list, 'copy-text');
+    expect(button.textContent.trim()).toBe('Copy');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    clipboard({ writeText: vi.fn() });
+    button.click();
+    await settle(list);
+    expect(copyStatus(list)).toBeUndefined();
+  });
+
+  it('puts the text on the clipboard, and says so', async () => {
+    const { list } = await mount([length('a', 4, 'Aorta')]);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    clipboard({ writeText });
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(copyStatus(list)).toBe('Copied.');
+    });
+    expect(String(writeText.mock.calls[0]?.[0])).toContain('Aorta: Length 5.0 mm');
+    expect(box(list)).toBeNull();
+  });
+
+  it('shows the text in a box, selected, and says to copy it by hand, when the browser refuses', async () => {
+    const { list } = await mount([length('a', 4, 'Aorta')]);
+    clipboard({ writeText: vi.fn().mockRejectedValue(new Error('denied')) });
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(box(list)).not.toBeNull();
+    });
+    const field = box(list);
+    if (field === null) throw new Error('No box');
+    expect(field.readOnly).toBe(true);
+    expect(field.value).toContain('Aorta: Length 5.0 mm');
+    expect(field.getAttribute('aria-label')).toBe('Measurements as text');
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe(field.value.length);
+    expect(copyStatus(list)).toBe(
+      'The browser did not allow copying. Select the text below and copy it.',
+    );
+  });
+
+  it('does the same when the browser has no clipboard at all', async () => {
+    const { list } = await mount([length('a')]);
+    clipboard(undefined);
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(box(list)).not.toBeNull();
+    });
+  });
+
+  it('is left out when the host says so, and comes back with the next layer', async () => {
+    const { list, fake } = await mount([length('a')]);
+    fake.viewer.config.apply({ version: 1, measurements: { copyText: false } });
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[data-action="copy-text"]')).toBeNull();
+    fake.viewer.config.apply({ version: 1, measurements: { copyText: true } });
+    await settle(list);
+    expect(action(list, 'copy-text')).not.toBeNull();
+  });
+
+  it('takes the note and the box away when the measurements change', async () => {
+    const { list, fake } = await mount([length('a')]);
+    clipboard({ writeText: vi.fn().mockRejectedValue(new Error('denied')) });
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(box(list)).not.toBeNull();
+    });
+    await fake.viewer.measurements.add(length('b', 7));
+    await settle(list);
+    expect(box(list)).toBeNull();
+    expect(copyStatus(list)).toBeUndefined();
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a')]);
+    list.messages = {
+      copyText: 'Copiar',
+      copiedText: 'Copiado.',
+    };
+    clipboard({ writeText: vi.fn().mockResolvedValue(undefined) });
+    await settle(list);
+    expect(action(list, 'copy-text').textContent.trim()).toBe('Copiar');
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(copyStatus(list)).toBe('Copiado.');
+    });
+  });
+});
+
+describe('the words of the report controls', () => {
+  it('can all be translated: the control, the group, the prompt, and what it says about a load', async () => {
+    const { list } = await mount();
+    list.messages = {
+      reportGroup: 'Informe',
+      loadReport: 'Cargar informe',
+      loadReportPrompt: 'Cargar informe…',
+      reportLoaded: 'Informe cargado: {added} nuevas, {replaced} reemplazadas.',
+      reportLeftOut: 'Omitido:',
+    };
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[role="group"][aria-label="Informe"]')).not.toBeNull();
+    expect(reportSelect(list)?.getAttribute('aria-label')).toBe('Cargar informe');
+    expect(reportSelect(list)?.options[0]?.text).toBe('Cargar informe…');
+    await choose(list, FAKE_IDS.sr);
+    expect(reportStatus(list)).toBe('Informe cargado: 2 nuevas, 0 reemplazadas.');
+  });
+
+  it('says a report could not be loaded in the words the host gives', async () => {
+    const { list, fake } = await mount();
+    list.messages = { reportFailed: 'No se pudo cargar: {message}', noMeasurementsAdded: 'Nada.' };
+    await settle(list);
+    fake.viewer.measurements.loadSr = (): Promise<never> => Promise.reject(new Error('mala'));
+    list.addEventListener('dv-error', () => undefined);
+    await choose(list, FAKE_IDS.sr);
+    expect(reportStatus(list)).toBe('No se pudo cargar: mala');
   });
 });

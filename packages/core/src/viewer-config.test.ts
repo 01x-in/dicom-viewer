@@ -31,6 +31,47 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+describe('the measurements key at the viewer', () => {
+  it('is all on by default, set at the start, and changed by a layer applied later, with an event', () => {
+    const h = harness({
+      viewer: { config: layer({ measurements: { downloadFormats: ['text', 'pdf'] } }) },
+    });
+    expect(h.viewer.config.get().measurements).toEqual({
+      downloadFormats: ['text', 'pdf'],
+      copyText: true,
+    });
+    const seen: boolean[] = [];
+    h.viewer.on('config:changed', ({ config }) => {
+      seen.push(config.measurements.copyText);
+    });
+    h.viewer.config.apply(layer({ measurements: { copyText: false } }));
+    expect(h.viewer.config.get().measurements).toEqual({
+      downloadFormats: ['text', 'pdf'],
+      copyText: false,
+    });
+    expect(seen).toEqual([false]);
+  });
+
+  it('does not stop the API or the commands: it says what the shell shows', async () => {
+    const h = harness({ viewer: { config: layer({ measurements: { downloadFormats: [] } }) } });
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.measurements.add({
+      type: 'length',
+      reference: {
+        studyInstanceUID: STUDY,
+        seriesInstanceUID: CT,
+        sopInstanceUID: `${CT}.0.1`,
+      },
+      points: [
+        [0, 0, 0],
+        [3, 4, 0],
+      ],
+    });
+    expect(h.viewer.commands.enabled('measurements.downloadText')).toBe(true);
+    await expect(h.viewer.measurements.exportText()).resolves.toContain('Length 1');
+  });
+});
+
 describe('config given at the start', () => {
   it('sets the window presets, the keys, the overlay, and the first tool', () => {
     const h = harness({

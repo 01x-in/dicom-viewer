@@ -236,6 +236,7 @@ async function copyToClipboard(text: string): Promise<void> {
   } catch (error) {
     throw new Error(
       `The browser did not allow copying to the clipboard${error instanceof Error ? `: ${error.message}` : '.'}`,
+      { cause: error },
     );
   }
 }
