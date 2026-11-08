@@ -1,4 +1,5 @@
 import {
+  formatViewerMessage,
   MAX_LABEL_LENGTH,
   type Measurement,
   measurementLines,
@@ -65,6 +66,7 @@ export class DvMeasurementListElement extends LitElement {
     reportStatus: { state: true },
     loadedReport: { state: true },
     loadingReport: { state: true },
+    slices: { state: true },
   };
 
   /** @internal The component's own CSS. */
@@ -106,6 +108,11 @@ export class DvMeasurementListElement extends LitElement {
       .title {
         font-weight: 600;
         overflow-wrap: anywhere;
+      }
+      .slice {
+        color: var(--dv-color-text-muted, #a7b0be);
+        font-size: 0.8125rem;
+        font-variant-numeric: tabular-nums;
       }
       .lines {
         margin: 0;
@@ -202,6 +209,8 @@ export class DvMeasurementListElement extends LitElement {
   declare loadingReport: boolean;
   /** The report the list shows as chosen: the one loaded last, so the control says which one it is. */
   declare loadedReport: string | undefined;
+  /** The slice each measurement is on, by id, as the overlay counts it. Worked out by the viewer. */
+  declare slices: ReadonlyMap<string, number>;
 
   #off: (() => void)[] = [];
   #listeningTo: Viewer | undefined;
@@ -212,6 +221,9 @@ export class DvMeasurementListElement extends LitElement {
   #statusStudy: string | undefined;
   /** Counts the attempts to load a report, so the answer to an old one (another viewer, another study) is ignored. */
   #reportRequest = 0;
+  /** The measurements and images the slices were asked for, so a drag that moves a point asks again for nothing. */
+  #slicesKey = '';
+  #slicesRequest = 0;
 
   constructor() {
     super();
@@ -224,6 +236,7 @@ export class DvMeasurementListElement extends LitElement {
     this.reportStatus = undefined;
     this.loadingReport = false;
     this.loadedReport = undefined;
+    this.slices = new Map();
   }
 
   override connectedCallback(): void {
@@ -239,6 +252,7 @@ export class DvMeasurementListElement extends LitElement {
 
   override willUpdate(changed: PropertyValues<this>): void {
     if (changed.has('viewer')) {
+      this.#slicesKey = '';
       this.#forgetReport();
       this.#listen();
       this.#sync();
@@ -285,6 +299,7 @@ export class DvMeasurementListElement extends LitElement {
         ? []
         : viewer.measurements.list({ studyInstanceUID: study });
     if (!sameList(next, this.items)) this.items = next;
+    this.#refreshSlices(next);
     const reports = viewer?.getStudy()?.series.filter((series) => series.modality === 'SR') ?? [];
     if (
       reports.length !== this.reports.length ||
@@ -308,6 +323,30 @@ export class DvMeasurementListElement extends LitElement {
     if (this.renamingId !== undefined && !next.some((item) => item.id === this.renamingId)) {
       this.renamingId = undefined;
     }
+  }
+
+  /** Asks the viewer which slice each measurement is on, when the measurements or their images changed. */
+  #refreshSlices(items: readonly Measurement[]): void {
+    const { viewer } = this;
+    const key = items.map((item) => `${item.id}@${item.reference.sopInstanceUID}`).join('|');
+    if (key === this.#slicesKey) return;
+    this.#slicesKey = key;
+    this.#slicesRequest += 1;
+    const request = this.#slicesRequest;
+    if (viewer === undefined || items.length === 0) {
+      if (this.slices.size > 0) this.slices = new Map();
+      return;
+    }
+    viewer.measurements.slices().then(
+      (slices) => {
+        // An answer to an older question, or from a viewer that was replaced, is not about this list.
+        if (request === this.#slicesRequest) this.slices = slices;
+      },
+      () => {
+        // Rows without a slice are still usable: the number is a help, not the content.
+        if (request === this.#slicesRequest) this.slices = new Map();
+      },
+    );
   }
 
   #rows(): HTMLElement[] {
@@ -335,6 +374,20 @@ export class DvMeasurementListElement extends LitElement {
       .catch((error: unknown) => {
         this.#fail(error);
       });
+  }
+
+  /** Shows the measurement after the one picked (or the one with the focus), going round at the ends. */
+  #step(direction: 1 | -1): void {
+    const count = this.items.length;
+    if (count === 0) return;
+    const picked = this.items.findIndex((item) => item.id === this.selectedId);
+    let at: number;
+    if (picked >= 0) at = (picked + direction + count) % count;
+    else at = direction === 1 ? 0 : count - 1;
+    const target = this.items[at];
+    if (target === undefined) return;
+    this.#rovingIndex = at;
+    this.#jump(target);
   }
 
   #delete(measurement: Measurement | undefined): void {
@@ -448,13 +501,20 @@ export class DvMeasurementListElement extends LitElement {
     const title =
       names.get(measurement.id) ?? measurementName(measurement, this.items, this.messages);
     const lines = measurementLines(measurement, this.messages);
+    const slice = this.slices.get(measurement.id);
+    const sliceText =
+      slice === undefined
+        ? undefined
+        : formatViewerMessage(resolveViewerMessages(this.messages).measurementSlice, {
+            slice,
+          });
     return html`<li
       role="option"
       part="measurement-item"
       data-measurement=${measurement.id}
       tabindex=${position === this.#rovingIndex ? 0 : -1}
       aria-selected=${measurement.id === this.selectedId ? 'true' : 'false'}
-      aria-label=${[title, ...lines].join(', ')}
+      aria-label=${[title, ...lines, ...(sliceText === undefined ? [] : [sliceText])].join(', ')}
       @click=${(): void => {
         this.#rovingIndex = position;
         this.#jump(measurement);
@@ -473,6 +533,11 @@ export class DvMeasurementListElement extends LitElement {
       }}
     >
       <span class="title" part="measurement-title">${title}</span>
+      ${
+        sliceText === undefined
+          ? nothing
+          : html` <span class="slice" part="measurement-slice" data-slice aria-hidden="true">${sliceText}</span>`
+      }
       <ul class="lines" aria-hidden="true">
         ${lines.map((line) => html`<li>${line}</li>`)}
       </ul>
@@ -521,6 +586,26 @@ export class DvMeasurementListElement extends LitElement {
     }
     const disabled = this.#current() === undefined;
     return html`<div class="actions" role="group" aria-label=${text.measurementActions}>
+      <button
+        type="button"
+        part="button"
+        data-action="previous-measurement"
+        @click=${(): void => {
+          this.#step(-1);
+        }}
+      >
+        ${text.previousMeasurement}
+      </button>
+      <button
+        type="button"
+        part="button"
+        data-action="next-measurement"
+        @click=${(): void => {
+          this.#step(1);
+        }}
+      >
+        ${text.nextMeasurement}
+      </button>
       <button
         type="button"
         part="button"

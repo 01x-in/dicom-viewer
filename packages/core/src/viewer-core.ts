@@ -10,6 +10,7 @@ import { optionalString } from './data/dicom-json';
 import { isNotFound } from './data/errors';
 import { assertDicomUid } from './data/uid';
 import type { ReportSeries } from './measurements/report';
+import { sliceNumbers } from './measurements/slice-numbers';
 import {
   type HangingMatch,
   type HangingProtocol,
@@ -658,16 +659,10 @@ export function createViewerCore(
           if (isNotFound(error)) continue;
           throw error;
         }
-        const slices = new Map<string, number>();
-        for (const stack of loaded.stacks) {
-          for (const [at, instance] of stack.instances.entries()) {
-            slices.set(instance.sopInstanceUID, at + 1);
-          }
-        }
         series.set(seriesInstanceUID, {
           modality: loaded.modality,
           description: loaded.description,
-          slices,
+          slices: sliceNumbers(loaded),
         });
         first ??= loaded.instances[0];
       }

@@ -19,6 +19,7 @@ import {
   type RoiStats,
 } from './model';
 import { buildReport, type ReportContext } from './report';
+import { sliceNumbers } from './slice-numbers';
 import { measurementsFromSr, type SrSkip } from './sr';
 import { probeHu, roiStats } from './stats';
 
@@ -120,6 +121,12 @@ export interface MeasurementsApi {
   select(id: string | undefined): Promise<void>;
   /** Shows the image a measurement is on, and picks it. */
   jumpTo(id: string, options?: JumpOptions): Promise<void>;
+  /**
+   * The slice each measurement of the study on screen is on, by id, counting from 1 in the stack
+   * it is shown in, as the overlay does. A measurement on a series the source does not have has no
+   * entry. Reads the series, and does not change anything.
+   */
+  slices(): Promise<ReadonlyMap<string, number>>;
   /** Plain data, so `JSON.stringify` works on it. */
   exportJson(): MeasurementsExportV1;
   /**
@@ -721,6 +728,38 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
         // The shape may have gone while the image was being shown.
         if (items.has(id)) pick(id);
       });
+    },
+    async slices(): Promise<ReadonlyMap<string, number>> {
+      deps.assertAlive();
+      const studyInstanceUID = deps.study();
+      const result = new Map<string, number>();
+      if (studyInstanceUID === undefined) return result;
+      const inStudy = [...items.values()].filter(
+        (measurement) => measurement.reference.studyInstanceUID === studyInstanceUID,
+      );
+      const numbers = new Map<string, ReadonlyMap<string, number>>();
+      for (const seriesInstanceUID of new Set(
+        inStudy.map((measurement) => measurement.reference.seriesInstanceUID),
+      )) {
+        try {
+          numbers.set(
+            seriesInstanceUID,
+            sliceNumbers(await deps.getSeries(studyInstanceUID, seriesInstanceUID)),
+          );
+        } catch (error) {
+          // A measurement may be on a series this source does not have: its row has no slice.
+          if (isNotFound(error)) continue;
+          throw toError(error);
+        }
+      }
+      deps.assertAlive();
+      for (const measurement of inStudy) {
+        const slice = numbers
+          .get(measurement.reference.seriesInstanceUID)
+          ?.get(measurement.reference.sopInstanceUID);
+        if (slice !== undefined) result.set(measurement.id, slice);
+      }
+      return result;
     },
     exportJson(): MeasurementsExportV1 {
       deps.assertAlive();

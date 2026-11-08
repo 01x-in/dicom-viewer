@@ -99,8 +99,8 @@ describe('<dv-measurement-list>', () => {
       'Measurements',
     );
     expect(rows(list)).toHaveLength(2);
-    expect(row(list, 'a').getAttribute('aria-label')).toBe('Length 1, Length 5.0 mm');
-    expect(row(list, 'b').getAttribute('aria-label')).toBe('Aorta, Length 5.0 mm');
+    expect(row(list, 'a').getAttribute('aria-label')).toBe('Length 1, Length 5.0 mm, Slice 6');
+    expect(row(list, 'b').getAttribute('aria-label')).toBe('Aorta, Length 5.0 mm, Slice 3');
     expect(row(list, 'b').textContent).toContain('Aorta');
   });
 
@@ -221,6 +221,128 @@ describe('<dv-measurement-list>', () => {
     expect(errors[0]?.context).toBe('measurement');
     expect(errors[0]?.error.message).toMatch(/no viewport vp-3/);
     expect(fake.viewer.measurements.getSelected()).toBeUndefined();
+  });
+});
+
+describe('the slice of each measurement', () => {
+  const slice = (list: DvMeasurementListElement, id: string): string | undefined =>
+    row(list, id).querySelector('[data-slice]')?.textContent.trim();
+
+  it('is on its row, counting from 1 as the overlay does, and in the name the row has for assistive technology', async () => {
+    const { list } = await mount([length('a', 0), length('b', 6, 'Aorta')]);
+    expect(slice(list, 'a')).toBe('Slice 1');
+    expect(slice(list, 'b')).toBe('Slice 7');
+    expect(row(list, 'b').getAttribute('aria-label')).toBe('Aorta, Length 5.0 mm, Slice 7');
+  });
+
+  it('follows a measurement added later, and says nothing for one whose series the source lacks', async () => {
+    const { list, fake } = await mount([length('a', 2)]);
+    await fake.viewer.measurements.add(length('b', 4));
+    await settle(list);
+    expect(slice(list, 'b')).toBe('Slice 5');
+    await fake.viewer.measurements.importJson({
+      format: 'measurements/v1',
+      measurements: [
+        {
+          ...length('far'),
+          reference: {
+            studyInstanceUID: FAKE_IDS.study,
+            seriesInstanceUID: '9.9.9',
+            sopInstanceUID: '9.9.9.1',
+          },
+        },
+      ],
+    });
+    await settle(list);
+    expect(slice(list, 'far')).toBeUndefined();
+    expect(row(list, 'far').getAttribute('aria-label')).not.toMatch(/Slice/);
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a', 2)]);
+    list.messages = { measurementSlice: 'Corte {slice}' };
+    await settle(list);
+    expect(slice(list, 'a')).toBe('Corte 3');
+  });
+});
+
+describe('stepping between measurements', () => {
+  it('shows the next one, and the one before, and picks each', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
+    row(list, 'a').click();
+    await settle(list);
+
+    action(list, 'next-measurement').click();
+    await settle(list);
+    expect(fake.viewer.measurements.getSelected()).toBe('b');
+    expect(fake.viewer.getState().viewports[0]?.imageIndex).toBe(7);
+
+    action(list, 'previous-measurement').click();
+    await settle(list);
+    expect(fake.viewer.measurements.getSelected()).toBe('a');
+    expect(fake.viewer.getState().viewports[0]?.imageIndex).toBe(2);
+  });
+
+  it('goes round: past the last is the first, and before the first is the last', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7)]);
+    row(list, 'b').click();
+    await settle(list);
+    action(list, 'next-measurement').click();
+    await settle(list);
+    expect(fake.viewer.measurements.getSelected()).toBe('a');
+    action(list, 'previous-measurement').click();
+    await settle(list);
+    expect(fake.viewer.measurements.getSelected()).toBe('b');
+  });
+
+  it('starts at the first with Next, and at the last with Previous, when none is picked', async () => {
+    const first = await mount([length('a', 2), length('b', 7)]);
+    action(first.list, 'next-measurement').click();
+    await settle(first.list);
+    expect(first.fake.viewer.measurements.getSelected()).toBe('a');
+
+    const last = await mount([length('a', 2), length('b', 7)]);
+    action(last.list, 'previous-measurement').click();
+    await settle(last.list);
+    expect(last.fake.viewer.measurements.getSelected()).toBe('b');
+  });
+
+  it('puts the tab stop on the row it shows, so the keyboard carries on from there', async () => {
+    const { list } = await mount([length('a', 2), length('b', 7)]);
+    action(list, 'next-measurement').click();
+    await settle(list);
+    action(list, 'next-measurement').click();
+    await settle(list);
+    expect(rows(list).filter((item) => item.tabIndex === 0)).toEqual([row(list, 'b')]);
+  });
+
+  it('has buttons with names, and only with measurements to step through', async () => {
+    const { list } = await mount([length('a', 2)]);
+    expect(action(list, 'next-measurement').textContent.trim()).toBe('Next');
+    expect(action(list, 'previous-measurement').textContent.trim()).toBe('Previous');
+    const empty = await mount();
+    expect(empty.list.shadowRoot?.querySelector('[data-action="next-measurement"]')).toBeNull();
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a', 2)]);
+    list.messages = { nextMeasurement: 'Siguiente', previousMeasurement: 'Anterior' };
+    await settle(list);
+    expect(action(list, 'next-measurement').textContent.trim()).toBe('Siguiente');
+    expect(action(list, 'previous-measurement').textContent.trim()).toBe('Anterior');
+  });
+
+  it('reports a measurement that cannot be shown as dv-error', async () => {
+    const { list } = await mount([length('a')]);
+    list.viewportId = 'vp-3';
+    await settle(list);
+    const errors: Error[] = [];
+    list.addEventListener('dv-error', (event) => {
+      errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+    });
+    action(list, 'next-measurement').click();
+    await settle(list);
+    expect(errors).toHaveLength(1);
   });
 });
 

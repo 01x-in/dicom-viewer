@@ -26,6 +26,7 @@ await viewer.measurements.add({
 
 await viewer.measurements.update(id, { label: 'Lesion 1' });  // rename, or move the handles
 await viewer.measurements.jumpTo(id);                         // show the image it is on
+await viewer.measurements.slices();                         // Map of id -> slice number (from 1, as the overlay counts)
 await viewer.measurements.remove(id);
 ```
 
@@ -33,6 +34,12 @@ Calls that can be wrong reject with a `RangeError` that says what: `add` for an 
 not valid, `update` and `select` for an id that is not there or points that do not fit. `remove` does not reject for an
 id that is not there: it resolves to `false` (and `true` when it removed one). All of them wait for the viewer's queue,
 so they come after the calls made before them.
+
+A measurement is drawn only on the slice it is on, as in most viewers. In the measurements panel each row says which
+slice that is ("Slice 31"), and **Previous** and **Next** step through the measurements, showing the slice of each and
+going round at the ends. `slices()` reads the series and changes nothing; a measurement on a series the source does not
+have has no entry. The labels are translatable: `measurementSlice` (with `{slice}`), `previousMeasurement`, and
+`nextMeasurement`.
 
 ### Saving and restoring
 
