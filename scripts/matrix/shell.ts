@@ -336,7 +336,7 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
       )
     ) {
       const described = (await entries.first().getAttribute('aria-label')) ?? '';
-      if (!/^Length 1, Length \d+\.\d mm$/.test(described))
+      if (!/^Length 1, Length \d+\.\d mm(, Slice \d+)?$/.test(described))
         failures.push(`the measurement is listed as "${described}"`);
       if (windowBeforeMeasuring && !(await label(page)).includes('window 2500, level 480'))
         failures.push('drawing a line with the mouse changed the window');

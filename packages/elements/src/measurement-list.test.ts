@@ -67,7 +67,7 @@ const press = (element: HTMLElement, key: string): void => {
   element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 };
 const input = (list: DvMeasurementListElement): HTMLInputElement => {
-  const found = list.shadowRoot?.querySelector<HTMLInputElement>('input');
+  const found = list.shadowRoot?.querySelector<HTMLInputElement>('input[type="text"]');
   if (found === null || found === undefined) throw new Error('No input');
   return found;
 };
@@ -346,6 +346,195 @@ describe('stepping between measurements', () => {
   });
 });
 
+describe('choosing several measurements', () => {
+  const box = (list: DvMeasurementListElement, id: string): HTMLElement => {
+    const found = row(list, id).querySelector<HTMLElement>('[data-check]');
+    if (found === null) throw new Error(`No check box for ${id}`);
+    return found;
+  };
+  const selectAll = (list: DvMeasurementListElement): HTMLInputElement => {
+    const found = list.shadowRoot?.querySelector<HTMLInputElement>('[data-action="select-all"]');
+    if (found === null || found === undefined) throw new Error('No select all');
+    return found;
+  };
+  const count = (list: DvMeasurementListElement): string | undefined =>
+    list.shadowRoot?.querySelector('[data-selected-count]')?.textContent.trim();
+  const checked = (list: DvMeasurementListElement): string[] =>
+    rows(list)
+      .filter((item) => item.getAttribute('aria-checked') === 'true')
+      .map((item) => item.dataset['measurement'] ?? '');
+  const toggle = async (list: DvMeasurementListElement, id: string): Promise<void> => {
+    box(list, id).click();
+    await settle(list);
+  };
+
+  it('has a box on each row, which the option says is checked or not, with none checked and nothing to do with them', async () => {
+    const { list } = await mount([length('a', 2, 'Aorta'), length('b', 7)]);
+    expect(box(list, 'a').getAttribute('aria-hidden')).toBe('true');
+    expect(row(list, 'a').getAttribute('aria-checked')).toBe('false');
+    expect(row(list, 'a').getAttribute('aria-keyshortcuts')).toBe('X');
+    expect(checked(list)).toEqual([]);
+    expect(count(list)).toBe('0 selected');
+    expect(action(list, 'show-together').getAttribute('aria-disabled')).toBe('true');
+    expect(action(list, 'delete-selected').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('checks and unchecks a row without showing it: choosing is not the same as picking', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7)]);
+    await toggle(list, 'b');
+    expect(checked(list)).toEqual(['b']);
+    expect(count(list)).toBe('1 selected');
+    expect(fake.viewer.measurements.getSelected()).toBeUndefined();
+    expect(fake.viewer.getState().viewports[0]?.imageIndex).toBe(5);
+    expect(action(list, 'show-together').getAttribute('aria-disabled')).toBeNull();
+    await toggle(list, 'b');
+    expect(checked(list)).toEqual([]);
+  });
+
+  it('checks every row with Select all, and clears them when it is used again; it is mixed when some are checked', async () => {
+    const { list } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
+    await toggle(list, 'a');
+    expect(selectAll(list).indeterminate).toBe(true);
+    selectAll(list).click();
+    await settle(list);
+    expect(checked(list)).toEqual(['a', 'b', 'c']);
+    expect(selectAll(list).checked).toBe(true);
+    expect(selectAll(list).indeterminate).toBe(false);
+    expect(count(list)).toBe('3 selected');
+    selectAll(list).click();
+    await settle(list);
+    expect(checked(list)).toEqual([]);
+  });
+
+  it('is done from the keyboard too: x on a row, and Ctrl+A in the list', async () => {
+    const { list } = await mount([length('a', 2), length('b', 7)]);
+    press(row(list, 'b'), 'x');
+    await settle(list);
+    expect(checked(list)).toEqual(['b']);
+    press(row(list, 'a'), 'x');
+    press(row(list, 'a'), 'x');
+    await settle(list);
+    expect(checked(list)).toEqual(['b']);
+    row(list, 'a').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    await settle(list);
+    expect(checked(list)).toEqual(['a', 'b']);
+  });
+
+  it('forgets a measurement that goes away', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7)]);
+    selectAll(list).click();
+    await settle(list);
+    await fake.viewer.measurements.remove('a');
+    await settle(list);
+    expect(count(list)).toBe('1 selected');
+    expect(checked(list)).toEqual(['b']);
+  });
+
+  it('deletes the ones that are checked, and no other', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
+    await toggle(list, 'a');
+    await toggle(list, 'c');
+    action(list, 'delete-selected').click();
+    await settle(list);
+    expect(fake.viewer.measurements.list().map((item) => item.id)).toEqual(['b']);
+    expect(count(list)).toBe('0 selected');
+  });
+
+  it('does nothing with nothing checked', async () => {
+    const { list, fake } = await mount([length('a', 2)]);
+    action(list, 'delete-selected').click();
+    action(list, 'show-together').click();
+    await settle(list);
+    expect(fake.viewer.measurements.list()).toHaveLength(1);
+    expect(fake.viewer.getState().layout).toBe('1x1');
+  });
+
+  describe('showing them together', () => {
+    const imageAt = (fake: FakeViewer, id: string): number | undefined =>
+      fake.viewer.getState().viewports.find((viewport) => viewport.id === id)?.imageIndex;
+
+    it('puts two in a row of two viewports, each on its own slice, in the order of the list', async () => {
+      const { list, fake } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
+      await toggle(list, 'c');
+      await toggle(list, 'a');
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('1x2');
+      expect(imageAt(fake, 'vp-0')).toBe(2);
+      expect(imageAt(fake, 'vp-1')).toBe(4);
+      // The first of them is the one that is picked.
+      expect(fake.viewer.measurements.getSelected()).toBe('a');
+    });
+
+    it('uses a grid of four for three or four', async () => {
+      const { list, fake } = await mount([length('a', 1), length('b', 2), length('c', 3)]);
+      selectAll(list).click();
+      await settle(list);
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('2x2');
+      expect([imageAt(fake, 'vp-0'), imageAt(fake, 'vp-1'), imageAt(fake, 'vp-2')]).toEqual([
+        1, 2, 3,
+      ]);
+    });
+
+    it('shows one where it is, without changing the layout', async () => {
+      const { list, fake } = await mount([length('a', 1), length('b', 8)]);
+      await toggle(list, 'b');
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('1x1');
+      expect(imageAt(fake, 'vp-0')).toBe(8);
+      expect(fake.viewer.measurements.getSelected()).toBe('b');
+    });
+
+    it('shows the first four of more, and says so', async () => {
+      const five = [0, 1, 2, 3, 4].map((at) => length(`m${at.toString()}`, at));
+      const { list, fake } = await mount(five);
+      selectAll(list).click();
+      await settle(list);
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('2x2');
+      expect([0, 1, 2, 3].map((at) => imageAt(fake, `vp-${at.toString()}`))).toEqual([0, 1, 2, 3]);
+      const status = list.shadowRoot?.querySelector('[data-selection-status]');
+      expect(status?.textContent.trim()).toBe('Showing the first 4 of 5 selected.');
+    });
+
+    it('reports what cannot be shown as dv-error', async () => {
+      const { list, fake } = await mount([length('a', 1), length('b', 2)]);
+      // No viewport is attached for vp-1, and the layout cannot be changed after the viewer is gone.
+      selectAll(list).click();
+      await settle(list);
+      const errors: Error[] = [];
+      list.addEventListener('dv-error', (event) => {
+        errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+      });
+      fake.viewer.destroy();
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a', 2)]);
+    list.messages = {
+      selectAll: 'Elegir todo',
+      selectedCount: '{count} elegidas',
+      showTogether: 'Mostrar juntas',
+      deleteSelected: 'Eliminar las elegidas',
+    };
+    await settle(list);
+    expect(selectAll(list).getAttribute('aria-label')).toBe('Elegir todo');
+    expect(count(list)).toBe('0 elegidas');
+    expect(action(list, 'show-together').textContent.trim()).toBe('Mostrar juntas');
+    expect(action(list, 'delete-selected').textContent.trim()).toBe('Eliminar las elegidas');
+  });
+});
+
 describe('deleting', () => {
   it('removes the measurement that has the focus, with the Delete button, and the Delete and Backspace keys', async () => {
     const { list, fake } = await mount([length('a'), length('b'), length('c')]);
@@ -392,7 +581,7 @@ describe('renaming', () => {
     input(list).form?.requestSubmit();
     await settle(list);
     expect(fake.viewer.measurements.get('b')?.label).toBe('Aorta');
-    expect(list.shadowRoot?.querySelector('input')).toBeNull();
+    expect(list.shadowRoot?.querySelector('input[type="text"]')).toBeNull();
     // The focus is back on the row.
     expect(list.shadowRoot?.activeElement).toBe(row(list, 'b'));
     expect(row(list, 'b').textContent).toContain('Aorta');
@@ -416,7 +605,7 @@ describe('renaming', () => {
     input(list).value = 'Something else';
     input(list).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await settle(list);
-    expect(list.shadowRoot?.querySelector('input')).toBeNull();
+    expect(list.shadowRoot?.querySelector('input[type="text"]')).toBeNull();
     expect(fake.viewer.measurements.get('a')?.label).toBe('Aorta');
 
     press(row(list, 'a'), 'F2');
@@ -451,7 +640,7 @@ describe('renaming', () => {
     await settle(list);
     await fake.viewer.measurements.remove('a');
     await settle(list);
-    expect(list.shadowRoot?.querySelector('input')).toBeNull();
+    expect(list.shadowRoot?.querySelector('input[type="text"]')).toBeNull();
   });
 });
 

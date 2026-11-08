@@ -24,6 +24,9 @@ import {
 import { baseStyles, themeStyles } from './theme';
 import { nextFocusIndex } from './toolbar-config';
 
+/** The most measurements shown together: the viewports of the largest layout that has a grid. */
+const MAX_TOGETHER = 4;
+
 const EVENTS = [
   'measurement:added',
   'measurement:updated',
@@ -67,6 +70,8 @@ export class DvMeasurementListElement extends LitElement {
     loadedReport: { state: true },
     loadingReport: { state: true },
     slices: { state: true },
+    chosen: { state: true },
+    selectionStatus: { state: true },
   };
 
   /** @internal The component's own CSS. */
@@ -108,6 +113,60 @@ export class DvMeasurementListElement extends LitElement {
       .title {
         font-weight: 600;
         overflow-wrap: anywhere;
+      }
+      .head {
+        display: flex;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        align-items: baseline;
+      }
+      .head .title {
+        flex: 1;
+      }
+      .check {
+        flex: none;
+        align-self: center;
+        box-sizing: border-box;
+        width: 1.125rem;
+        height: 1.125rem;
+        border: 1px solid var(--dv-color-border, #667284);
+        border-radius: var(--dv-radius, 4px);
+        display: grid;
+        place-items: center;
+        font-size: 0.75rem;
+        line-height: 1;
+        color: var(--dv-color-surface, #171b21);
+      }
+      [aria-checked='true'] .check {
+        background: var(--dv-color-accent, #5aa9ff);
+        border-color: var(--dv-color-accent, #5aa9ff);
+      }
+      [aria-checked='true'] .check::after {
+        content: '✓';
+        font-weight: 700;
+      }
+      .selection {
+        display: flex;
+        flex-wrap: wrap;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        align-items: center;
+        padding: calc(var(--dv-space, 0.25rem) * 2);
+        border-top: 1px solid var(--dv-color-border, #667284);
+      }
+      .selection label {
+        display: flex;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        align-items: center;
+        flex: 1;
+      }
+      .selection input[type='checkbox'] {
+        flex: none;
+        margin: 0;
+        accent-color: var(--dv-color-accent, #5aa9ff);
+      }
+      .selection-status {
+        flex-basis: 100%;
+        color: var(--dv-color-text-muted, #a7b0be);
+        font-size: 0.8125rem;
       }
       .slice {
         color: var(--dv-color-text-muted, #a7b0be);
@@ -211,6 +270,10 @@ export class DvMeasurementListElement extends LitElement {
   declare loadedReport: string | undefined;
   /** The slice each measurement is on, by id, as the overlay counts it. Worked out by the viewer. */
   declare slices: ReadonlyMap<string, number>;
+  /** The measurements ticked in the list, to show together or delete. Not the one that is picked. */
+  declare chosen: ReadonlySet<string>;
+  /** What the panel says about the last "Show together", when it could not show everything. */
+  declare selectionStatus: string | undefined;
 
   #off: (() => void)[] = [];
   #listeningTo: Viewer | undefined;
@@ -237,6 +300,8 @@ export class DvMeasurementListElement extends LitElement {
     this.loadingReport = false;
     this.loadedReport = undefined;
     this.slices = new Map();
+    this.chosen = new Set();
+    this.selectionStatus = undefined;
   }
 
   override connectedCallback(): void {
@@ -261,7 +326,7 @@ export class DvMeasurementListElement extends LitElement {
 
   override updated(changed: PropertyValues<this>): void {
     if (changed.has('renamingId') && this.renamingId !== undefined) {
-      const input = this.renderRoot.querySelector<HTMLInputElement>('input');
+      const input = this.renderRoot.querySelector<HTMLInputElement>('input[type="text"]');
       input?.focus();
       input?.select();
     }
@@ -300,6 +365,9 @@ export class DvMeasurementListElement extends LitElement {
         : viewer.measurements.list({ studyInstanceUID: study });
     if (!sameList(next, this.items)) this.items = next;
     this.#refreshSlices(next);
+    if ([...this.chosen].some((id) => !next.some((item) => item.id === id))) {
+      this.#choose(new Set([...this.chosen].filter((id) => next.some((item) => item.id === id))));
+    }
     const reports = viewer?.getStudy()?.series.filter((series) => series.modality === 'SR') ?? [];
     if (
       reports.length !== this.reports.length ||
@@ -323,6 +391,83 @@ export class DvMeasurementListElement extends LitElement {
     if (this.renamingId !== undefined && !next.some((item) => item.id === this.renamingId)) {
       this.renamingId = undefined;
     }
+  }
+
+  /** Changes which measurements are ticked. What was said about the last "Show together" no longer applies. */
+  #choose(chosen: ReadonlySet<string>): void {
+    this.chosen = chosen;
+    this.selectionStatus = undefined;
+  }
+
+  #toggleChosen(id: string): void {
+    const next = new Set(this.chosen);
+    if (!next.delete(id)) next.add(id);
+    this.#choose(next);
+  }
+
+  #chooseAll(all: boolean): void {
+    this.#choose(all ? new Set(this.items.map((item) => item.id)) : new Set());
+  }
+
+  /** The measurements that are ticked, in the order of the list. */
+  #chosenItems(): Measurement[] {
+    return this.items.filter((item) => this.chosen.has(item.id));
+  }
+
+  /**
+   * Shows the ticked measurements side by side, one in each viewport, each on its own slice: two
+   * go in a row of two, three or four in a grid of four, and more than four are cut to the first
+   * four (and it says so). One is shown where it is. Every step goes through the viewer's queue, in
+   * order, and the first one is shown last, so it is the one that is picked.
+   */
+  #showTogether(): void {
+    const { viewer } = this;
+    const items = this.#chosenItems();
+    if (viewer === undefined || items.length === 0) return;
+    if (items.length === 1) {
+      const [only] = items;
+      if (only !== undefined) this.#jump(only);
+      return;
+    }
+    const shown = items.slice(0, MAX_TOGETHER);
+    const steps: Promise<unknown>[] = [viewer.setLayout(shown.length === 2 ? '1x2' : '2x2')];
+    for (let at = shown.length - 1; at >= 0; at -= 1) {
+      const measurement = shown[at];
+      if (measurement !== undefined) {
+        steps.push(
+          viewer.measurements.jumpTo(measurement.id, { viewportId: `vp-${at.toString()}` }),
+        );
+      }
+    }
+    Promise.all(steps).catch((error: unknown) => {
+      this.#fail(error);
+    });
+    this.selectionStatus =
+      items.length > shown.length
+        ? formatViewerMessage(resolveViewerMessages(this.messages).showingFirstSelected, {
+            shown: shown.length,
+            total: items.length,
+          })
+        : undefined;
+    this.#rovingIndex = Math.max(
+      0,
+      this.items.findIndex((item) => item.id === shown[0]?.id),
+    );
+  }
+
+  #deleteChosen(): void {
+    const { viewer } = this;
+    const items = this.#chosenItems();
+    if (viewer === undefined || items.length === 0) return;
+    Promise.all(items.map((item) => viewer.measurements.remove(item.id))).then(
+      () => {
+        this.#choose(new Set());
+        this.#focusRowAfterUpdate = false;
+      },
+      (error: unknown) => {
+        this.#fail(error);
+      },
+    );
   }
 
   /** Asks the viewer which slice each measurement is on, when the measurements or their images changed. */
@@ -467,6 +612,16 @@ export class DvMeasurementListElement extends LitElement {
   }
 
   #onKeydown(event: KeyboardEvent, measurement: Measurement): void {
+    if (event.key.toLowerCase() === 'a' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      this.#chooseAll(true);
+      return;
+    }
+    if (event.key === 'x' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      this.#toggleChosen(measurement.id);
+      return;
+    }
     switch (event.key) {
       case 'Enter':
       case ' ':
@@ -514,6 +669,8 @@ export class DvMeasurementListElement extends LitElement {
       data-measurement=${measurement.id}
       tabindex=${position === this.#rovingIndex ? 0 : -1}
       aria-selected=${measurement.id === this.selectedId ? 'true' : 'false'}
+      aria-checked=${this.chosen.has(measurement.id) ? 'true' : 'false'}
+      aria-keyshortcuts="X"
       aria-label=${[title, ...lines, ...(sliceText === undefined ? [] : [sliceText])].join(', ')}
       @click=${(): void => {
         this.#rovingIndex = position;
@@ -532,12 +689,28 @@ export class DvMeasurementListElement extends LitElement {
         }
       }}
     >
-      <span class="title" part="measurement-title">${title}</span>
-      ${
-        sliceText === undefined
-          ? nothing
-          : html` <span class="slice" part="measurement-slice" data-slice aria-hidden="true">${sliceText}</span>`
-      }
+      <div class="head">
+        <span
+          class="check"
+          part="measurement-checkbox"
+          data-check
+          aria-hidden="true"
+          @click=${(event: Event): void => {
+            // Ticking a row is not choosing it: it does not show the image.
+            event.stopPropagation();
+            this.#toggleChosen(measurement.id);
+          }}
+          @dblclick=${(event: Event): void => {
+            event.stopPropagation();
+          }}
+        ></span>
+        <span class="title" part="measurement-title">${title}</span>
+        ${
+          sliceText === undefined
+            ? nothing
+            : html`<span class="slice" part="measurement-slice" data-slice aria-hidden="true">${sliceText}</span>`
+        }
+      </div>
       <ul class="lines" aria-hidden="true">
         ${lines.map((line) => html`<li>${line}</li>`)}
       </ul>
@@ -552,7 +725,7 @@ export class DvMeasurementListElement extends LitElement {
         class="actions"
         @submit=${(event: SubmitEvent): void => {
           event.preventDefault();
-          const input = this.renderRoot.querySelector<HTMLInputElement>('input');
+          const input = this.renderRoot.querySelector<HTMLInputElement>('input[type="text"]');
           this.#finishRename(true, input?.value ?? '');
         }}
       >
@@ -629,6 +802,61 @@ export class DvMeasurementListElement extends LitElement {
       >
         ${text.delete}
       </button>
+    </div>`;
+  }
+
+  #renderSelection(): TemplateResult {
+    const text = resolveViewerMessages(this.messages);
+    const total = this.items.length;
+    const count = this.chosen.size;
+    const none = count === 0;
+    return html`<div class="selection" role="group" aria-label=${text.measurementSelection}>
+      <label>
+        <input
+          type="checkbox"
+          part="checkbox"
+          data-action="select-all"
+          aria-label=${text.selectAll}
+          .checked=${count === total}
+          .indeterminate=${count > 0 && count < total}
+          @change=${(event: Event): void => {
+            this.#chooseAll((event.currentTarget as HTMLInputElement).checked);
+          }}
+        />
+        ${text.selectAll}
+      </label>
+      <span data-selected-count role="status">
+        ${formatViewerMessage(text.selectedCount, { count })}
+      </span>
+      <button
+        type="button"
+        part="button"
+        data-action="show-together"
+        aria-disabled=${none ? 'true' : nothing}
+        @click=${(): void => {
+          this.#showTogether();
+        }}
+      >
+        ${text.showTogether}
+      </button>
+      <button
+        type="button"
+        part="button"
+        data-action="delete-selected"
+        aria-disabled=${none ? 'true' : nothing}
+        @click=${(): void => {
+          this.#deleteChosen();
+        }}
+      >
+        ${text.deleteSelected}
+      </button>
+      ${
+        this.selectionStatus === undefined
+          ? nothing
+          : html`<p class="selection-status" role="status" data-selection-status>
+              ${this.selectionStatus}
+            </p>`
+      }
     </div>`;
   }
 
@@ -718,6 +946,6 @@ export class DvMeasurementListElement extends LitElement {
     return html`<ul role="listbox" aria-label=${this.label === 'Measurements' ? text.measurementsPanel : this.label}>
         ${this.items.map((measurement, position) => this.#renderRow(measurement, position, names))}
       </ul>
-      ${this.#renderActions()} ${this.#renderReport()}`;
+      ${this.#renderSelection()} ${this.#renderActions()} ${this.#renderReport()}`;
   }
 }
