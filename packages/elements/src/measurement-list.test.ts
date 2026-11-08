@@ -567,6 +567,25 @@ describe('choosing several measurements', () => {
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
     });
 
+    it('does not let a show that was started for another viewer say anything about the new one', async () => {
+      const five = [0, 1, 2, 3, 4].map((at) => length(`m${at.toString()}`, at));
+      const { list } = await mount(five);
+      selectAll(list).click();
+      await settle(list);
+      const other = createFakeViewer();
+      open.push(other);
+      other.viewer.viewports.attach('vp-0', document.createElement('div'));
+      await other.viewer.loadStudy(FAKE_IDS.study);
+      await other.viewer.setViewportSeries('vp-0', FAKE_IDS.ct);
+      for (const measurement of five) await other.viewer.measurements.add(measurement);
+      // The show is on its way when the list is given the other viewer, which has the same ids.
+      action(list, 'show-together').click();
+      list.viewer = other.viewer;
+      await settle(list);
+      expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
+      expect(count(list)).toBe('0 selected');
+    });
+
     it('reports what cannot be shown as dv-error', async () => {
       const { list, fake } = await mount([length('a', 1), length('b', 2)]);
       // No viewport is attached for vp-1, and the layout cannot be changed after the viewer is gone.

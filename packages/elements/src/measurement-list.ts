@@ -322,6 +322,8 @@ export class DvMeasurementListElement extends LitElement {
       this.#slicesKey = '';
       this.#slicesRefs = new Map();
       if (this.slices.size > 0) this.slices = new Map();
+      // The ticks and the note about a show were about the other viewer's measurements.
+      this.#choose(new Set());
       this.#forgetReport();
       this.#listen();
       this.#sync();
