@@ -335,8 +335,15 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
         failures,
       )
     ) {
+      // The row is there before the viewer has said which slice it is on, so wait for that.
+      const sliceKnown = await waitFor(
+        page,
+        'the row to say which slice the measurement is on',
+        async () => /, Slice \d+$/.test((await entries.first().getAttribute('aria-label')) ?? ''),
+        failures,
+      );
       const described = (await entries.first().getAttribute('aria-label')) ?? '';
-      if (!/^Length 1, Length \d+\.\d mm(, Slice \d+)?$/.test(described))
+      if (sliceKnown && !/^Length 1, Length \d+\.\d mm, Slice \d+$/.test(described))
         failures.push(`the measurement is listed as "${described}"`);
       if (windowBeforeMeasuring && !(await label(page)).includes('window 2500, level 480'))
         failures.push('drawing a line with the mouse changed the window');

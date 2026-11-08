@@ -443,16 +443,21 @@ export class DvMeasurementListElement extends LitElement {
         );
       }
     }
-    Promise.all(steps).catch((error: unknown) => {
-      this.#fail(error);
-    });
-    this.selectionStatus =
-      items.length > shown.length
-        ? formatViewerMessage(resolveViewerMessages(this.messages).showingFirstSelected, {
-            shown: shown.length,
-            total: items.length,
-          })
-        : undefined;
+    const chosen = this.chosen;
+    // It says the first four are shown only once they are, and not if the choice has changed since.
+    Promise.all(steps).then(
+      () => {
+        if (items.length > shown.length && this.chosen === chosen) {
+          this.selectionStatus = formatViewerMessage(
+            resolveViewerMessages(this.messages).showingFirstSelected,
+            { shown: shown.length, total: items.length },
+          );
+        }
+      },
+      (error: unknown) => {
+        this.#fail(error);
+      },
+    );
     this.#rovingIndex = Math.max(
       0,
       this.items.findIndex((item) => item.id === shown[0]?.id),
