@@ -26,6 +26,7 @@ await viewer.measurements.add({
 
 await viewer.measurements.update(id, { label: 'Lesion 1' });  // rename, or move the handles
 await viewer.measurements.jumpTo(id);                         // show the image it is on
+await viewer.measurements.slices();                         // Map of id -> slice number (from 1, as the overlay counts)
 await viewer.measurements.remove(id);
 ```
 
@@ -33,6 +34,20 @@ Calls that can be wrong reject with a `RangeError` that says what: `add` for an 
 not valid, `update` and `select` for an id that is not there or points that do not fit. `remove` does not reject for an
 id that is not there: it resolves to `false` (and `true` when it removed one). All of them wait for the viewer's queue,
 so they come after the calls made before them.
+
+A measurement is drawn only on the slice it is on, as in most viewers. In the measurements panel each row says which
+slice that is ("Slice 31"), and **Previous** and **Next** step through the measurements, showing the slice of each and
+going round at the ends. `slices()` reads the series and changes nothing; a measurement on a series the source does not
+have has no entry. The labels are translatable: `measurementSlice` (with `{slice}`), `previousMeasurement`, and
+`nextMeasurement`.
+
+To compare measurements, choose several: click the box on a row, press **X** on the focused row, press Ctrl+A in the list,
+or use **Select all**. Choosing is not picking: it does not show an image. **Show together** then puts them side by side,
+one in each viewport on its own slice, in the order of the list (two in a `1x2` layout, three or four in `2x2`; if more
+than four are chosen it shows the first four and says so). **Delete selected** removes them. This is the panel's own
+choice and is not in the viewer state; to do the same in code, call `viewer.setLayout` and then
+`viewer.measurements.jumpTo(id, { viewportId })` for each. The labels are `measurementSelection`, `selectAll`,
+`selectedCount`, `showTogether`, `deleteSelected`, and `showingFirstSelected`.
 
 ### Saving and restoring
 

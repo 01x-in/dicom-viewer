@@ -67,7 +67,7 @@ const press = (element: HTMLElement, key: string): void => {
   element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 };
 const input = (list: DvMeasurementListElement): HTMLInputElement => {
-  const found = list.shadowRoot?.querySelector<HTMLInputElement>('input');
+  const found = list.shadowRoot?.querySelector<HTMLInputElement>('input[type="text"]');
   if (found === null || found === undefined) throw new Error('No input');
   return found;
 };
@@ -99,8 +99,8 @@ describe('<dv-measurement-list>', () => {
       'Measurements',
     );
     expect(rows(list)).toHaveLength(2);
-    expect(row(list, 'a').getAttribute('aria-label')).toBe('Length 1, Length 5.0 mm');
-    expect(row(list, 'b').getAttribute('aria-label')).toBe('Aorta, Length 5.0 mm');
+    expect(row(list, 'a').getAttribute('aria-label')).toBe('Length 1, Length 5.0 mm, Slice 6');
+    expect(row(list, 'b').getAttribute('aria-label')).toBe('Aorta, Length 5.0 mm, Slice 3');
     expect(row(list, 'b').textContent).toContain('Aorta');
   });
 
@@ -224,6 +224,400 @@ describe('<dv-measurement-list>', () => {
   });
 });
 
+describe('the slice of each measurement', () => {
+  const slice = (list: DvMeasurementListElement, id: string): string | undefined =>
+    row(list, id).querySelector('[data-slice]')?.textContent.trim();
+
+  it('is on its row, counting from 1 as the overlay does, and in the name the row has for assistive technology', async () => {
+    const { list } = await mount([length('a', 0), length('b', 6, 'Aorta')]);
+    expect(slice(list, 'a')).toBe('Slice 1');
+    expect(slice(list, 'b')).toBe('Slice 7');
+    expect(row(list, 'b').getAttribute('aria-label')).toBe('Aorta, Length 5.0 mm, Slice 7');
+  });
+
+  it('follows a measurement added later, and says nothing for one whose series the source lacks', async () => {
+    const { list, fake } = await mount([length('a', 2)]);
+    await fake.viewer.measurements.add(length('b', 4));
+    await settle(list);
+    expect(slice(list, 'b')).toBe('Slice 5');
+    await fake.viewer.measurements.importJson({
+      format: 'measurements/v1',
+      measurements: [
+        {
+          ...length('far'),
+          reference: {
+            studyInstanceUID: FAKE_IDS.study,
+            seriesInstanceUID: '9.9.9',
+            sopInstanceUID: '9.9.9.1',
+          },
+        },
+      ],
+    });
+    await settle(list);
+    expect(slice(list, 'far')).toBeUndefined();
+    expect(row(list, 'far').getAttribute('aria-label')).not.toMatch(/Slice/);
+  });
+
+  it('asks again when an id is given another series with the same image id: the series is part of what the slice depends on', async () => {
+    const { list, fake } = await mount([length('a', 2)]);
+    expect(slice(list, 'a')).toBe('Slice 3');
+    await fake.viewer.measurements.importJson({
+      format: 'measurements/v1',
+      measurements: [
+        {
+          ...length('a', 2),
+          reference: { ...reference(2), seriesInstanceUID: '9.9.9' },
+        },
+      ],
+    });
+    await settle(list);
+    expect(fake.viewer.measurements.get('a')?.reference.seriesInstanceUID).toBe('9.9.9');
+    expect(slice(list, 'a')).toBeUndefined();
+  });
+
+  it('does not show the number of another viewer while the new one is read', async () => {
+    const { list } = await mount([length('a', 2)]);
+    expect(slice(list, 'a')).toBe('Slice 3');
+    const other = createFakeViewer();
+    open.push(other);
+    other.viewer.viewports.attach('vp-0', document.createElement('div'));
+    await other.viewer.loadStudy(FAKE_IDS.study);
+    await other.viewer.measurements.add(length('a', 6));
+    list.viewer = other.viewer;
+    // One update, with the read still on its way.
+    await list.updateComplete;
+    expect(slice(list, 'a')).not.toBe('Slice 3');
+    await settle(list);
+    expect(slice(list, 'a')).toBe('Slice 7');
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a', 2)]);
+    list.messages = { measurementSlice: 'Corte {slice}' };
+    await settle(list);
+    expect(slice(list, 'a')).toBe('Corte 3');
+  });
+});
+
+describe('stepping between measurements', () => {
+  it('shows the next one, and the one before, and picks each', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
+    row(list, 'a').click();
+    await settle(list);
+
+    action(list, 'next-measurement').click();
+    await settle(list);
+    expect(fake.viewer.measurements.getSelected()).toBe('b');
+    expect(fake.viewer.getState().viewports[0]?.imageIndex).toBe(7);
+
+    action(list, 'previous-measurement').click();
+    await settle(list);
+    expect(fake.viewer.measurements.getSelected()).toBe('a');
+    expect(fake.viewer.getState().viewports[0]?.imageIndex).toBe(2);
+  });
+
+  it('goes round: past the last is the first, and before the first is the last', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7)]);
+    row(list, 'b').click();
+    await settle(list);
+    action(list, 'next-measurement').click();
+    await settle(list);
+    expect(fake.viewer.measurements.getSelected()).toBe('a');
+    action(list, 'previous-measurement').click();
+    await settle(list);
+    expect(fake.viewer.measurements.getSelected()).toBe('b');
+  });
+
+  it('starts at the first with Next, and at the last with Previous, when none is picked', async () => {
+    const first = await mount([length('a', 2), length('b', 7)]);
+    action(first.list, 'next-measurement').click();
+    await settle(first.list);
+    expect(first.fake.viewer.measurements.getSelected()).toBe('a');
+
+    const last = await mount([length('a', 2), length('b', 7)]);
+    action(last.list, 'previous-measurement').click();
+    await settle(last.list);
+    expect(last.fake.viewer.measurements.getSelected()).toBe('b');
+  });
+
+  it('puts the tab stop on the row it shows, so the keyboard carries on from there', async () => {
+    const { list } = await mount([length('a', 2), length('b', 7)]);
+    action(list, 'next-measurement').click();
+    await settle(list);
+    action(list, 'next-measurement').click();
+    await settle(list);
+    expect(rows(list).filter((item) => item.tabIndex === 0)).toEqual([row(list, 'b')]);
+  });
+
+  it('has buttons with names, and only with measurements to step through', async () => {
+    const { list } = await mount([length('a', 2)]);
+    expect(action(list, 'next-measurement').textContent.trim()).toBe('Next');
+    expect(action(list, 'previous-measurement').textContent.trim()).toBe('Previous');
+    const empty = await mount();
+    expect(empty.list.shadowRoot?.querySelector('[data-action="next-measurement"]')).toBeNull();
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a', 2)]);
+    list.messages = { nextMeasurement: 'Siguiente', previousMeasurement: 'Anterior' };
+    await settle(list);
+    expect(action(list, 'next-measurement').textContent.trim()).toBe('Siguiente');
+    expect(action(list, 'previous-measurement').textContent.trim()).toBe('Anterior');
+  });
+
+  it('reports a measurement that cannot be shown as dv-error', async () => {
+    const { list } = await mount([length('a')]);
+    list.viewportId = 'vp-3';
+    await settle(list);
+    const errors: Error[] = [];
+    list.addEventListener('dv-error', (event) => {
+      errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+    });
+    action(list, 'next-measurement').click();
+    await settle(list);
+    expect(errors).toHaveLength(1);
+  });
+});
+
+describe('choosing several measurements', () => {
+  const box = (list: DvMeasurementListElement, id: string): HTMLElement => {
+    const found = row(list, id).querySelector<HTMLElement>('[data-check]');
+    if (found === null) throw new Error(`No check box for ${id}`);
+    return found;
+  };
+  const selectAll = (list: DvMeasurementListElement): HTMLInputElement => {
+    const found = list.shadowRoot?.querySelector<HTMLInputElement>('[data-action="select-all"]');
+    if (found === null || found === undefined) throw new Error('No select all');
+    return found;
+  };
+  const count = (list: DvMeasurementListElement): string | undefined =>
+    list.shadowRoot?.querySelector('[data-selected-count]')?.textContent.trim();
+  const checked = (list: DvMeasurementListElement): string[] =>
+    rows(list)
+      .filter((item) => item.getAttribute('aria-checked') === 'true')
+      .map((item) => item.dataset['measurement'] ?? '');
+  const toggle = async (list: DvMeasurementListElement, id: string): Promise<void> => {
+    box(list, id).click();
+    await settle(list);
+  };
+
+  it('has a box on each row, which the option says is checked or not, with none checked and nothing to do with them', async () => {
+    const { list } = await mount([length('a', 2, 'Aorta'), length('b', 7)]);
+    expect(box(list, 'a').getAttribute('aria-hidden')).toBe('true');
+    expect(row(list, 'a').getAttribute('aria-checked')).toBe('false');
+    expect(row(list, 'a').getAttribute('aria-keyshortcuts')).toBe('X');
+    expect(checked(list)).toEqual([]);
+    expect(count(list)).toBe('0 selected');
+    expect(action(list, 'show-together').getAttribute('aria-disabled')).toBe('true');
+    expect(action(list, 'delete-selected').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('checks and unchecks a row without showing it: choosing is not the same as picking', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7)]);
+    await toggle(list, 'b');
+    expect(checked(list)).toEqual(['b']);
+    expect(count(list)).toBe('1 selected');
+    expect(fake.viewer.measurements.getSelected()).toBeUndefined();
+    expect(fake.viewer.getState().viewports[0]?.imageIndex).toBe(5);
+    expect(action(list, 'show-together').getAttribute('aria-disabled')).toBeNull();
+    await toggle(list, 'b');
+    expect(checked(list)).toEqual([]);
+  });
+
+  it('checks every row with Select all, and clears them when it is used again; it is mixed when some are checked', async () => {
+    const { list } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
+    await toggle(list, 'a');
+    expect(selectAll(list).indeterminate).toBe(true);
+    selectAll(list).click();
+    await settle(list);
+    expect(checked(list)).toEqual(['a', 'b', 'c']);
+    expect(selectAll(list).checked).toBe(true);
+    expect(selectAll(list).indeterminate).toBe(false);
+    expect(count(list)).toBe('3 selected');
+    selectAll(list).click();
+    await settle(list);
+    expect(checked(list)).toEqual([]);
+  });
+
+  it('is done from the keyboard too: x on a row, and Ctrl+A in the list', async () => {
+    const { list } = await mount([length('a', 2), length('b', 7)]);
+    press(row(list, 'b'), 'x');
+    await settle(list);
+    expect(checked(list)).toEqual(['b']);
+    press(row(list, 'a'), 'x');
+    press(row(list, 'a'), 'x');
+    await settle(list);
+    expect(checked(list)).toEqual(['b']);
+    row(list, 'a').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    await settle(list);
+    expect(checked(list)).toEqual(['a', 'b']);
+  });
+
+  it('forgets a measurement that goes away', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7)]);
+    selectAll(list).click();
+    await settle(list);
+    await fake.viewer.measurements.remove('a');
+    await settle(list);
+    expect(count(list)).toBe('1 selected');
+    expect(checked(list)).toEqual(['b']);
+  });
+
+  it('deletes the ones that are checked, and no other', async () => {
+    const { list, fake } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
+    await toggle(list, 'a');
+    await toggle(list, 'c');
+    action(list, 'delete-selected').click();
+    await settle(list);
+    expect(fake.viewer.measurements.list().map((item) => item.id)).toEqual(['b']);
+    expect(count(list)).toBe('0 selected');
+  });
+
+  it('does nothing with nothing checked', async () => {
+    const { list, fake } = await mount([length('a', 2)]);
+    action(list, 'delete-selected').click();
+    action(list, 'show-together').click();
+    await settle(list);
+    expect(fake.viewer.measurements.list()).toHaveLength(1);
+    expect(fake.viewer.getState().layout).toBe('1x1');
+  });
+
+  describe('showing them together', () => {
+    const imageAt = (fake: FakeViewer, id: string): number | undefined =>
+      fake.viewer.getState().viewports.find((viewport) => viewport.id === id)?.imageIndex;
+
+    it('puts two in a row of two viewports, each on its own slice, in the order of the list', async () => {
+      const { list, fake } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
+      await toggle(list, 'c');
+      await toggle(list, 'a');
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('1x2');
+      expect(imageAt(fake, 'vp-0')).toBe(2);
+      expect(imageAt(fake, 'vp-1')).toBe(4);
+      // The first of them is the one that is picked.
+      expect(fake.viewer.measurements.getSelected()).toBe('a');
+    });
+
+    it('uses a grid of four for three or four', async () => {
+      const { list, fake } = await mount([length('a', 1), length('b', 2), length('c', 3)]);
+      selectAll(list).click();
+      await settle(list);
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('2x2');
+      expect([imageAt(fake, 'vp-0'), imageAt(fake, 'vp-1'), imageAt(fake, 'vp-2')]).toEqual([
+        1, 2, 3,
+      ]);
+    });
+
+    it('shows one where it is, without changing the layout', async () => {
+      const { list, fake } = await mount([length('a', 1), length('b', 8)]);
+      await toggle(list, 'b');
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('1x1');
+      expect(imageAt(fake, 'vp-0')).toBe(8);
+      expect(fake.viewer.measurements.getSelected()).toBe('b');
+    });
+
+    it('shows the first four of more, and says so', async () => {
+      const five = [0, 1, 2, 3, 4].map((at) => length(`m${at.toString()}`, at));
+      const { list, fake } = await mount(five);
+      selectAll(list).click();
+      await settle(list);
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('2x2');
+      expect([0, 1, 2, 3].map((at) => imageAt(fake, `vp-${at.toString()}`))).toEqual([0, 1, 2, 3]);
+      const status = list.shadowRoot?.querySelector('[data-selection-status]');
+      expect(status?.textContent.trim()).toBe('Showing the first 4 of 5 selected.');
+    });
+
+    it('does not say the first four are shown when showing them failed', async () => {
+      const five = [0, 1, 2, 3, 4].map((at) => length(`m${at.toString()}`, at));
+      const { list, fake } = await mount(five);
+      selectAll(list).click();
+      await settle(list);
+      const errors: Error[] = [];
+      list.addEventListener('dv-error', (event) => {
+        errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+      });
+      fake.viewer.destroy();
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
+    });
+
+    it('takes the note away when showing them again fails, after it was shown once', async () => {
+      const five = [0, 1, 2, 3, 4].map((at) => length(`m${at.toString()}`, at));
+      const { list, fake } = await mount(five);
+      selectAll(list).click();
+      await settle(list);
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(list.shadowRoot?.querySelector('[data-selection-status]')).not.toBeNull();
+      list.addEventListener('dv-error', () => undefined);
+      fake.viewer.destroy();
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
+    });
+
+    it('does not let a show that was started for another viewer say anything about the new one', async () => {
+      const five = [0, 1, 2, 3, 4].map((at) => length(`m${at.toString()}`, at));
+      const { list } = await mount(five);
+      selectAll(list).click();
+      await settle(list);
+      const other = createFakeViewer();
+      open.push(other);
+      other.viewer.viewports.attach('vp-0', document.createElement('div'));
+      await other.viewer.loadStudy(FAKE_IDS.study);
+      await other.viewer.setViewportSeries('vp-0', FAKE_IDS.ct);
+      for (const measurement of five) await other.viewer.measurements.add(measurement);
+      // The show is on its way when the list is given the other viewer, which has the same ids.
+      action(list, 'show-together').click();
+      list.viewer = other.viewer;
+      await settle(list);
+      expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
+      expect(count(list)).toBe('0 selected');
+    });
+
+    it('reports what cannot be shown as dv-error', async () => {
+      const { list, fake } = await mount([length('a', 1), length('b', 2)]);
+      // No viewport is attached for vp-1, and the layout cannot be changed after the viewer is gone.
+      selectAll(list).click();
+      await settle(list);
+      const errors: Error[] = [];
+      list.addEventListener('dv-error', (event) => {
+        errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+      });
+      fake.viewer.destroy();
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a', 2)]);
+    list.messages = {
+      selectAll: 'Elegir todo',
+      selectedCount: '{count} elegidas',
+      showTogether: 'Mostrar juntas',
+      deleteSelected: 'Eliminar las elegidas',
+    };
+    await settle(list);
+    expect(selectAll(list).getAttribute('aria-label')).toBe('Elegir todo');
+    expect(count(list)).toBe('0 elegidas');
+    expect(action(list, 'show-together').textContent.trim()).toBe('Mostrar juntas');
+    expect(action(list, 'delete-selected').textContent.trim()).toBe('Eliminar las elegidas');
+  });
+});
+
 describe('deleting', () => {
   it('removes the measurement that has the focus, with the Delete button, and the Delete and Backspace keys', async () => {
     const { list, fake } = await mount([length('a'), length('b'), length('c')]);
@@ -270,7 +664,7 @@ describe('renaming', () => {
     input(list).form?.requestSubmit();
     await settle(list);
     expect(fake.viewer.measurements.get('b')?.label).toBe('Aorta');
-    expect(list.shadowRoot?.querySelector('input')).toBeNull();
+    expect(list.shadowRoot?.querySelector('input[type="text"]')).toBeNull();
     // The focus is back on the row.
     expect(list.shadowRoot?.activeElement).toBe(row(list, 'b'));
     expect(row(list, 'b').textContent).toContain('Aorta');
@@ -294,7 +688,7 @@ describe('renaming', () => {
     input(list).value = 'Something else';
     input(list).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await settle(list);
-    expect(list.shadowRoot?.querySelector('input')).toBeNull();
+    expect(list.shadowRoot?.querySelector('input[type="text"]')).toBeNull();
     expect(fake.viewer.measurements.get('a')?.label).toBe('Aorta');
 
     press(row(list, 'a'), 'F2');
@@ -329,7 +723,7 @@ describe('renaming', () => {
     await settle(list);
     await fake.viewer.measurements.remove('a');
     await settle(list);
-    expect(list.shadowRoot?.querySelector('input')).toBeNull();
+    expect(list.shadowRoot?.querySelector('input[type="text"]')).toBeNull();
   });
 });
 
@@ -381,7 +775,56 @@ describe('loading a report', () => {
     expect(fake.viewer.measurements.list()).toHaveLength(2);
     expect(rows(list)).toHaveLength(2);
     expect(reportStatus(list)).toBe('Report loaded: 2 added, 0 replaced.');
-    // The control is ready for another choice.
+    // The control says which report it is.
+    expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
+    expect(reportSelect(list)?.selectedOptions[0]?.text.trim()).toBe(`SR ${FAKE_IDS.sr}`);
+  });
+
+  it('has no reload button until a report is loaded, and then loads the same report again, replacing what it made', async () => {
+    const { list, fake } = await mount();
+    expect(list.shadowRoot?.querySelector('[data-action="reload-report"]')).toBeNull();
+    await choose(list, FAKE_IDS.sr);
+    await fake.viewer.measurements.remove(fake.viewer.measurements.list()[0]?.id ?? '');
+    await settle(list);
+    expect(rows(list)).toHaveLength(1);
+    action(list, 'reload-report').click();
+    await settle(list);
+    expect(rows(list)).toHaveLength(2);
+    expect(reportStatus(list)).toBe('Report loaded: 1 added, 1 replaced.');
+    expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
+  });
+
+  it('takes the reload button away when the study changes, and uses the words the host gives', async () => {
+    const { list, fake } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    list.messages = { reloadReport: 'Cargar de nuevo' };
+    await settle(list);
+    expect(action(list, 'reload-report').textContent.trim()).toBe('Cargar de nuevo');
+    await fake.viewer.loadStudy('1.2.5');
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[data-action="reload-report"]')).toBeNull();
+  });
+
+  it('shows the prompt again when the prompt is chosen, with the report still loaded', async () => {
+    const { list, fake } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    await choose(list, '');
+    expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
+    expect(fake.viewer.measurements.list()).toHaveLength(2);
+  });
+
+  it('goes back to the prompt when the report cannot be loaded', async () => {
+    const { list } = await mount();
+    await choose(list, FAKE_IDS.srNotAReport);
+    expect(reportSelect(list)?.value).toBe('');
+  });
+
+  it('goes back to the prompt when the study changes', async () => {
+    const { list, fake } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    await fake.viewer.loadStudy('1.2.5');
+    await fake.viewer.loadStudy(FAKE_IDS.study);
+    await settle(list);
     expect(reportSelect(list)?.value).toBe('');
   });
 

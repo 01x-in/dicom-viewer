@@ -582,6 +582,75 @@ describe('selecting and jumping', () => {
   });
 });
 
+describe('measurements.slices', () => {
+  it('gives the slice each measurement of the study is on, counting from 1 as the overlay does', async () => {
+    const h = harness();
+    await show(h);
+    await h.viewer.measurements.add(length('a', 0));
+    await h.viewer.measurements.add(length('b', 6));
+
+    const slices = await h.viewer.measurements.slices();
+
+    expect([...slices]).toEqual([
+      ['a', 1],
+      ['b', 7],
+    ]);
+  });
+
+  it('counts within the stack the image is shown in, for a series that splits into stacks', async () => {
+    const h = harness();
+    await show(h, CT_TWO_STACKS);
+    await h.viewer.measurements.add({
+      id: 'second',
+      type: 'length',
+      reference: {
+        studyInstanceUID: STUDY,
+        seriesInstanceUID: CT_TWO_STACKS,
+        sopInstanceUID: sop(2, CT_TWO_STACKS, 1),
+      },
+      points: [p(0, 0), p(3, 4)],
+    });
+    expect((await h.viewer.measurements.slices()).get('second')).toBe(3);
+  });
+
+  it('leaves out a measurement on a series the source does not have', async () => {
+    const h = harness();
+    await show(h);
+    await h.viewer.measurements.add(length('here', 1));
+    await h.viewer.measurements.importJson({
+      format: 'measurements/v1',
+      measurements: [
+        {
+          id: 'elsewhere',
+          type: 'length',
+          reference: {
+            studyInstanceUID: STUDY,
+            seriesInstanceUID: '9.9.9',
+            sopInstanceUID: '9.9.9.1',
+          },
+          points: [p(0, 0), p(3, 4)],
+        },
+      ],
+    });
+    const slices = await h.viewer.measurements.slices();
+    expect([...slices.keys()]).toEqual(['here']);
+  });
+
+  it('is empty with no study and with no measurements', async () => {
+    const h = harness();
+    expect((await h.viewer.measurements.slices()).size).toBe(0);
+    await show(h);
+    expect((await h.viewer.measurements.slices()).size).toBe(0);
+  });
+
+  it('rejects after the viewer is destroyed', async () => {
+    const h = harness();
+    await show(h);
+    h.viewer.destroy();
+    await expect(h.viewer.measurements.slices()).rejects.toThrow();
+  });
+});
+
 describe('when the image goes away and comes back', () => {
   it('keeps the measurements, takes them off the engine, and draws them again', async () => {
     const h = harness();
