@@ -18,7 +18,8 @@ import {
   type Point3,
   type RoiStats,
 } from './model';
-import { buildReport, type ReportContext } from './report';
+import { renderText } from '../report/text';
+import { buildReport, type ReportContext, type ReportModel } from './report';
 import { sliceNumbers } from './slice-numbers';
 import { measurementsFromSr, type SrSkip } from './sr';
 import { probeHu, roiStats } from './stats';
@@ -95,6 +96,11 @@ export interface PdfOptions {
   readonly title?: string;
 }
 
+export interface TextOptions {
+  /** The first line of the text, of at most 120 characters. Default `Measurement report`. */
+  readonly title?: string;
+}
+
 export interface JumpOptions {
   /** Default `vp-0`. */
   readonly viewportId?: string;
@@ -151,6 +157,14 @@ export interface MeasurementsApi {
    * Rejects with a `RangeError` when there are no measurements.
    */
   exportPdf(options?: PdfOptions): Promise<Blob>;
+  /**
+   * The same report as plain text, one line for each measurement, to paste into a message or a
+   * report. It is made from the same rows as the PDF, so the two say the same, and it follows the
+   * same rules: the patient is left out unless the viewer is set to show who the patient is. Text
+   * is not limited to Latin-1. Rejects with a `RangeError` when there are no measurements, or the
+   * title is too long.
+   */
+  exportText(options?: TextOptions): Promise<string>;
 }
 
 /** A stack on screen, with the engine drawing it. */
@@ -526,7 +540,8 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     return { added, replaced };
   }
 
-  async function exportPdfNow(options: PdfOptions): Promise<Blob> {
+  /** The rows, order, and patient rules that the PDF and the text are both made from. */
+  async function reportModelNow(options: TextOptions): Promise<ReportModel> {
     const title = options.title?.trim();
     if (title !== undefined && title.length > MAX_REPORT_TITLE_LENGTH) {
       throw new RangeError(
@@ -547,7 +562,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
       ...new Set(inStudy.map((measurement) => measurement.reference.seriesInstanceUID)),
     ]);
     deps.assertAlive();
-    const report = buildReport({
+    return buildReport({
       ...context,
       title: title === '' ? undefined : title,
       generatedAt: new Date(),
@@ -555,9 +570,17 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
       measurements: inStudy,
       origins,
     });
+  }
+
+  async function exportPdfNow(options: PdfOptions): Promise<Blob> {
+    const report = await reportModelNow(options);
     // The writer is its own chunk, so a page that never makes a report never loads it.
     const { renderPdf } = await import('../report/pdf');
     return new Blob([renderPdf(report)], { type: 'application/pdf' });
+  }
+
+  async function exportTextNow(options: TextOptions): Promise<string> {
+    return renderText(await reportModelNow(options));
   }
 
   async function loadSrNow(seriesInstanceUID: string): Promise<SrLoadResult> {
@@ -789,6 +812,9 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     },
     exportPdf(options = {}): Promise<Blob> {
       return call(() => exportPdfNow(options));
+    },
+    exportText(options = {}): Promise<string> {
+      return call(() => exportTextNow(options));
     },
     loadSr(seriesInstanceUID): Promise<SrLoadResult> {
       try {

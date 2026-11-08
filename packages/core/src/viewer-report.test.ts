@@ -193,6 +193,120 @@ describe('measurements.exportPdf', () => {
   });
 });
 
+describe('measurements.exportText', () => {
+  it('makes a text of the measurements of the study on screen, one line each', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 4));
+    await h.viewer.measurements.add({ ...length('b', 7), label: 'Aorta' });
+
+    const text = await h.viewer.measurements.exportText();
+    const lines = text.split('\n');
+
+    expect(lines[0]).toBe('Measurement report');
+    expect(lines).toContain('Length 1: Length 5.0 mm. CT, CT, slice 5 (API)');
+    expect(lines).toContain('Aorta: Length 5.0 mm. CT, CT, slice 8 (API)');
+    expect(lines.at(-1)).toBe('Software for building viewers. Not for diagnosis.');
+  });
+
+  it('says nothing that could tell who the patient is unless the viewer shows that', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 0));
+    const text = await h.viewer.measurements.exportText();
+    expect(text).not.toMatch(/Patient|Birth/);
+  });
+
+  it('uses the title a host gives, and rejects one that is too long', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 0));
+    expect((await h.viewer.measurements.exportText({ title: 'Follow-up 2' })).split('\n')[0]).toBe(
+      'Follow-up 2',
+    );
+    await expect(h.viewer.measurements.exportText({ title: 'x'.repeat(121) })).rejects.toThrow(
+      RangeError,
+    );
+  });
+
+  it('rejects when there is nothing to put in it, before a study is loaded, and after destroy', async () => {
+    const h = harness();
+    await expect(h.viewer.measurements.exportText()).rejects.toThrow(/Load a study first/);
+    await ready(h);
+    await expect(h.viewer.measurements.exportText()).rejects.toThrow(RangeError);
+    await h.viewer.measurements.add(length('a', 0));
+    h.viewer.destroy();
+    await expect(h.viewer.measurements.exportText()).rejects.toThrow();
+  });
+});
+
+describe('the text commands', () => {
+  it('are there, take no arguments, and can run only when there is something to put in the report', async () => {
+    const h = harness();
+    for (const id of ['measurements.copyText', 'measurements.downloadText']) {
+      expect(h.viewer.commands.has(id)).toBe(true);
+      expect(h.viewer.commands.check(id)).toBeUndefined();
+      expect(h.viewer.commands.check(id, { x: 1 })).toMatch(/does not take/);
+      expect(h.viewer.commands.enabled(id)).toBe(false);
+    }
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 0));
+    for (const id of ['measurements.copyText', 'measurements.downloadText']) {
+      expect(h.viewer.commands.enabled(id)).toBe(true);
+    }
+  });
+
+  it('measurements.downloadText saves the text as a file', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 0));
+    const made: Blob[] = [];
+    URL.createObjectURL = (blob: Blob | MediaSource): string => {
+      if (blob instanceof Blob) made.push(blob);
+      return 'blob:fake';
+    };
+    URL.revokeObjectURL = vi.fn();
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+
+    await h.viewer.commands.run('measurements.downloadText');
+
+    expect(names).toEqual(['measurement-report.txt']);
+    expect(made[0]?.type).toBe('text/plain;charset=utf-8');
+    expect(await made[0]?.text()).toContain('Length 1: Length 5.0 mm');
+  });
+
+  it('measurements.copyText puts the text on the clipboard', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 0));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    await h.viewer.commands.run('measurements.copyText');
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(String(writeText.mock.calls[0]?.[0])).toContain('Length 1: Length 5.0 mm');
+  });
+
+  it('measurements.copyText rejects, and says why, when the browser has no clipboard or refuses it', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 0));
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    await expect(h.viewer.commands.run('measurements.copyText')).rejects.toThrow(/clipboard/i);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+      configurable: true,
+    });
+    await expect(h.viewer.commands.run('measurements.copyText')).rejects.toThrow(/clipboard/i);
+  });
+});
+
 describe('the measurements.downloadPdf command', () => {
   it('is there, and can run only when there is something to put in the report', async () => {
     const h = harness();

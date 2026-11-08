@@ -176,14 +176,32 @@ function builtins(): Readonly<Record<string, Command>> {
         downloadBlob(await viewer.measurements.exportPdf(), 'measurement-report.pdf');
       },
       // There is something to put in the report: a measurement of the study on screen.
-      enabled: ({ viewer }) => {
-        const study = viewer.getState().studyInstanceUID;
-        return (
-          study !== undefined && viewer.measurements.list({ studyInstanceUID: study }).length > 0
-        );
-      },
+      enabled: hasMeasurements,
       check: (args) => {
         parse(noArgs, 'measurements.downloadPdf', args);
+      },
+    },
+    'measurements.downloadText': {
+      run: async ({ viewer }) => {
+        const text = await viewer.measurements.exportText();
+        downloadBlob(
+          new Blob([text], { type: 'text/plain;charset=utf-8' }),
+          'measurement-report.txt',
+        );
+      },
+      enabled: hasMeasurements,
+      check: (args) => {
+        parse(noArgs, 'measurements.downloadText', args);
+      },
+    },
+    'measurements.copyText': {
+      run: async ({ viewer }) => {
+        const text = await viewer.measurements.exportText();
+        await copyToClipboard(text);
+      },
+      enabled: hasMeasurements,
+      check: (args) => {
+        parse(noArgs, 'measurements.copyText', args);
       },
     },
     'preset.apply': {
@@ -198,6 +216,28 @@ function builtins(): Readonly<Record<string, Command>> {
       },
     },
   };
+}
+
+/** There is something to put in a report: a measurement of the study on screen. */
+function hasMeasurements({ viewer }: CommandContext): boolean {
+  const study = viewer.getState().studyInstanceUID;
+  return study !== undefined && viewer.measurements.list({ studyInstanceUID: study }).length > 0;
+}
+
+/** Puts text on the clipboard. Rejects, and says why, when the browser has none or refuses. */
+async function copyToClipboard(text: string): Promise<void> {
+  const clipboard: Clipboard | undefined =
+    typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+  if (clipboard === undefined) {
+    throw new Error('This browser has no clipboard to copy to. It needs a secure (HTTPS) page.');
+  }
+  try {
+    await clipboard.writeText(text);
+  } catch (error) {
+    throw new Error(
+      `The browser did not allow copying to the clipboard${error instanceof Error ? `: ${error.message}` : '.'}`,
+    );
+  }
 }
 
 function asCommand(input: CommandInput): Command {

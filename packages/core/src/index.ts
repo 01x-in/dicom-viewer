@@ -108,6 +108,7 @@ export type {
   MeasurementsExportV1,
   NewMeasurement,
   PdfOptions,
+  TextOptions,
   SrLoadResult,
 } from './measurements/registry';
 export type { SrSkip } from './measurements/sr';

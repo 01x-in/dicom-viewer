@@ -17,7 +17,9 @@ describe('viewer.commands', () => {
     expect(viewer.commands.list()).toEqual([
       'cine.toggle',
       'layout.set',
+      'measurements.copyText',
       'measurements.downloadPdf',
+      'measurements.downloadText',
       'mpr.show',
       'preset.apply',
       'tool.set',
