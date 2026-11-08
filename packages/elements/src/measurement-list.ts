@@ -443,6 +443,8 @@ export class DvMeasurementListElement extends LitElement {
         );
       }
     }
+    // What was said about an earlier attempt is not about this one.
+    this.selectionStatus = undefined;
     const chosen = this.chosen;
     // It says the first four are shown only once they are, and not if the choice has changed since.
     Promise.all(steps).then(
@@ -455,6 +457,7 @@ export class DvMeasurementListElement extends LitElement {
         }
       },
       (error: unknown) => {
+        this.selectionStatus = undefined;
         this.#fail(error);
       },
     );

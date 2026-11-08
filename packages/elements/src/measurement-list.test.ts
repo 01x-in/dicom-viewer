@@ -552,6 +552,21 @@ describe('choosing several measurements', () => {
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
     });
 
+    it('takes the note away when showing them again fails, after it was shown once', async () => {
+      const five = [0, 1, 2, 3, 4].map((at) => length(`m${at.toString()}`, at));
+      const { list, fake } = await mount(five);
+      selectAll(list).click();
+      await settle(list);
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(list.shadowRoot?.querySelector('[data-selection-status]')).not.toBeNull();
+      list.addEventListener('dv-error', () => undefined);
+      fake.viewer.destroy();
+      action(list, 'show-together').click();
+      await settle(list);
+      expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
+    });
+
     it('reports what cannot be shown as dv-error', async () => {
       const { list, fake } = await mount([length('a', 1), length('b', 2)]);
       // No viewport is attached for vp-1, and the layout cannot be changed after the viewer is gone.
