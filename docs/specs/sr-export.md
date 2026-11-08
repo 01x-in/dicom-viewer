@@ -169,6 +169,10 @@ If highdicom cannot read what Cornerstone's writer makes, the spec changes: we w
 
 Settled by the maintainer:
 
+- **Spike (step 0, [m11-spike.md](../m11-spike.md)): go.** The SR is written with Cornerstone's `generateReport` and then fixed by a pure post-processing function in the engine: stable tracking identifiers from the measurement ids, list order, `ISO_IR 192`, the probe's value, Hounsfield units, one evidence entry for the study, honest equipment and the injected clock, and the Comprehensive SR class.
+- **The shape goes beside its number** (the standard's Image Region), so that tools which follow it find the measurements. The bidirectional measurement keeps its two shapes inside their numbers. OHIF and Cornerstone's own reader do not read this form, and the guide says so.
+- **The label is a short local code for the Finding and the full text in a Comment.** The file is valid DICOM and a label has no length limit. The M10 reader also reads the Comment.
+
 1. **The SR is a third item in the Download menu, and which items show is configuration.** The default shows all three, and a host chooses its own list with `measurements.downloadFormats`.
 2. **The SR carries the patient identity of the source images**, because a PACS will not file an object without it. The menu item and the guide say so.
 3. **The `.dcm` is the SR only**, with references to the images, and no pixel data.

@@ -60,10 +60,15 @@ The cost: Cornerstone's own reader, and so OHIF's way of putting a report on the
 
 The M10 reader needs a small change to read the Comment (and the short code) for the label. The Cornerstone reader does not read a Comment as the label.
 
+### Decided
+
+The maintainer chose **1A** (the shape beside the number, the standard) and **2A** (a short local code for the Finding, and the full label in a Comment). So an exported file is valid DICOM and standards-following tools find the measurements, and OHIF will not put the groups on the image or show the labels. The guide says so. The bidirectional measurement keeps its two shapes inside their numbers, as it has no one place to put them (the M10 reader reads that form already).
+
 ## What this changes in the spec
 
 - The writer is the engine's job, as designed, and the registry's `exportSr` is as designed. Step 3 grows a post-processing function (pure, tested on its own) with the rows of the table above.
 - The SOP class is Comprehensive SR.
+- The M10 reader learns to read the label from the Comment (and from the short Finding code), as well as from Cornerstone's code, so a report written by Cornerstone and our own export both give labels.
 - The test plan item "another tool reads it" now checks, with highdicom: the tree, one group for each measurement in list order, the planar finder (when the shape is beside the number), the labels, the units, and the identifiers (the same on two exports).
 - Estimate: the spike was on time. The SR is still 3 to 4 days.
 
