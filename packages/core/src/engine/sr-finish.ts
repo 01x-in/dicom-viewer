@@ -108,6 +108,29 @@ function setProbeValue(group: Record<string, unknown>, hu: number | undefined): 
 }
 
 /**
+ * Cornerstone's writer takes the area, mean, maximum, and spread of a rectangle, and has no place
+ * for its minimum, which it writes for an ellipse. The pixels have a minimum, and the viewer holds
+ * it, so it is added, as the same number the ellipse has.
+ */
+function addMinimum(group: Record<string, unknown>, minimum: number | undefined): void {
+  if (minimum === undefined || !Number.isFinite(minimum)) return;
+  const content = itemsOf(group['ContentSequence']);
+  if (content.some((item) => meaningOf(item) === 'Minimum')) return;
+  group['ContentSequence'] = [
+    ...content,
+    {
+      RelationshipType: 'CONTAINS',
+      ValueType: 'NUM',
+      ConceptNameCodeSequence: code('255605001', 'SCT', 'Minimum'),
+      MeasuredValueSequence: {
+        NumericValue: minimum,
+        MeasurementUnitsCodeSequence: code("[hnsf'U]", 'UCUM', 'Hounsfield unit'),
+      },
+    },
+  ];
+}
+
+/**
  * The standard puts a measurement's shape beside its number, as an Image Region. Cornerstone's
  * writer puts it inside the number. Moves it beside, for a group with one shape. A group with two
  * (a bidirectional measurement has a shape for each axis) is left as it is: there is no one place
@@ -196,6 +219,7 @@ export function finishReport(dataset: Record<string, unknown>, input: FinishInpu
       ];
     }
     if (measurement.type === 'probe') setProbeValue(group, measurement.values.hu);
+    if (measurement.type === 'rectangle') addMinimum(group, measurement.values.minHu);
     liftShape(group);
     made.push([measurement.id, group]);
   }

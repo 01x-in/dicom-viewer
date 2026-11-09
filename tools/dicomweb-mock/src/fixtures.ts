@@ -32,6 +32,13 @@ export interface FixtureStore {
   readonly studyUids: readonly string[];
   readonly series: readonly SeriesRecord[];
   findSeries(studyUid: string, seriesUid: string): SeriesRecord | undefined;
+  /**
+   * Serves one more DICOM file (a Part 10 file) while the server runs, in its series and study, as
+   * a server that was sent it would. For a test of a report the viewer wrote. Replaces an instance
+   * of the same SOP instance UID. Gives back the series UID. Throws for bytes that are not a DICOM
+   * file.
+   */
+  addInstance(bytes: ArrayBuffer): string;
 }
 
 function stringValue(json: DicomJson, tag: string): string {
@@ -92,8 +99,11 @@ function splitFrames(dict: DicomJson, numberOfFrames: number, encapsulated: bool
 
 async function loadInstance(path: string): Promise<InstanceRecord> {
   const bytes = await readFile(path);
-  const file = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const arrayBuffer = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength);
+  return instanceFromBytes(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+}
+
+function instanceFromBytes(file: Uint8Array): InstanceRecord {
+  const arrayBuffer = file.slice().buffer;
   const { meta, dict } = data.DicomMessage.readFile(arrayBuffer);
   const transferSyntax = stringValue(meta, TRANSFER_SYNTAX_UID);
   const numberOfFrames = dict['00280008'] === undefined ? 1 : numberValue(dict, '00280008');
@@ -138,9 +148,34 @@ export async function loadFixtures(dir: string): Promise<FixtureStore> {
     });
   }
   return {
-    studyUids: [...new Set(series.map((item) => item.studyUid))],
+    get studyUids(): readonly string[] {
+      return [...new Set(series.map((item) => item.studyUid))];
+    },
     series,
     findSeries: (studyUid, seriesUid) =>
       series.find((item) => item.studyUid === studyUid && item.seriesUid === seriesUid),
+    addInstance(bytes): string {
+      const instance = instanceFromBytes(new Uint8Array(bytes));
+      const at = series.findIndex(
+        (item) => item.studyUid === instance.studyUid && item.seriesUid === instance.seriesUid,
+      );
+      const existing = at < 0 ? undefined : series[at];
+      if (existing === undefined) {
+        series.push({
+          studyUid: instance.studyUid,
+          seriesUid: instance.seriesUid,
+          modality: instance.modality,
+          description: instance.metadata['0008103E']?.Value?.[0]?.toString() ?? instance.seriesUid,
+          instances: [instance],
+        });
+        return instance.seriesUid;
+      }
+      const others = existing.instances.filter((item) => item.sopUid !== instance.sopUid);
+      series[at] = {
+        ...existing,
+        instances: [...others, instance].sort((a, b) => a.instanceNumber - b.instanceNumber),
+      };
+      return instance.seriesUid;
+    },
   };
 }

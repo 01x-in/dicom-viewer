@@ -348,6 +348,36 @@ describe('writeStructuredReport', () => {
     expect(numbersOf(group(dataset, 5)).map(meaningOf)).toEqual(['Area']);
   });
 
+  it('writes the minimum of a rectangle too: the writer leaves it out, and an ellipse has it', () => {
+    const full = LIST.map((m) =>
+      m.id === 'm-rect'
+        ? { ...m, values: { areaMm2: 100, meanHu: -100, stdDevHu: 2, minHu: -110, maxHu: -90 } }
+        : m,
+    );
+    const dataset = naturalized(writeStructuredReport(inputOf(full)));
+    const numbers = numbersOf(group(dataset, 5)).map((number) => {
+      const measured = itemsOf(number['MeasuredValueSequence'])[0];
+      return [
+        meaningOf(number),
+        Number(measured?.['NumericValue']),
+        itemsOf(measured?.['MeasurementUnitsCodeSequence'])[0]?.['CodeValue'],
+      ];
+    });
+    expect(Object.fromEntries(numbers.map(([name, value, unit]) => [name, [value, unit]]))).toEqual(
+      {
+        Area: [100, 'mm2'],
+        Maximum: [-90, "[hnsf'U]"],
+        Mean: [-100, "[hnsf'U]"],
+        'Standard Deviation': [2, "[hnsf'U]"],
+        Minimum: [-110, "[hnsf'U]"],
+      },
+    );
+    // Read back, it is still one rectangle.
+    const read = readStructuredReport(writeStructuredReport(inputOf(full)), imageIdBySop);
+    expect(read.unreadable).toBe(0);
+    expect(read.shapes[5]?.type).toBe('rectangle');
+  });
+
   it('puts a shape beside its number, as the standard does, and keeps the two of a bidirectional measurement inside theirs', () => {
     const dataset = naturalized(writeStructuredReport(inputOf()));
     // The length: an Image Region beside the number, its image named Source.

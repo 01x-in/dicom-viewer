@@ -2,6 +2,7 @@
 // because every script that touches `window.__dvViewer` must agree on its type.
 
 export interface ViewerHandle {
+  loadStudy(studyInstanceUID: string): Promise<unknown>;
   getState(): {
     studyInstanceUID?: string;
     viewports: {
@@ -66,6 +67,8 @@ export interface ViewerHandle {
     }>;
     /** What `exportPdf` made, as its type and its bytes read as Latin-1 (every byte one character). */
     exportPdf(): Promise<Blob>;
+    exportText(): Promise<string>;
+    exportSr(options?: { seriesDescription?: string; seriesNumber?: number }): Promise<Blob>;
   };
   segmentations: {
     load(seriesInstanceUID: string): Promise<SegmentationSummary>;

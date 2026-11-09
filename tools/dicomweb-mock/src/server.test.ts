@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { data } from 'dcmjs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type MockServer, startMockServer } from './server.ts';
 
@@ -273,6 +274,34 @@ describe('jsonFiles', () => {
       const body: unknown = await response.json();
       expect(body).toHaveProperty('name');
       expect((await fetch(`${server.url}/other.json`)).status).toBe(404);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('a report added while the server runs', () => {
+  it('is served in the series list of its study, and as a whole file', async () => {
+    const server = await startMockServer({ fixturesDir: FIXTURES, mode: 'open' });
+    try {
+      const study = server.fixtures.studyUids[0] ?? '';
+      const source = server.fixtures.series.find((item) => item.modality === 'SR');
+      if (source === undefined) throw new Error('no report in the fixtures');
+      const read = data.DicomMessage.readFile(
+        source.instances[0]?.file.buffer.slice(0) as ArrayBuffer,
+      );
+      read.dict['0020000E'] = { vr: 'UI', Value: ['2.25.9101'] };
+      read.dict['00080018'] = { vr: 'UI', Value: ['2.25.9102'] };
+      read.meta['00020003'] = { vr: 'UI', Value: ['2.25.9102'] };
+      server.fixtures.addInstance(read.write());
+      const { body } = await getJson(`${server.url}/studies/${study}/series`);
+      expect(
+        Array.isArray(body) && body.some((item) => firstValue(item, '0020000E') === '2.25.9101'),
+      ).toBe(true);
+      const file = await fetch(
+        `${server.url}/studies/${study}/series/2.25.9101/instances/2.25.9102`,
+      );
+      expect(file.status).toBe(200);
     } finally {
       await server.close();
     }
