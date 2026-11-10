@@ -202,18 +202,19 @@ export class DvMeasurementListElement extends LitElement {
         min-width: 2rem;
       }
       .menu-wrap {
-        position: relative;
         display: inline-flex;
       }
+      /* The menu is as wide as the panel and sits above the report area, so a long item wraps and nothing is cut off. */
       [role='menu'] {
         position: absolute;
         bottom: 100%;
+        left: 0;
         right: 0;
         z-index: 2;
-        min-width: 100%;
+        box-sizing: border-box;
         display: flex;
         flex-direction: column;
-        margin-bottom: calc(var(--dv-space, 0.25rem) * 1);
+        margin: 0 calc(var(--dv-space, 0.25rem) * 2) calc(var(--dv-space, 0.25rem) * 1);
         padding: calc(var(--dv-space, 0.25rem) * 1);
         background: var(--dv-color-surface-raised, #212731);
         border: 1px solid var(--dv-color-border, #667284);
@@ -223,7 +224,8 @@ export class DvMeasurementListElement extends LitElement {
       [role='menuitem'] {
         border: 0;
         text-align: left;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
       .copy-box {
         flex-basis: 100%;
@@ -303,6 +305,7 @@ export class DvMeasurementListElement extends LitElement {
         align-items: center;
       }
       .report {
+        position: relative;
         display: flex;
         flex-wrap: wrap;
         gap: calc(var(--dv-space, 0.25rem) * 2);
