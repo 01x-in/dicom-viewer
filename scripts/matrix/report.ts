@@ -312,7 +312,7 @@ async function checkExports(
 
   // Served back, as a server that was sent it would, and loaded again.
   const seriesUid = input.mock.fixtures.addInstance(
-    Buffer.from(files.first, 'base64').buffer.slice(0) as ArrayBuffer,
+    Buffer.from(files.first, 'base64').buffer.slice(0),
   );
   const again = await page.evaluate(
     async ({ uid, study }) => {

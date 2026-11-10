@@ -3,6 +3,9 @@
 
 export interface ViewerHandle {
   loadStudy(studyInstanceUID: string): Promise<unknown>;
+  config: {
+    get(): { measurements: { downloadFormats: string[]; copyText: boolean } };
+  };
   getState(): {
     studyInstanceUID?: string;
     viewports: {

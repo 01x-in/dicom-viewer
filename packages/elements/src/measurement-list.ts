@@ -741,6 +741,13 @@ export class DvMeasurementListElement extends LitElement {
   }
 
   #onMenuButtonKeydown(event: KeyboardEvent): void {
+    // Opened with the mouse, the focus is still here: Escape must close it from here too.
+    if (event.key === 'Escape' && this.menuOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.#closeMenu(true);
+      return;
+    }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       this.#openMenu(event.key === 'ArrowDown' ? 'first' : 'last');

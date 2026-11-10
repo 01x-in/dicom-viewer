@@ -7,7 +7,7 @@
   {
     "name": "core: viewer chunk",
     "path": "packages/core/dist/viewer-core-*.js",
-    "limit": "26 kB"
+    "limit": "27.5 kB"
   },
   {
     "name": "core: series chunk",
@@ -67,7 +67,7 @@
   {
     "name": "elements: viewer element chunk",
     "path": "packages/elements/dist/viewer-element-*.js",
-    "limit": "27 kB"
+    "limit": "29 kB"
   },
   {
     "name": "elements: styles.css",

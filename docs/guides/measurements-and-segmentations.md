@@ -99,7 +99,7 @@ each, with its numbers, its series and slice, and whether it was drawn, added by
 
 ```ts
 const pdf = await viewer.measurements.exportPdf({ title: 'Follow-up' });
-// or save it with the command the panel's "Download PDF" button runs:
+// or save it with the command the panel's Download menu runs for the PDF:
 await viewer.commands.run('measurements.downloadPdf');
 ```
 
@@ -107,6 +107,86 @@ The report leaves out the name, the ID, and the birth date of the patient unless
 overlay's `showPatientInfo`). It uses the two standard PDF fonts, so a character outside Latin-1 (such as a Chinese
 label) is shown as `?`, and the page says how many. The writer is its own lazy chunk, about 2 kB, loaded when a report is
 made. A config file can put the button on the toolbar with the command `measurements.downloadPdf`.
+
+### Copy the measurements as text
+
+`viewer.measurements.exportText()` gives the same report as plain text, one line for each measurement, to paste into a
+message or a report. It is made from the same rows as the PDF, so the two say the same, and it follows the same rules:
+the patient is left out unless the viewer is set to show who the patient is. Text is not limited to Latin-1, so a label
+in any script is written as it is.
+
+```ts
+const text = await viewer.measurements.exportText({ title: 'Follow-up' });
+// Follow-up
+// Study UID: 1.2.3
+// Made: 2026-11-08 09:14 UTC
+//
+// Aorta: Length 14.2 mm. CT, Axial 2.5 mm, slice 22 (Drawn)
+```
+
+The panel's **Copy** button puts it on the clipboard. A browser may refuse (a page that is not secure, or no
+permission). Then the panel shows the text in a box, selected, with a note, so a person can copy it by hand.
+
+### Write a DICOM Structured Report
+
+`viewer.measurements.exportSr()` writes the measurements of the study on screen as a DICOM Structured Report (a TID 1500
+measurement report), in the browser. It resolves to a `Blob` of type `application/dicom`.
+
+```ts
+const sr = await viewer.measurements.exportSr({ seriesDescription: 'Follow-up', seriesNumber: 61 });
+// or save it with the command the panel's Download menu runs:
+await viewer.commands.run('measurements.downloadSr'); // measurements.dcm
+```
+
+- **The file is the report only.** It holds the measurements, with a reference to each image by UID. It has no pixel data
+  and no copy of the study. The images stay in the study, which the report points at.
+- **The file has the patient's identity in it.** A DICOM object has to carry the patient's name, ID, and birth date, or
+  a PACS will not file it, so the writer copies them from the images, with the study's own IDs. This is so whatever
+  `showPatientInfo` says. The file is made in the browser and nothing is sent anywhere, but a person who shares it
+  shares who the patient is. The menu item says so.
+- **Each export is a new series**, with a new UID. A measurement has the same tracking identifier every time, made from
+  its id.
+- **What is written.** One measurement group for each measurement, in the order of the list. Its label is the finding
+  (a short code, `LABEL`, with the first 64 characters), and the whole label is also in a Comment, which has no length
+  limit. The numbers the viewer holds are written (length, area, angle, and the Hounsfield units of a region or a probe).
+  A number the viewer has not worked out is left out, not written as zero. A shape is written beside its number, as the
+  standard does, except for a bidirectional measurement, whose two shapes are inside their numbers.
+- **Which tools read it.** highdicom reads it and finds each measurement (the browser matrix checks this). The viewer
+  reads it again. OHIF, and Cornerstone's own reader, look for the shape inside the number, so they do not put these
+  groups on the image. This was not tried in OHIF. No PACS has been tried, and nothing here shows that one accepts the
+  file.
+- **Loading it again.** A report that was exported and is then loaded gives the same shapes again with new ids (they
+  come from the report's SOP instance). If the measurements it was made from are still there, they are there twice. Clear
+  them first, or load the report into a clean study.
+- **A measurement on a series the data source does not have** cannot be written, as the report must name an image. The
+  call rejects and says how many.
+
+`loadSr` takes the UID of a report series in the study. It has no way to read a file a person picks from disk.
+
+### The Download menu, and what a host may offer
+
+The panel's **Download** button is a menu with Text (.txt), PDF (.pdf), and DICOM SR (.dcm). Which items it shows, and
+whether the **Copy** button is there, are a choice for the host, so they are config (the `measurements` key, in a config
+file or as a code option, and `viewer.config.apply` changes them later):
+
+```json
+{
+  "version": 1,
+  "measurements": { "downloadFormats": ["text", "pdf"], "copyText": true }
+}
+```
+
+- `downloadFormats` lists the items, in order. The default is `["text", "pdf", "sr"]`. A host that must not hand out
+  `.dcm` files leaves `"sr"` out. An empty list hides the menu.
+- `copyText` shows or hides the Copy button. The default is `true`.
+- A format that is left out is left out of the panel only. `exportSr()`, `exportText()`, and `exportPdf()` are calls a
+  host makes itself, and the commands `measurements.downloadSr`, `measurements.downloadText`,
+  `measurements.downloadPdf`, and `measurements.copyText` still work, so a host that hides the menu can put a command on
+  the toolbar. The config says what the shell shows. The API is the host's code.
+
+All the labels, including those of the report controls, are in `ViewerMessages` and can be translated (`download`,
+`downloadText`, `downloadPdf`, `downloadSr`, `copyText`, `copiedText`, `copyFailed`, `copyBoxLabel`, and the report
+messages).
 
 ## Segmentations (DICOM SEG)
 

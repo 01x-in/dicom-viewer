@@ -160,10 +160,10 @@ Vue mirrors these with emits and slots.
 | M8 | Hardening + 1.0 | Visual regression suite, size-limit budgets, publint + attw, TypeDoc + guides, and `1.0.0` published with provenance. | 5 |
 | M9 | OncoTrace readiness | `examples/oncotrace-like` covers the restricted mock proxy, a 10-minute token refresh, the banner slot, organ/tumor toggles, and navigate-by-SOP with segment highlight. A doc maps each bridge message to the API. No OncoTrace changes. | 2 |
 | M10 | Structured Reports + PDF | `viewer.measurements.loadSr` keeps the shapes of a TID 1500 report (Cornerstone's or highdicom's) as measurements whose numbers are worked out again from the pixels; what is left out is counted, by reason. `exportPdf` makes a PDF of the measurements in the browser, with no patient identity unless asked. The panel has both controls. See [ADR 0013](adr/0013-structured-reports-and-pdf.md). | 4 |
-| M11 | SR export + text | `viewer.measurements.exportSr` writes a TID 1500 SR of the measurements that highdicom reads, and the viewer reads again. `exportText` and a Copy button give the measurements as text. The panel's Download button becomes a menu (Text, PDF, and the SR if decided). See [the spec](specs/sr-export.md). | 5 |
+| M11 | SR export + text | `viewer.measurements.exportSr` writes a TID 1500 SR of the measurements that highdicom reads, and the viewer reads again. `exportText` and a Copy button give the measurements as text. The panel's Download button becomes a menu (Text, PDF, and the DICOM SR), and a `measurements` config key says which items a host offers. See [ADR 0014](adr/0014-sr-export-and-text.md) and [the spec](specs/sr-export.md). | 5 |
 
 **Total:** about 63 days, plus a 20% buffer, so roughly 76 days (about 7 months at 2.5 days a week). M6.5 and M6.6 were added after M6: the first look at the shell showed it was plain, and OHIF's configurable layer showed what ours lacks.
-**Stretch:** per-lesion connected components (3 days). The other stretch goal, SR TID1500, became M10 (reading, and a PDF report) and M11 (writing).
+**Stretch:** per-lesion connected components (3 days). The other stretch goal, SR TID1500, became M10 (reading, and a PDF report) and M11 (writing, and text).
 
 OncoTrace bridge mapping, for M9:
 

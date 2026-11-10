@@ -1025,6 +1025,17 @@ describe('the Download menu', () => {
     expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
   });
 
+  it('closes with Escape when it was opened with the mouse and the focus is still on the button', async () => {
+    const { list } = await mount([length('a')]);
+    await openMenu(list);
+    expect(menuButton(list).getAttribute('aria-expanded')).toBe('true');
+    menuKey(menuButton(list), 'Escape');
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+    expect(menuButton(list).getAttribute('aria-expanded')).toBe('false');
+    expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
+  });
+
   it('closes when the focus goes somewhere else', async () => {
     const { list } = await mount([length('a')]);
     await openMenu(list);

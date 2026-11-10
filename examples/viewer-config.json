@@ -53,6 +53,7 @@
     }
   },
   "panels": { "hide": ["segmentations"] },
+  "measurements": { "downloadFormats": ["text", "pdf"], "copyText": true },
   "windowLevelPresets": [
     { "id": "mine", "label": "My window", "center": 300, "width": 900 },
     { "id": "bone", "label": "Bone", "center": 480, "width": 2500 }
