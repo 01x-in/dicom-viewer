@@ -64,6 +64,17 @@ type ReportStatus =
   | { readonly kind: 'loaded'; readonly result: SrLoadResult }
   | { readonly kind: 'failed'; readonly message: string };
 
+/** The most characters of a report's name the select shows, so it leaves room for the reload picture. */
+const MAX_REPORT_NAME = 24;
+
+/** A long name cut with an ellipsis, by characters and not by UTF-16 units. The option keeps the whole name as its text. */
+function trimmed(name: string): string {
+  const characters = Array.from(name);
+  return characters.length <= MAX_REPORT_NAME
+    ? name
+    : `${characters.slice(0, MAX_REPORT_NAME - 1).join('')}…`;
+}
+
 function sameList(a: readonly Measurement[], b: readonly Measurement[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
 }
@@ -1281,15 +1292,18 @@ export class DvMeasurementListElement extends LitElement {
       <option value="" ?selected=${this.loadedReport === undefined}>
         ${text.loadReportPrompt}
       </option>
-      ${this.reports.map(
-        (report) =>
-          html`<option
-            value=${report.seriesInstanceUID}
-            ?selected=${this.loadedReport === report.seriesInstanceUID}
-          >
-            ${report.description ?? `SR ${report.seriesInstanceUID}`}
-          </option>`,
-      )}
+      ${this.reports.map((report) => {
+        const name = report.description ?? `SR ${report.seriesInstanceUID}`;
+        const shown = trimmed(name);
+        return html`<option
+          value=${report.seriesInstanceUID}
+          label=${shown === name ? nothing : shown}
+          title=${shown === name ? nothing : name}
+          ?selected=${this.loadedReport === report.seriesInstanceUID}
+        >
+          ${name}
+        </option>`;
+      })}
     </select>`;
   }
 

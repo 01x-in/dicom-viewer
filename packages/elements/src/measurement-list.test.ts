@@ -829,6 +829,37 @@ describe('loading a report', () => {
     expect(reportSelect(list)?.selectedOptions[0]?.text.trim()).toBe(`SR ${FAKE_IDS.sr}`);
   });
 
+  it('shows a long report name cut to fit, with the whole name in the tooltip, and leaves a short one alone', async () => {
+    const { list, fake } = await mount();
+    const long = 'Phantom SR (sr-measurements)';
+    const original = fake.viewer.getStudy.bind(fake.viewer);
+    fake.viewer.getStudy = (): ReturnType<typeof original> => {
+      const study = original();
+      return study === undefined
+        ? study
+        : {
+            ...study,
+            series: study.series.map((series) =>
+              series.seriesInstanceUID === FAKE_IDS.sr ? { ...series, description: long } : series,
+            ),
+          };
+    };
+    // The list takes the reports again when the study changes and comes back.
+    await fake.viewer.loadStudy('1.2.5');
+    await settle(list);
+    await fake.viewer.loadStudy(FAKE_IDS.study);
+    await settle(list);
+    const option = [...(reportSelect(list)?.options ?? [])].find(
+      (item) => item.value === FAKE_IDS.sr,
+    );
+    expect(option?.label).toBe('Phantom SR (sr-measurem…');
+    expect(option?.title).toBe(long);
+    // The text of the option is still the whole name.
+    expect(option?.text.trim()).toBe(long);
+    const short = [...(reportSelect(list)?.options ?? [])].find((item) => item.value === '');
+    expect(short?.hasAttribute('label')).toBe(false);
+  });
+
   it('has no reload button until a report is loaded, and then loads the same report again, replacing what it made', async () => {
     const { list, fake } = await mount();
     expect(list.shadowRoot?.querySelector('[data-action="reload-report"]')).toBeNull();
