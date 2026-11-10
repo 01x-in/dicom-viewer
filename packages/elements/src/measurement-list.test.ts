@@ -849,6 +849,16 @@ describe('loading a report', () => {
     expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
   });
 
+  it('puts the report select and the reload picture on a line of their own, so the name of the report has room', async () => {
+    const { list } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    const line = reportSelect(list)?.parentElement;
+    expect(line?.classList.contains('report-load')).toBe(true);
+    expect(action(list, 'reload-report').parentElement).toBe(line);
+    // The other buttons are not on that line.
+    expect(action(list, 'copy-text').parentElement).not.toBe(line);
+  });
+
   it('takes the reload button away when the study changes, and uses the words the host gives', async () => {
     const { list, fake } = await mount();
     await choose(list, FAKE_IDS.sr);

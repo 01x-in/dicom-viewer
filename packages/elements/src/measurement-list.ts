@@ -170,6 +170,18 @@ export class DvMeasurementListElement extends LitElement {
         content: '✓';
         font-weight: 700;
       }
+      .report-load {
+        display: flex;
+        flex-basis: 100%;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        align-items: center;
+      }
+      .report-load select {
+        flex: 1 1 0;
+        min-width: 0;
+        width: 0;
+        text-overflow: ellipsis;
+      }
       .icon-button {
         flex: none;
         display: inline-flex;
@@ -1252,6 +1264,54 @@ export class DvMeasurementListElement extends LitElement {
       ></textarea>`;
   }
 
+  #renderReportSelect(text: ViewerMessages): TemplateResult {
+    return html`<select
+      part="select"
+      data-action="load-report"
+      aria-label=${text.loadReport}
+      ?disabled=${this.loadingReport}
+      @change=${(event: Event): void => {
+        const select = event.currentTarget as HTMLSelectElement;
+        const chosen = select.value;
+        // The prompt is not a report: the control goes back to the one that is loaded.
+        if (chosen === '') select.value = this.loadedReport ?? '';
+        this.#loadReport(chosen);
+      }}
+    >
+      <option value="" ?selected=${this.loadedReport === undefined}>
+        ${text.loadReportPrompt}
+      </option>
+      ${this.reports.map(
+        (report) =>
+          html`<option
+            value=${report.seriesInstanceUID}
+            ?selected=${this.loadedReport === report.seriesInstanceUID}
+          >
+            ${report.description ?? `SR ${report.seriesInstanceUID}`}
+          </option>`,
+      )}
+    </select>`;
+  }
+
+  /** A picture, since a select cannot choose the report that is already chosen: it loads that report again. */
+  #renderReloadButton(text: ViewerMessages): TemplateResult | typeof nothing {
+    if (this.loadedReport === undefined) return nothing;
+    return html`<button
+      type="button"
+      part="button"
+      class="icon-button"
+      data-action="reload-report"
+      aria-label=${text.reloadReport}
+      title=${text.reloadReport}
+      aria-disabled=${this.loadingReport ? 'true' : nothing}
+      @click=${(): void => {
+        if (this.loadedReport !== undefined) this.#loadReport(this.loadedReport);
+      }}
+    >
+      ${icon('refresh')}
+    </button>`;
+  }
+
   #renderReport(): TemplateResult {
     const empty = this.items.length === 0;
     const text = resolveViewerMessages(this.messages);
@@ -1259,50 +1319,9 @@ export class DvMeasurementListElement extends LitElement {
       ${
         this.reports.length === 0
           ? nothing
-          : html`<select
-            part="select"
-            data-action="load-report"
-            aria-label=${text.loadReport}
-            ?disabled=${this.loadingReport}
-            @change=${(event: Event): void => {
-              const select = event.currentTarget as HTMLSelectElement;
-              const chosen = select.value;
-              // The prompt is not a report: the control goes back to the one that is loaded.
-              if (chosen === '') select.value = this.loadedReport ?? '';
-              this.#loadReport(chosen);
-            }}
-          >
-            <option value="" ?selected=${this.loadedReport === undefined}>
-              ${text.loadReportPrompt}
-            </option>
-            ${this.reports.map(
-              (report) =>
-                html`<option
-                  value=${report.seriesInstanceUID}
-                  ?selected=${this.loadedReport === report.seriesInstanceUID}
-                >
-                  ${report.description ?? `SR ${report.seriesInstanceUID}`}
-                </option>`,
-            )}
-          </select>`
-      }
-      ${
-        this.loadedReport === undefined
-          ? nothing
-          : html`<button
-              type="button"
-              part="button"
-              class="icon-button"
-              data-action="reload-report"
-              aria-label=${text.reloadReport}
-              title=${text.reloadReport}
-              aria-disabled=${this.loadingReport ? 'true' : nothing}
-              @click=${(): void => {
-                if (this.loadedReport !== undefined) this.#loadReport(this.loadedReport);
-              }}
-            >
-              ${icon('refresh')}
-            </button>`
+          : html`<div class="report-load">
+              ${this.#renderReportSelect(text)} ${this.#renderReloadButton(text)}
+            </div>`
       }
       ${
         this.settings.copyText
