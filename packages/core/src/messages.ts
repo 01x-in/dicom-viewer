@@ -114,6 +114,7 @@ export const DEFAULT_VIEWER_MESSAGES = {
   selectedCount: '{count} selected',
   showSelected: 'Show selected',
   deleteSelected: 'Delete selected',
+  singleView: 'Single view',
   showingFirstSelected: 'Showing the first {shown} of {total} selected.',
   noMeasurements: 'No measurements yet. Choose a tool from the Measure menu and draw on the image.',
   name: 'Name',

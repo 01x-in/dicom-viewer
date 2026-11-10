@@ -594,6 +594,47 @@ describe('choosing several measurements', () => {
       expect(count(list)).toBe('0 selected');
     });
 
+    it('has a Single view button that is there only while the layout has more than one viewport, and puts it back', async () => {
+      const { list, fake } = await mount([length('a', 1), length('b', 2)]);
+      expect(list.shadowRoot?.querySelector('[data-action="single-view"]')).toBeNull();
+      selectAll(list).click();
+      await settle(list);
+      action(list, 'show-selected').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('1x2');
+      expect(action(list, 'single-view').textContent.trim()).toBe('Single view');
+      action(list, 'single-view').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('1x1');
+      expect(list.shadowRoot?.querySelector('[data-action="single-view"]')).toBeNull();
+    });
+
+    it('follows a layout that was changed somewhere else', async () => {
+      const { list, fake } = await mount([length('a', 1)]);
+      await fake.viewer.setLayout('2x2');
+      await settle(list);
+      expect(action(list, 'single-view')).not.toBeNull();
+      await fake.viewer.setLayout('1x1');
+      await settle(list);
+      expect(list.shadowRoot?.querySelector('[data-action="single-view"]')).toBeNull();
+    });
+
+    it('reports a layout that cannot be set as dv-error, and says in the words the host gives', async () => {
+      const { list, fake } = await mount([length('a', 1)]);
+      await fake.viewer.setLayout('2x2');
+      list.messages = { singleView: 'Una vista' };
+      await settle(list);
+      expect(action(list, 'single-view').textContent.trim()).toBe('Una vista');
+      const errors: Error[] = [];
+      list.addEventListener('dv-error', (event) => {
+        errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+      });
+      fake.viewer.setLayout = (): Promise<void> => Promise.reject(new Error('no'));
+      action(list, 'single-view').click();
+      await settle(list);
+      expect(errors.map((error) => error.message)).toEqual(['no']);
+    });
+
     it('reports what cannot be shown as dv-error', async () => {
       const { list, fake } = await mount([length('a', 1), length('b', 2)]);
       // No viewport is attached for vp-1, and the layout cannot be changed after the viewer is gone.

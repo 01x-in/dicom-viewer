@@ -93,6 +93,7 @@ export class DvMeasurementListElement extends LitElement {
     chosen: { state: true },
     settings: { state: true },
     menuOpen: { state: true },
+    multiViewport: { state: true },
     copyStatus: { state: true },
     selectionStatus: { state: true },
   };
@@ -350,6 +351,8 @@ export class DvMeasurementListElement extends LitElement {
   /** What the host chose to show: the formats of the Download menu, and the Copy button. */
   declare settings: MeasurementsSettings;
   declare menuOpen: boolean;
+  /** Whether the layout shows more than one viewport, so there is a view to go back from. */
+  declare multiViewport: boolean;
   declare copyStatus: CopyStatus | undefined;
 
   #off: (() => void)[] = [];
@@ -385,6 +388,7 @@ export class DvMeasurementListElement extends LitElement {
     this.selectionStatus = undefined;
     this.settings = DEFAULT_SETTINGS;
     this.menuOpen = false;
+    this.multiViewport = false;
     this.copyStatus = undefined;
   }
 
@@ -477,6 +481,8 @@ export class DvMeasurementListElement extends LitElement {
       // The note about a copy, and its box, were about the measurements as they were.
       this.copyStatus = undefined;
     }
+    const multiViewport = viewer !== undefined && viewer.getState().layout !== '1x1';
+    if (multiViewport !== this.multiViewport) this.multiViewport = multiViewport;
     const settings = viewer?.config.get().measurements ?? DEFAULT_SETTINGS;
     if (
       settings.copyText !== this.settings.copyText ||
@@ -584,6 +590,13 @@ export class DvMeasurementListElement extends LitElement {
       0,
       this.items.findIndex((item) => item.id === shown[0]?.id),
     );
+  }
+
+  /** Puts the layout back to one viewport, which Show selected changed. The toolbar's Layout menu does the same. */
+  #singleView(): void {
+    this.viewer?.setLayout('1x1').catch((error: unknown) => {
+      this.#fail(error);
+    });
   }
 
   #deleteChosen(): void {
@@ -1098,6 +1111,22 @@ export class DvMeasurementListElement extends LitElement {
           ${text.deleteSelected}
         </button>
       </div>
+      ${
+        this.multiViewport
+          ? html`<div class="selection-buttons">
+              <button
+                type="button"
+                part="button"
+                data-action="single-view"
+                @click=${(): void => {
+                  this.#singleView();
+                }}
+              >
+                ${text.singleView}
+              </button>
+            </div>`
+          : nothing
+      }
       ${
         this.selectionStatus === undefined
           ? nothing
