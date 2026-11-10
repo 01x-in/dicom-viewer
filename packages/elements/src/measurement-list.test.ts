@@ -408,8 +408,16 @@ describe('choosing several measurements', () => {
     expect(row(list, 'a').getAttribute('aria-keyshortcuts')).toBe('X');
     expect(checked(list)).toEqual([]);
     expect(count(list)).toBe('0 selected');
-    expect(action(list, 'show-together').getAttribute('aria-disabled')).toBe('true');
+    expect(action(list, 'show-selected').getAttribute('aria-disabled')).toBe('true');
     expect(action(list, 'delete-selected').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('has the two actions in one row, so they sit side by side', async () => {
+    const { list } = await mount([length('a', 2), length('b', 7)]);
+    const row = action(list, 'show-selected').parentElement;
+    expect(row?.classList.contains('selection-buttons')).toBe(true);
+    expect(action(list, 'delete-selected').parentElement).toBe(row);
+    expect(action(list, 'show-selected').textContent.trim()).toBe('Show selected');
   });
 
   it('checks and unchecks a row without showing it: choosing is not the same as picking', async () => {
@@ -419,7 +427,7 @@ describe('choosing several measurements', () => {
     expect(count(list)).toBe('1 selected');
     expect(fake.viewer.measurements.getSelected()).toBeUndefined();
     expect(fake.viewer.getState().viewports[0]?.imageIndex).toBe(5);
-    expect(action(list, 'show-together').getAttribute('aria-disabled')).toBeNull();
+    expect(action(list, 'show-selected').getAttribute('aria-disabled')).toBeNull();
     await toggle(list, 'b');
     expect(checked(list)).toEqual([]);
   });
@@ -478,7 +486,7 @@ describe('choosing several measurements', () => {
   it('does nothing with nothing checked', async () => {
     const { list, fake } = await mount([length('a', 2)]);
     action(list, 'delete-selected').click();
-    action(list, 'show-together').click();
+    action(list, 'show-selected').click();
     await settle(list);
     expect(fake.viewer.measurements.list()).toHaveLength(1);
     expect(fake.viewer.getState().layout).toBe('1x1');
@@ -492,7 +500,7 @@ describe('choosing several measurements', () => {
       const { list, fake } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
       await toggle(list, 'c');
       await toggle(list, 'a');
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(fake.viewer.getState().layout).toBe('1x2');
       expect(imageAt(fake, 'vp-0')).toBe(2);
@@ -505,7 +513,7 @@ describe('choosing several measurements', () => {
       const { list, fake } = await mount([length('a', 1), length('b', 2), length('c', 3)]);
       selectAll(list).click();
       await settle(list);
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(fake.viewer.getState().layout).toBe('2x2');
       expect([imageAt(fake, 'vp-0'), imageAt(fake, 'vp-1'), imageAt(fake, 'vp-2')]).toEqual([
@@ -516,7 +524,7 @@ describe('choosing several measurements', () => {
     it('shows one where it is, without changing the layout', async () => {
       const { list, fake } = await mount([length('a', 1), length('b', 8)]);
       await toggle(list, 'b');
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(fake.viewer.getState().layout).toBe('1x1');
       expect(imageAt(fake, 'vp-0')).toBe(8);
@@ -528,7 +536,7 @@ describe('choosing several measurements', () => {
       const { list, fake } = await mount(five);
       selectAll(list).click();
       await settle(list);
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(fake.viewer.getState().layout).toBe('2x2');
       expect([0, 1, 2, 3].map((at) => imageAt(fake, `vp-${at.toString()}`))).toEqual([0, 1, 2, 3]);
@@ -546,7 +554,7 @@ describe('choosing several measurements', () => {
         errors.push((event as CustomEvent<{ error: Error }>).detail.error);
       });
       fake.viewer.destroy();
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(errors.length).toBeGreaterThan(0);
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
@@ -557,12 +565,12 @@ describe('choosing several measurements', () => {
       const { list, fake } = await mount(five);
       selectAll(list).click();
       await settle(list);
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).not.toBeNull();
       list.addEventListener('dv-error', () => undefined);
       fake.viewer.destroy();
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
     });
@@ -579,7 +587,7 @@ describe('choosing several measurements', () => {
       await other.viewer.setViewportSeries('vp-0', FAKE_IDS.ct);
       for (const measurement of five) await other.viewer.measurements.add(measurement);
       // The show is on its way when the list is given the other viewer, which has the same ids.
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       list.viewer = other.viewer;
       await settle(list);
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
@@ -596,7 +604,7 @@ describe('choosing several measurements', () => {
         errors.push((event as CustomEvent<{ error: Error }>).detail.error);
       });
       fake.viewer.destroy();
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(errors.length).toBeGreaterThan(0);
     });
@@ -607,13 +615,13 @@ describe('choosing several measurements', () => {
     list.messages = {
       selectAll: 'Elegir todo',
       selectedCount: '{count} elegidas',
-      showTogether: 'Mostrar juntas',
+      showSelected: 'Mostrar elegidas',
       deleteSelected: 'Eliminar las elegidas',
     };
     await settle(list);
     expect(selectAll(list).getAttribute('aria-label')).toBe('Elegir todo');
     expect(count(list)).toBe('0 elegidas');
-    expect(action(list, 'show-together').textContent.trim()).toBe('Mostrar juntas');
+    expect(action(list, 'show-selected').textContent.trim()).toBe('Mostrar elegidas');
     expect(action(list, 'delete-selected').textContent.trim()).toBe('Eliminar las elegidas');
   });
 });

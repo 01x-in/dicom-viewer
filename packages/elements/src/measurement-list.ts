@@ -223,6 +223,19 @@ export class DvMeasurementListElement extends LitElement {
         margin: 0;
         accent-color: var(--dv-color-accent, #5aa9ff);
       }
+      .selection-buttons {
+        display: flex;
+        flex-basis: 100%;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+      }
+      .selection-buttons button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-inline: calc(var(--dv-space, 0.25rem) * 2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
       .selection-status {
         flex-basis: 100%;
         color: var(--dv-color-text-muted, #a7b0be);
@@ -330,9 +343,9 @@ export class DvMeasurementListElement extends LitElement {
   declare loadedReport: string | undefined;
   /** The slice each measurement is on, by id, as the overlay counts it. Worked out by the viewer. */
   declare slices: ReadonlyMap<string, number>;
-  /** The measurements ticked in the list, to show together or delete. Not the one that is picked. */
+  /** The measurements ticked in the list, to show side by side or delete. Not the one that is picked. */
   declare chosen: ReadonlySet<string>;
-  /** What the panel says about the last "Show together", when it could not show everything. */
+  /** What the panel says about the last "Show selected", when it could not show everything. */
   declare selectionStatus: string | undefined;
   /** What the host chose to show: the formats of the Download menu, and the Copy button. */
   declare settings: MeasurementsSettings;
@@ -503,7 +516,7 @@ export class DvMeasurementListElement extends LitElement {
     }
   }
 
-  /** Changes which measurements are ticked. What was said about the last "Show together" no longer applies. */
+  /** Changes which measurements are ticked. What was said about the last "Show selected" no longer applies. */
   #choose(chosen: ReadonlySet<string>): void {
     this.chosen = chosen;
     this.selectionStatus = undefined;
@@ -530,7 +543,7 @@ export class DvMeasurementListElement extends LitElement {
    * four (and it says so). One is shown where it is. Every step goes through the viewer's queue, in
    * order, and the first one is shown last, so it is the one that is picked.
    */
-  #showTogether(): void {
+  #showSelected(): void {
     const { viewer } = this;
     const items = this.#chosenItems();
     if (viewer === undefined || items.length === 0) return;
@@ -1061,28 +1074,30 @@ export class DvMeasurementListElement extends LitElement {
       <span data-selected-count role="status">
         ${formatViewerMessage(text.selectedCount, { count })}
       </span>
-      <button
-        type="button"
-        part="button"
-        data-action="show-together"
-        aria-disabled=${none ? 'true' : nothing}
-        @click=${(): void => {
-          this.#showTogether();
-        }}
-      >
-        ${text.showTogether}
-      </button>
-      <button
-        type="button"
-        part="button"
-        data-action="delete-selected"
-        aria-disabled=${none ? 'true' : nothing}
-        @click=${(): void => {
-          this.#deleteChosen();
-        }}
-      >
-        ${text.deleteSelected}
-      </button>
+      <div class="selection-buttons">
+        <button
+          type="button"
+          part="button"
+          data-action="show-selected"
+          aria-disabled=${none ? 'true' : nothing}
+          @click=${(): void => {
+            this.#showSelected();
+          }}
+        >
+          ${text.showSelected}
+        </button>
+        <button
+          type="button"
+          part="button"
+          data-action="delete-selected"
+          aria-disabled=${none ? 'true' : nothing}
+          @click=${(): void => {
+            this.#deleteChosen();
+          }}
+        >
+          ${text.deleteSelected}
+        </button>
+      </div>
       ${
         this.selectionStatus === undefined
           ? nothing

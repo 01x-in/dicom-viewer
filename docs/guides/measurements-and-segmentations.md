@@ -42,12 +42,12 @@ have has no entry. The labels are translatable: `measurementSlice` (with `{slice
 `nextMeasurement`.
 
 To compare measurements, choose several: click the box on a row, press **X** on the focused row, press Ctrl+A in the list,
-or use **Select all**. Choosing is not picking: it does not show an image. **Show together** then puts them side by side,
+or use **Select all**. Choosing is not picking: it does not show an image. **Show selected** then puts them side by side,
 one in each viewport on its own slice, in the order of the list (two in a `1x2` layout, three or four in `2x2`; if more
 than four are chosen it shows the first four and says so). **Delete selected** removes them. This is the panel's own
 choice and is not in the viewer state; to do the same in code, call `viewer.setLayout` and then
 `viewer.measurements.jumpTo(id, { viewportId })` for each. The labels are `measurementSelection`, `selectAll`,
-`selectedCount`, `showTogether`, `deleteSelected`, and `showingFirstSelected`.
+`selectedCount`, `showSelected`, `deleteSelected`, and `showingFirstSelected`.
 
 ### Saving and restoring
 

@@ -112,7 +112,7 @@ export const DEFAULT_VIEWER_MESSAGES = {
   measurementSelection: 'Selection',
   selectAll: 'Select all',
   selectedCount: '{count} selected',
-  showTogether: 'Show together',
+  showSelected: 'Show selected',
   deleteSelected: 'Delete selected',
   showingFirstSelected: 'Showing the first {shown} of {total} selected.',
   noMeasurements: 'No measurements yet. Choose a tool from the Measure menu and draw on the image.',
