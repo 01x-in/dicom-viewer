@@ -22,6 +22,7 @@ import {
   type PropertyValues,
   type TemplateResult,
 } from 'lit';
+import { icon, iconStyles } from './icons';
 import { baseStyles, themeStyles } from './theme';
 import { nextFocusIndex } from './toolbar-config';
 
@@ -102,6 +103,7 @@ export class DvMeasurementListElement extends LitElement {
   static override styles: CSSResultGroup = [
     themeStyles,
     baseStyles,
+    iconStyles,
     css`
       :host {
         display: flex;
@@ -167,6 +169,14 @@ export class DvMeasurementListElement extends LitElement {
       [aria-checked='true'] .check::after {
         content: '✓';
         font-weight: 700;
+      }
+      .icon-button {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: calc(var(--dv-space, 0.25rem) * 1.5);
+        min-width: 2rem;
       }
       .menu-wrap {
         position: relative;
@@ -1282,13 +1292,16 @@ export class DvMeasurementListElement extends LitElement {
           : html`<button
               type="button"
               part="button"
+              class="icon-button"
               data-action="reload-report"
+              aria-label=${text.reloadReport}
+              title=${text.reloadReport}
               aria-disabled=${this.loadingReport ? 'true' : nothing}
               @click=${(): void => {
                 if (this.loadedReport !== undefined) this.#loadReport(this.loadedReport);
               }}
             >
-              ${text.reloadReport}
+              ${icon('refresh')}
             </button>`
       }
       ${

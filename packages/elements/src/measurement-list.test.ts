@@ -836,7 +836,13 @@ describe('loading a report', () => {
     await fake.viewer.measurements.remove(fake.viewer.measurements.list()[0]?.id ?? '');
     await settle(list);
     expect(rows(list)).toHaveLength(1);
-    action(list, 'reload-report').click();
+    const reload = action(list, 'reload-report');
+    // A picture only: its name is the label, and the picture is hidden from assistive technology.
+    expect(reload.textContent.trim()).toBe('');
+    expect(reload.getAttribute('aria-label')).toBe('Reload report');
+    expect(reload.getAttribute('title')).toBe('Reload report');
+    expect(reload.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    reload.click();
     await settle(list);
     expect(rows(list)).toHaveLength(2);
     expect(reportStatus(list)).toBe('Report loaded: 1 added, 1 replaced.');
@@ -848,7 +854,8 @@ describe('loading a report', () => {
     await choose(list, FAKE_IDS.sr);
     list.messages = { reloadReport: 'Cargar de nuevo' };
     await settle(list);
-    expect(action(list, 'reload-report').textContent.trim()).toBe('Cargar de nuevo');
+    expect(action(list, 'reload-report').getAttribute('aria-label')).toBe('Cargar de nuevo');
+    expect(action(list, 'reload-report').getAttribute('title')).toBe('Cargar de nuevo');
     await fake.viewer.loadStudy('1.2.5');
     await settle(list);
     expect(list.shadowRoot?.querySelector('[data-action="reload-report"]')).toBeNull();
