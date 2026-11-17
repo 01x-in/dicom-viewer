@@ -98,6 +98,7 @@ function toInstance(
       instanceNumber,
       imageId: imageIdFor(sopInstanceUID, metadata, 1),
       metadata,
+      instanceMetadata: metadata,
     };
     return { whole, slices: [] };
   }
@@ -111,6 +112,7 @@ function toInstance(
       instanceNumber,
       imageId: imageIdFor(sopInstanceUID, metadata, 1),
       metadata,
+      instanceMetadata: metadata,
     };
     return { whole, slices: [whole] };
   }
@@ -122,6 +124,7 @@ function toInstance(
       instanceNumber,
       imageId: imageIdFor(sopInstanceUID, metadata, index + 1),
       metadata: frame,
+      instanceMetadata: metadata,
     }),
   );
   const [first] = slices;

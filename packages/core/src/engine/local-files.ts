@@ -1,6 +1,7 @@
 import { loadImageFromNaturalizedMetadata } from '@cornerstonejs/dicom-image-loader/wadouri';
 import { utilities as metadataUtilities } from '@cornerstonejs/metadata';
 import { getLocalFile } from '../data/local-files';
+import { instanceKey } from './instance-key';
 
 /** Image ids the local-file data source hands out. */
 export const LOCAL_FILE_SCHEME = 'dicomfile';
@@ -14,13 +15,13 @@ export function isLocalFileImageId(imageId: string): boolean {
  * Cornerstone first asks about the image, so registering a whole series reads nothing.
  */
 export async function registerLocalFile(imageId: string): Promise<void> {
-  const file = getLocalFile(imageId);
+  const file = getLocalFile(instanceKey(imageId));
   if (file === undefined) {
     throw new Error(
       `The file for ${imageId} is no longer available. Was the data source disposed while a viewer still used it?`,
     );
   }
-  await metadataUtilities.addDicomPart10Instance(imageId, () => file.arrayBuffer());
+  await metadataUtilities.addDicomPart10Instance(instanceKey(imageId), () => file.arrayBuffer());
 }
 
 /** The loader for `dicomfile:` image ids. With the metadata registered above it needs no network or file manager. */

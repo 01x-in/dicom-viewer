@@ -46,12 +46,18 @@ export function frameImageId(
   seriesUid: string,
   sopUid: string,
   owner: string,
+  frameNumber = 1,
 ): string {
   assertDicomUid(studyUid, 'StudyInstanceUID');
   assertDicomUid(seriesUid, 'SeriesInstanceUID');
   assertDicomUid(sopUid, 'SOPInstanceUID');
+  if (!Number.isInteger(frameNumber) || frameNumber < 1) {
+    throw new DataSourceError(
+      `A frame number is a whole number from 1, not ${frameNumber.toString()}.`,
+    );
+  }
   const root = trimTrailingSlash(wadoRoot);
-  const base = `wadors:${root}/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}/frames/1`;
+  const base = `wadors:${root}/studies/${studyUid}/series/${seriesUid}/instances/${sopUid}/frames/${frameNumber.toString()}`;
   return `${base}#${owner}`;
 }
 
@@ -132,9 +138,16 @@ export function createDicomWebDataSource(options: DicomWebDataSourceOptions): Da
         studyInstanceUID,
         seriesInstanceUID,
         metadata: parsed.data,
-        imageIdFor: (sopInstanceUID) => {
+        imageIdFor: (sopInstanceUID, _metadata, frameNumber) => {
           assertDicomUid(sopInstanceUID, 'SOPInstanceUID');
-          return frameImageId(root, studyInstanceUID, seriesInstanceUID, sopInstanceUID, owner);
+          return frameImageId(
+            root,
+            studyInstanceUID,
+            seriesInstanceUID,
+            sopInstanceUID,
+            owner,
+            frameNumber,
+          );
         },
       });
     },

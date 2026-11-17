@@ -42,6 +42,7 @@ function phantomStack(
       instanceNumber: index + 1,
       imageId: `id:${index.toString()}`,
       metadata,
+      instanceMetadata: metadata,
     };
   });
   return {

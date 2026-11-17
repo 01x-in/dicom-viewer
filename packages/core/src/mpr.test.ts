@@ -29,6 +29,7 @@ function instance(
     instanceNumber: index,
     imageId: `wadors:x/${index.toString()}`,
     metadata,
+    instanceMetadata: metadata,
   };
 }
 

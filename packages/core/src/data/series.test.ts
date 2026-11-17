@@ -389,6 +389,15 @@ describe('buildSeries', () => {
       expect(frame?.metadata['52009229']).toBeUndefined();
     });
 
+    it('all point at the whole instance JSON, for the engine to register once', () => {
+      const instance = enhanced('mf', [0, 2, 4]);
+      const [stack] = buildEnhanced([instance]).stacks;
+      expect(stack?.instances.every((i) => i.instanceMetadata === instance)).toBe(true);
+      // A single-frame instance is its own record.
+      const [single] = build([{ sop: 's', position: [0, 0, 0] }]).stacks[0]?.instances ?? [];
+      expect(single?.instanceMetadata).toBe(single?.metadata);
+    });
+
     it('keep the real instance in `instances`, once, for retrieval', () => {
       const series = buildEnhanced([enhanced('mf', [0, 2, 4])]);
       expect(series.instances.map((i) => [i.sopInstanceUID, i.frameCount])).toEqual([['mf', 3]]);

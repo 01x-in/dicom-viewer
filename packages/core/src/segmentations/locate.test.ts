@@ -93,6 +93,7 @@ describe('centroidMm', () => {
         instanceNumber: index + 1,
         imageId: `i:${index.toString()}`,
         metadata,
+        instanceMetadata: metadata,
       };
     });
     return {

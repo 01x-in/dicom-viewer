@@ -55,13 +55,8 @@ export const FRAME_OF_REFERENCE = '1.2.3.77';
 export const FAKE_DEFAULT_WINDOW = { center: 40, width: 400 } as const;
 
 function instances(series: string, stack: number, count: number): SeriesInstance[] {
-  return Array.from({ length: count }, (_, index) => ({
-    sopInstanceUID: `${series}.${stack.toString()}.${index.toString()}`,
-    frameNumber: 1,
-    frameCount: 1,
-    instanceNumber: index + 1,
-    imageId: `fake:${series}/${stack.toString()}/${index.toString()}`,
-    metadata: {
+  return Array.from({ length: count }, (_, index): SeriesInstance => {
+    const metadata = {
       '00280010': { vr: 'US', Value: [256] },
       '00280011': { vr: 'US', Value: [512] },
       '00100010': { vr: 'PN', Value: [{ Alphabetic: 'DOE^JANE^^^' }] },
@@ -71,8 +66,17 @@ function instances(series: string, stack: number, count: number): SeriesInstance
       '00200037': { vr: 'DS', Value: [1, 0, 0, 0, 1, 0] },
       '00280030': { vr: 'DS', Value: [1, 1] },
       '00200052': { vr: 'UI', Value: [FRAME_OF_REFERENCE] },
-    },
-  }));
+    };
+    return {
+      sopInstanceUID: `${series}.${stack.toString()}.${index.toString()}`,
+      frameNumber: 1,
+      frameCount: 1,
+      instanceNumber: index + 1,
+      imageId: `fake:${series}/${stack.toString()}/${index.toString()}`,
+      metadata,
+      instanceMetadata: metadata,
+    };
+  });
 }
 
 function stackOf(series: string, index: number, count: number): SeriesStack {

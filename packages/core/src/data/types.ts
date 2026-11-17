@@ -28,6 +28,12 @@ export interface SeriesInstance {
    * functional group sequences, so it reads as a single-frame instance would.
    */
   readonly metadata: DicomJsonInstance;
+  /**
+   * The DICOM JSON of the whole instance, as the server gave it. The same object for every frame of
+   * an instance. The engine registers this one, because Cornerstone reads the functional groups
+   * itself and keeps one record for each instance.
+   */
+  readonly instanceMetadata: DicomJsonInstance;
 }
 
 /** Why a stack cannot be shown as a volume (MPR). It is still shown as a stack of slices. */
