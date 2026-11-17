@@ -32,7 +32,7 @@ import {
   type ViewSnapshot,
   type WindowLevel,
 } from '../rendering-port';
-import { instanceKey } from './instance-key';
+import { instanceKey } from '../data/instance-key';
 import { isLocalFileImageId, registerLocalFile } from './local-files';
 import { annotation as annotationApi, utilities as toolsUtilities } from '@cornerstonejs/tools';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';

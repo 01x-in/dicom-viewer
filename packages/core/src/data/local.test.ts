@@ -167,3 +167,64 @@ describe('createLocalFileDataSource', () => {
     expect(ids.every((id) => getLocalFile(id) === undefined)).toBe(true);
   });
 });
+
+describe('createLocalFileDataSource with a multi-frame file', () => {
+  const enhanced = (): File[] => phantomFiles('multiframe-ct');
+
+  it('shows the 64 frames of one Enhanced CT file as one reconstructable stack', async () => {
+    const { source, study } = await open(enhanced());
+    const [series] = (await source.getStudy(study)).series;
+    if (series === undefined) throw new Error('no series');
+    expect(series.instanceCount).toBe(1);
+    const loaded = await source.getSeries(study, series.seriesInstanceUID);
+    expect(loaded.instances).toHaveLength(1);
+    expect(loaded.stacks).toHaveLength(1);
+    const [stack] = loaded.stacks;
+    expect(stack?.instances).toHaveLength(64);
+    expect(stack?.reconstructable).toEqual({ ok: true, spacingMm: 2.5 });
+    expect(stack?.instances.map((slice) => slice.frameNumber)).toEqual(
+      Array.from({ length: 64 }, (_, index) => index + 1),
+    );
+  });
+
+  it('gives each frame its own image id on the one file, and none of them is a plain file id', async () => {
+    const { source, study } = await open(enhanced());
+    const [series] = (await source.getStudy(study)).series;
+    if (series === undefined) throw new Error('no series');
+    const ids = (await source.getSeries(study, series.seriesInstanceUID)).stacks[0]?.imageIds ?? [];
+    expect(new Set(ids).size).toBe(64);
+    const [base] = ids[0]?.split('?') ?? [];
+    expect(ids.every((id, index) => id === `${base ?? ''}?frame=${(index + 1).toString()}`)).toBe(
+      true,
+    );
+    expect(getLocalFile(base ?? '')).toBeDefined();
+  });
+
+  it('keeps the ids of single-frame files as they were', async () => {
+    const { source, study } = await open(phantomFiles('ct-evrle'));
+    const [series] = (await source.getStudy(study)).series;
+    if (series === undefined) throw new Error('no series');
+    const ids = (await source.getSeries(study, series.seriesInstanceUID)).stacks[0]?.imageIds ?? [];
+    expect(ids.every((id) => /^dicomfile:\d+$/.test(id))).toBe(true);
+  });
+
+  it('retrieves the whole file once for the instance', async () => {
+    const { source, study } = await open(enhanced());
+    const [series] = (await source.getStudy(study)).series;
+    if (series === undefined) throw new Error('no series');
+    const loaded = await source.getSeries(study, series.seriesInstanceUID);
+    const sop = loaded.instances[0]?.sopInstanceUID ?? '';
+    const bytes = await source.getInstanceBytes(study, series.seriesInstanceUID, sop, 'CT');
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+  });
+
+  it('dispose() releases the file the frames are in', async () => {
+    const { source, study } = await open(enhanced());
+    const [series] = (await source.getStudy(study)).series;
+    if (series === undefined) throw new Error('no series');
+    const ids = (await source.getSeries(study, series.seriesInstanceUID)).stacks[0]?.imageIds ?? [];
+    const [base] = ids[0]?.split('?') ?? [];
+    source.dispose();
+    expect(getLocalFile(base ?? '')).toBeUndefined();
+  });
+});

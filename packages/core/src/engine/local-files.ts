@@ -1,7 +1,7 @@
 import { loadImageFromNaturalizedMetadata } from '@cornerstonejs/dicom-image-loader/wadouri';
 import { utilities as metadataUtilities } from '@cornerstonejs/metadata';
 import { getLocalFile } from '../data/local-files';
-import { instanceKey } from './instance-key';
+import { instanceKey } from '../data/instance-key';
 
 /** Image ids the local-file data source hands out. */
 export const LOCAL_FILE_SCHEME = 'dicomfile';
