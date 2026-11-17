@@ -19,6 +19,11 @@ import {
   scenarioSegmentationViewports,
 } from './segmentation.ts';
 import { scenarioMpr, scenarioMprFallback } from './mpr.ts';
+import {
+  scenarioMultiFrame,
+  scenarioMultiFrameLifecycle,
+  scenarioMultiFrameLocalFile,
+} from './multi-frame.ts';
 import { scenarioReport } from './report.ts';
 import { EXPECTED_HU, litFraction, MID_SLICE_INDEX } from './smoke.ts';
 
@@ -1351,7 +1356,10 @@ export async function smokeHeadless(
     ['auth', scenarioAuth],
     ['retry', scenarioRetry],
     ['local files', scenarioLocalFiles],
+    ['multi-frame', scenarioMultiFrame],
+    ['multi-frame local file', scenarioMultiFrameLocalFile],
     ['lifecycle', scenarioLifecycle],
+    ['multi-frame lifecycle', scenarioMultiFrameLifecycle],
     ['switching assets', scenarioAssetSwitch],
   ];
   const results: ScenarioResult[] = [];
@@ -1360,9 +1368,9 @@ export async function smokeHeadless(
   for (const [scenario, run] of scenarios) {
     if (only !== undefined && !only.includes(scenario)) continue;
     // The leak check reads the page's heap and listener counts through the Chrome DevTools Protocol.
-    if (scenario === 'lifecycle' && browser.browserType().name() !== 'chromium') {
+    if (scenario.endsWith('lifecycle') && browser.browserType().name() !== 'chromium') {
       console.log(
-        '   scenario: lifecycle (skipped: it needs the Chrome DevTools Protocol, so run it in Chromium)',
+        `   scenario: ${scenario} (skipped: it needs the Chrome DevTools Protocol, so run it in Chromium)`,
       );
       continue;
     }

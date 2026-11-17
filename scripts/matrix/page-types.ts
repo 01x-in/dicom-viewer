@@ -15,14 +15,17 @@ export interface ViewerHandle {
       zoom?: number;
     }[];
   };
+  loadStudy(studyInstanceUID: string): Promise<{ series: { seriesInstanceUID: string }[] }>;
   navigateTo(target: {
     seriesInstanceUID: string;
     sopInstanceUID: string;
+    frameNumber?: number;
     segmentations?: { seriesInstanceUID: string; visible: boolean; highlightSegments?: number[] }[];
   }): Promise<{
     imageIndex: number;
     stackIndex: number;
     sopInstanceUID: string;
+    frameNumber: number;
     failedSegmentations?: { seriesInstanceUID: string; error: { message: string } }[];
   }>;
   viewports: {
@@ -66,6 +69,9 @@ export interface ViewerHandle {
     }>;
     /** What `exportPdf` made, as its type and its bytes read as Latin-1 (every byte one character). */
     exportPdf(): Promise<Blob>;
+    jumpTo(id: string): Promise<void>;
+    /** The slice of each measurement in its stack, counting from 1. */
+    slices(): Promise<ReadonlyMap<string, number>>;
   };
   segmentations: {
     load(seriesInstanceUID: string): Promise<SegmentationSummary>;
@@ -121,7 +127,12 @@ export interface MeasurementSummary {
   id: string;
   type: string;
   label?: string;
-  reference: { sopInstanceUID: string; seriesInstanceUID: string; frameOfReferenceUID?: string };
+  reference: {
+    sopInstanceUID: string;
+    seriesInstanceUID: string;
+    frameNumber?: number;
+    frameOfReferenceUID?: string;
+  };
   points: number[][];
   stats?: { pixelCount: number; meanHu: number; stdDevHu: number; minHu: number; maxHu: number };
   hu?: number;

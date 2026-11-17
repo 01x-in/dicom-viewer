@@ -1,0 +1,260 @@
+// Scenarios for a series that is one Enhanced CT instance of 64 frames (the phantom's
+// `multiframe-ct`, in a study of its own): over DICOMweb in the OncoTrace proxy mode, from a local
+// file, and 20 times over for the leak check. The picture is the one of `ct-j2k`, so every value the
+// other scenarios check holds here.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type { Browser } from 'playwright';
+import { expectReady, type HeadlessInput, query, waitForStatus, watch } from './harness.ts';
+import { EXPECTED_HU } from './smoke.ts';
+
+const FRAMES = 64;
+/** Frames (1-based) that have the inserts: slices 9 to 56 of the phantom. */
+const FRAMES_WITH_INSERTS = [10, 32, 55] as const;
+
+interface MultiFrameSeries {
+  readonly studyUid: string;
+  readonly seriesUid: string;
+}
+
+function multiFrameSeries(input: HeadlessInput): MultiFrameSeries | undefined {
+  const found = input.mock.fixtures.series.find((item) =>
+    item.description.includes('multiframe-ct'),
+  );
+  return found === undefined ? undefined : { studyUid: found.studyUid, seriesUid: found.seriesUid };
+}
+
+async function checkFrames(
+  watched: Awaited<ReturnType<typeof watch>>,
+  label: string,
+): Promise<void> {
+  for (const frame of FRAMES_WITH_INSERTS) {
+    for (const probe of EXPECTED_HU) {
+      const hu = await watched.page.evaluate(
+        ([index, row, column]) => window.__dv?.sampleHu(index, row, column) ?? Number.NaN,
+        [frame - 1, probe.row, probe.column] as const,
+      );
+      if (hu !== probe.hu) {
+        watched.failures.push(
+          `${label}: frame ${frame.toString()}, ${probe.name} is ${String(hu)} HU, expected ${probe.hu.toString()}`,
+        );
+      }
+    }
+  }
+  // Without the inserts, the same place in the end frames is the body.
+  for (const frame of [1, FRAMES]) {
+    const hu = await watched.page.evaluate(
+      ([index]) => window.__dv?.sampleHu(index, 64, 92) ?? Number.NaN,
+      [frame - 1] as const,
+    );
+    if (hu !== 40) {
+      watched.failures.push(
+        `${label}: frame ${frame.toString()} has ${String(hu)} HU where the bone insert would be, expected the body (40)`,
+      );
+    }
+  }
+}
+
+export async function scenarioMultiFrame(
+  browser: Browser,
+  input: HeadlessInput,
+): Promise<string[]> {
+  const watched = await watch(browser);
+  const { page, failures } = watched;
+  try {
+    const series = multiFrameSeries(input);
+    if (series === undefined) return [...failures, 'the phantom has no multiframe-ct series'];
+    input.mock.requestLog.length = 0;
+    await page.goto(
+      query(input, { wadoRoot: input.mock.url, study: series.studyUid, series: series.seriesUid }),
+      { waitUntil: 'load', timeout: 180_000 },
+    );
+    if (!(await expectReady(watched))) return failures;
+
+    const count = await page.evaluate(() => window.__dv?.imageCount);
+    if (count !== FRAMES)
+      failures.push(`shows ${String(count)} images, expected the ${FRAMES.toString()} frames`);
+    await checkFrames(watched, 'DICOMweb frames');
+
+    // Scrolling reaches the last frame, which is a request for frame 64 of the one instance.
+    await page.evaluate((last) => window.__dv?.setImageIndex(last), FRAMES - 1);
+    if ((await page.evaluate(() => window.__dv?.getImageIndex())) !== FRAMES - 1) {
+      failures.push('scrolling to the last frame did not work');
+    }
+
+    // The frames are named in the requests, one frame each, and the proxy refused none of them.
+    const frameRequests = input.mock.requestLog.filter((entry) =>
+      /\/frames\/\d+$/.test(entry.path),
+    );
+    if (frameRequests.length < FRAMES) {
+      failures.push(
+        `asked for ${frameRequests.length.toString()} frames, expected at least ${FRAMES.toString()}`,
+      );
+    }
+    for (const entry of input.mock.requestLog) {
+      if (entry.status >= 400)
+        failures.push(`the mock saw ${entry.status.toString()} for ${entry.path}`);
+    }
+
+    // A measurement on frame 40 is on frame 40, and only there.
+    const result = await page.evaluate(
+      async ({ study, seriesUid }) => {
+        const viewer = window.__dvViewer;
+        if (viewer === undefined) return undefined;
+        const loaded = await viewer.loadStudy(study);
+        const loadedSeries = await (window.__dvSource?.getSeries(study, seriesUid) ??
+          Promise.reject(new Error('no source')));
+        const sop = loadedSeries.stacks[0]?.instances[0]?.sopInstanceUID ?? '';
+        // Axial frame 40 is 39 slices of 2.5 mm up; the phantom's first pixel is at x = y = -95.25.
+        await viewer.measurements.add({
+          type: 'length',
+          reference: {
+            studyInstanceUID: study,
+            seriesInstanceUID: seriesUid,
+            sopInstanceUID: sop,
+            frameNumber: 40,
+          },
+          points: [
+            [-50.25, -50.25, 97.5],
+            [-20.25, -50.25, 97.5],
+          ],
+        });
+        await viewer.setViewportSeries('vp-0', seriesUid, { imageIndex: 0 });
+        const [measurement] = viewer.measurements.list();
+        if (measurement === undefined) return undefined;
+        await viewer.measurements.jumpTo(measurement.id);
+        const landed = viewer.getState().viewports[0]?.imageIndex;
+        const slices = await viewer.measurements.slices();
+        const tooFar = await viewer
+          .navigateTo({ seriesInstanceUID: seriesUid, sopInstanceUID: sop, frameNumber: 65 })
+          .then(
+            () => 'accepted',
+            (error: unknown) => (error instanceof Error ? error.message : String(error)),
+          );
+        return {
+          series: loaded.series.length,
+          frame: measurement.reference.frameNumber,
+          landed,
+          slice: slices.get(measurement.id),
+          tooFar,
+        };
+      },
+      { study: series.studyUid, seriesUid: series.seriesUid },
+    );
+    if (result === undefined) {
+      failures.push('could not make a measurement on frame 40');
+    } else {
+      if (result.frame !== 40)
+        failures.push(`the measurement is on frame ${String(result.frame)}, expected 40`);
+      if (result.landed !== 39)
+        failures.push(
+          `jumping to it showed image ${String(result.landed)}, expected image 39 (frame 40)`,
+        );
+      if (result.slice !== 40) failures.push(`its slice is ${String(result.slice)}, expected 40`);
+      if (!result.tooFar.includes('64 frames'))
+        failures.push(`frame 65 was answered with: ${result.tooFar}`);
+    }
+
+    // The frames reform into planes, because each has its own position.
+    const mpr = await page.evaluate(async (seriesUid) => {
+      await window.__dvViewer?.setViewportSeries('vp-0', seriesUid, { orientation: 'coronal' });
+      const viewport = window.__dvViewer?.viewports.get('vp-0');
+      return { mpr: viewport?.mpr, count: viewport?.imageCount };
+    }, series.seriesUid);
+    if (mpr.mpr?.mode !== 'volume') {
+      failures.push(`asked for a plane, got ${JSON.stringify(mpr.mpr)}, expected a volume`);
+    }
+    if (mpr.count !== 128)
+      failures.push(`the coronal plane has ${String(mpr.count)} images, expected 128`);
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
+
+export async function scenarioMultiFrameLocalFile(
+  browser: Browser,
+  input: HeadlessInput,
+): Promise<string[]> {
+  const watched = await watch(browser);
+  const { page, failures } = watched;
+  try {
+    const series = multiFrameSeries(input);
+    if (series === undefined) return [...failures, 'the phantom has no multiframe-ct series'];
+    input.mock.requestLog.length = 0;
+    await page.goto(query(input, { local: '1', series: series.seriesUid }), {
+      waitUntil: 'load',
+      timeout: 180_000,
+    });
+    await waitForStatus(page, 'waiting-for-files');
+    await page.locator('#files').setInputFiles({
+      name: 'multiframe-ct.dcm',
+      mimeType: 'application/dicom',
+      buffer: readFileSync(join(input.fixturesDir, 'multiframe-ct', '0001.dcm')),
+    });
+    if (!(await expectReady(watched))) return failures;
+    const count = await page.evaluate(() => window.__dv?.imageCount);
+    if (count !== FRAMES)
+      failures.push(
+        `shows ${String(count)} images, expected the ${FRAMES.toString()} frames of the one file`,
+      );
+    await checkFrames(watched, 'local frames');
+    if (input.mock.requestLog.length > 0) failures.push('local files made DICOMweb requests');
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
+
+/** The viewer shown and destroyed `input.cycles` times with the frames, and a plane of them: nothing is left behind. */
+export async function scenarioMultiFrameLifecycle(
+  browser: Browser,
+  input: HeadlessInput,
+): Promise<string[]> {
+  const watched = await watch(browser, true);
+  const { page, failures } = watched;
+  try {
+    const series = multiFrameSeries(input);
+    if (series === undefined) return [...failures, 'the phantom has no multiframe-ct series'];
+    await page.goto(
+      query(input, {
+        cycles: String(input.cycles),
+        wadoRoot: input.mock.url,
+        study: series.studyUid,
+        series: series.seriesUid,
+        mpr: '1',
+      }),
+      { waitUntil: 'load', timeout: 180_000 },
+    );
+    const status = await waitForStatus(page, 'cycles-done', 'error');
+    if (status !== 'cycles-done') {
+      failures.push(`cycles failed: ${await page.evaluate(() => window.__dvError ?? 'unknown')}`);
+      return failures;
+    }
+    const cycles = await page.evaluate(() => window.__dvCycles ?? []);
+    if (cycles.length !== input.cycles) {
+      failures.push(`ran ${cycles.length.toString()} cycles, expected ${input.cycles.toString()}`);
+    }
+    for (const { cycle, diagnostics } of cycles) {
+      if (diagnostics === undefined) {
+        failures.push(`cycle ${cycle.toString()}: no diagnostics`);
+        continue;
+      }
+      const left = Object.entries(diagnostics).filter(([, value]) => value !== 0);
+      if (left.length > 0) {
+        failures.push(
+          `cycle ${cycle.toString()}: left behind ${JSON.stringify(Object.fromEntries(left))}`,
+        );
+      }
+    }
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
