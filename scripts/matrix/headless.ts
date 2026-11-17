@@ -24,6 +24,7 @@ import {
   scenarioMultiFrameLifecycle,
   scenarioMultiFrameLocalFile,
   scenarioMultiFrameLoop,
+  scenarioMultiFrameSegmentation,
 } from './multi-frame.ts';
 import { scenarioReport } from './report.ts';
 import { EXPECTED_HU, litFraction, MID_SLICE_INDEX } from './smoke.ts';
@@ -1360,6 +1361,7 @@ export async function smokeHeadless(
     ['multi-frame', scenarioMultiFrame],
     ['multi-frame local file', scenarioMultiFrameLocalFile],
     ['multi-frame loop', scenarioMultiFrameLoop],
+    ['multi-frame segmentation', scenarioMultiFrameSegmentation],
     ['lifecycle', scenarioLifecycle],
     ['multi-frame lifecycle', scenarioMultiFrameLifecycle],
     ['switching assets', scenarioAssetSwitch],

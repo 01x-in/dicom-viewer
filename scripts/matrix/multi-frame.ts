@@ -6,10 +6,26 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser } from 'playwright';
 import { expectReady, type HeadlessInput, query, waitForStatus, watch } from './harness.ts';
+import {
+  BODY,
+  BONE,
+  close,
+  colours,
+  GREEN,
+  OUTSIDE,
+  over,
+  RED,
+  segOf,
+  settle,
+  show,
+} from './segmentation.ts';
 import { EXPECTED_HU } from './smoke.ts';
 
 const FRAMES = 64;
 const LOOP_FRAMES = 24;
+/** The frame (0-based image) every colour of the SEG scenario is read on, and one at each end, which have no bone insert. */
+const SEG_IMAGE = 31;
+const IMAGES_WITHOUT_BONE = [0, 2, 63] as const;
 /** Frames (1-based) that have the inserts: slices 9 to 56 of the phantom. */
 const FRAMES_WITH_INSERTS = [10, 32, 55] as const;
 
@@ -175,6 +191,115 @@ export async function scenarioMultiFrame(
   return failures;
 }
 
+/**
+ * A SEG of the frames of one Enhanced CT instance: each of its frames names a frame of the one
+ * instance. The SEG is the labelmap of `seg-body-bone`, so its numbers are those of the SEG of the
+ * single-frame series, and the bone insert is on frames 9 to 56 only.
+ */
+export async function scenarioMultiFrameSegmentation(
+  browser: Browser,
+  input: HeadlessInput,
+): Promise<string[]> {
+  const watched = await watch(browser);
+  const { page, failures } = watched;
+  try {
+    const series = multiFrameSeries(input);
+    if (series === undefined) return [...failures, 'the phantom has no multiframe-ct series'];
+    const seg = segOf(input, 'multiframe-seg');
+    await page.goto(
+      query(input, { wadoRoot: input.mock.url, study: series.studyUid, series: series.seriesUid }),
+      { waitUntil: 'load', timeout: 180_000 },
+    );
+    if (!(await expectReady(watched))) return failures;
+    const showImage = async (index: number): Promise<void> => {
+      await page.evaluate((at) => window.__dv?.setImageIndex(at), index);
+      await settle(page);
+    };
+    const read = (points: Parameters<typeof colours>[2]): ReturnType<typeof colours> =>
+      colours(page, '#viewport', points);
+
+    await showImage(SEG_IMAGE);
+    const [plainBody, plainBone, plainOutside] = await read([BODY, BONE, OUTSIDE]);
+    if (plainBody === undefined || plainBone === undefined || plainOutside === undefined) {
+      return [...failures, 'the image could not be read'];
+    }
+
+    const info = await page.evaluate((uid) => window.__dvViewer?.segmentations.load(uid), seg);
+    if (info === undefined) return [...failures, 'the SEG did not load'];
+    if (info.referencedSeriesInstanceUID !== series.seriesUid)
+      failures.push(`the SEG is on ${info.referencedSeriesInstanceUID}, expected the Enhanced CT`);
+    const [body, bone] = info.segments;
+    // The numbers of seg-body-bone: the same labelmap, on the frames of one instance.
+    if (body?.voxelCount !== 618640 || bone?.voxelCount !== 12144)
+      failures.push(`pixels are ${String(body?.voxelCount)}, ${String(bone?.voxelCount)}`);
+    if (body?.imageCount !== FRAMES || bone?.imageCount !== 48)
+      failures.push(`frames are ${String(body?.imageCount)}, ${String(bone?.imageCount)}`);
+    if (info.warnings.length !== 0)
+      failures.push(`a SEG that fits has warnings: ${JSON.stringify(info.warnings)}`);
+
+    // Drawn on this frame: the body red, the bone insert green, nothing outside the body.
+    await settle(page);
+    const [drawnBody, drawnBone, drawnOutside] = await read([BODY, BONE, OUTSIDE]);
+    const wanted = [
+      ['the body', drawnBody, over(plainBody, RED, 0.5)],
+      ['the bone insert', drawnBone, over(plainBone, GREEN, 0.5)],
+      ['outside the body', drawnOutside, plainOutside],
+    ] as const;
+    for (const [name, actual, expected] of wanted) {
+      if (!close(actual, expected))
+        failures.push(
+          `frame ${(SEG_IMAGE + 1).toString()}: ${name} is ${show(actual)}, expected about ${show(expected)}`,
+        );
+    }
+
+    // And on the frames that have no bone insert, the body is red and the bone's place is the body:
+    // a SEG that put every frame on one would show the bone there too.
+    for (const index of IMAGES_WITHOUT_BONE) {
+      await showImage(index);
+      const [here] = await read([BONE]);
+      const expected = over(plainBody, RED, 0.5);
+      if (!close(here, expected))
+        failures.push(
+          `frame ${(index + 1).toString()}: the bone insert's place is ${show(here)}, expected the body, ${show(expected)}`,
+        );
+    }
+
+    // A jump goes to a frame of the one instance, and says which.
+    const jump = await page.evaluate(
+      async (uid) => window.__dvViewer?.segmentations.jumpToSegment(uid, 2),
+      seg,
+    );
+    // The bone insert is a disc of the same size on frames 9 to 56: the first of them is the largest.
+    if (jump === undefined || jump.frameNumber < 9 || jump.frameNumber > 56)
+      failures.push(`jumping to the bone insert gave ${JSON.stringify(jump)}`);
+    else if ((await page.evaluate(() => window.__dv?.getImageIndex())) !== jump.frameNumber - 1)
+      failures.push('the viewport is not on the frame the jump said');
+
+    // In a plane: the SEG goes into the volume of the frames, and the coronal plane shows it.
+    const plane = await page.evaluate(async (seriesUid) => {
+      await window.__dvViewer?.setViewportSeries('vp-0', seriesUid, { orientation: 'coronal' });
+      return window.__dvViewer?.viewports.get('vp-0')?.mpr?.mode;
+    }, series.seriesUid);
+    if (plane !== 'volume') failures.push(`the plane is ${String(plane)}, expected a volume`);
+    await page.evaluate((index) => window.__dv?.setImageIndex(index), 64);
+    await settle(page);
+    const [inPlane] = await read([{ row: 64, column: 64 }]);
+    if (inPlane === undefined || inPlane[0] <= inPlane[2] + 40)
+      failures.push(`the coronal plane does not show the body in red: ${show(inPlane)}`);
+
+    const unloaded = await page.evaluate(
+      (uid) => window.__dvViewer?.segmentations.unload(uid),
+      seg,
+    );
+    if (unloaded !== true) failures.push('the SEG did not unload');
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
+
 export async function scenarioMultiFrameLocalFile(
   browser: Browser,
   input: HeadlessInput,
@@ -300,6 +425,7 @@ export async function scenarioMultiFrameLifecycle(
         study: series.studyUid,
         series: series.seriesUid,
         mpr: '1',
+        seg: segOf(input, 'multiframe-seg'),
       }),
       { waitUntil: 'load', timeout: 180_000 },
     );

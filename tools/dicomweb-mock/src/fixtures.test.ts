@@ -39,13 +39,14 @@ describe('loadFixtures', () => {
     expect(inSecond).toEqual(['Phantom CT (ct-nonuniform)', 'Phantom CT (ct-tilted)']);
   });
 
-  it('keeps the multi-frame phantom in a third study: the Enhanced CT and the loop, one instance each', async () => {
+  it('keeps the multi-frame phantom in a third study: the Enhanced CT, the loop, and the SEG of the CT, one instance each', async () => {
     const store = await loadFixtures(FIXTURES);
     const [main, , third] = store.studyUids;
     const inThird = store.series.filter((item) => item.studyUid === third);
     expect(inThird.map((item) => item.description).sort()).toEqual([
       'Phantom CT (multiframe-ct)',
       'Phantom Loop (multiframe-loop)',
+      'Phantom SEG (multiframe-seg)',
     ]);
     for (const series of inThird) {
       expect(series.studyUid).not.toBe(main);

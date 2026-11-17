@@ -25,3 +25,8 @@ The viewer refused a series with a multi-frame instance: "Multi-frame image seri
 - The local source reads a whole file to read its header, as it did. A large multi-frame file takes memory while it does.
 - An Enhanced MR with several dimensions at one position splits into one stack for each repeat, with no names. Naming them needs `DimensionIndexSequence`.
 - The series browser counts instances, not frames.
+
+## A SEG on the frames of one instance
+
+A SEG frame says which image it was made from with a SOP instance UID and, for an instance of many frames, a `ReferencedFrameNumber`. The viewer now keys that mapping by both: `planBinaryDecode` takes the images as `(sop, frame, frameCount)`, and `checkSegmentation` and `jumpToSegment` follow it (a jump navigates to the frame and says which in `frameNumber`). Only a binary SEG that the viewer decodes itself is mapped this way. The Cornerstone adapters, which read the other kinds, match a frame by its instance and would put all frames of one instance on one image, so a SEG of another kind on a multi-frame image rejects at load. A SEG frame that names no frame, on an instance of many frames, is on no image: taking frame 1 would be a guess that draws on the wrong slice. Matching such a frame by plane position is the way to do better, if a real SEG needs it.
+

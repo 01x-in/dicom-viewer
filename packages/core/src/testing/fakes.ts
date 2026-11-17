@@ -264,11 +264,7 @@ export function fakeIndexOf(header: SegmentationHeader): SegmentIndexResult {
   );
   // The frames of one instance are the images, so the first of them is the first the SEG names.
   const first =
-    named.length > 0
-      ? Math.min(...named)
-      : header.referencedSopInstanceUIDs.length === 3
-        ? 0
-        : 3;
+    named.length > 0 ? Math.min(...named) : header.referencedSopInstanceUIDs.length === 3 ? 0 : 3;
   const segments: SegmentIndexEntry[] = header.segments.map((segment) => {
     const counts = [10 * segment.number, 30 * segment.number, 20 * segment.number];
     const voxelCount = counts.reduce((sum, count) => sum + count, 0);

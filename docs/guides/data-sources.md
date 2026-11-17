@@ -86,7 +86,10 @@ measurements, and (when the frames have positions) reformats into planes.
   `imageIndex` in the state is still the place of the image in its stack.
 - **Requests.** Each frame is one request (`.../instances/<uid>/frames/<n>`). A series of 600 frames is 600 requests,
   limited by the prefetch radius.
-- **Limits.** A SEG on the frames of one multi-frame instance is not drawn yet: loading it rejects and says why. An
+- **SEGs.** A binary SEG made from the frames of one instance is drawn on the frame each of its frames names
+  (`ReferencedFrameNumber`), and `jumpToSegment` shows that frame and says it in `frameNumber`.
+- **Limits.** A SEG on a multi-frame image that is not binary (fractional or labelmap) rejects at load and says why, and
+  a SEG frame that names no frame of an instance of many is counted as on no image. An
   Enhanced MR with several echoes or phases at one position is split into one stack for each repeat, with no names. A
   Structured Report that names a multi-frame image without a frame number is read as frame 1. The series browser shows
   the number of instances the server counts, so one Enhanced CT file shows as one image there.

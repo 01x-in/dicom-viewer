@@ -96,13 +96,19 @@ export interface ViewerHandle {
       seriesInstanceUID: string,
       segment: number,
       options?: { strategy?: string; viewportId?: string },
-    ): Promise<{ imageIndex: number; sopInstanceUID: string; viewportId: string }>;
+    ): Promise<{
+      imageIndex: number;
+      sopInstanceUID: string;
+      frameNumber: number;
+      viewportId: string;
+    }>;
   };
   on(event: string, handler: (payload: { origin?: string }) => void): () => void;
 }
 
 export interface SegmentationSummary {
   seriesInstanceUID: string;
+  referencedSeriesInstanceUID: string;
   label: string;
   visible: boolean;
   opacity: number;
