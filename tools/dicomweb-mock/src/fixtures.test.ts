@@ -13,7 +13,7 @@ describe('loadFixtures', () => {
       .map((item) => item.description)
       .sort((a, b) => a.localeCompare(b));
     expect(names).toEqual(sorted);
-    expect(store.studyUids).toHaveLength(2);
+    expect(store.studyUids).toHaveLength(3);
     const main = store.series.find((item) => item.description.includes('ct-evrle'));
     expect(store.studyUids[0]).toBe(main?.studyUid);
   });
@@ -37,5 +37,16 @@ describe('loadFixtures', () => {
       .map((item) => item.description)
       .sort();
     expect(inSecond).toEqual(['Phantom CT (ct-nonuniform)', 'Phantom CT (ct-tilted)']);
+  });
+
+  it('keeps the multi-frame phantom in a third study, as one instance with a frame for each slice', async () => {
+    const store = await loadFixtures(FIXTURES);
+    const [main, , third] = store.studyUids;
+    const inThird = store.series.filter((item) => item.studyUid === third);
+    expect(inThird.map((item) => item.description)).toEqual(['Phantom CT (multiframe-ct)']);
+    const [series] = inThird;
+    expect(series?.studyUid).not.toBe(main);
+    expect(series?.instances).toHaveLength(1);
+    expect(series?.instances[0]?.frames).toHaveLength(64);
   });
 });

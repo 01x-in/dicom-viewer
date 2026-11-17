@@ -222,6 +222,14 @@ SERIES: tuple[tuple[str, int, UID], ...] = (
 )
 
 
+# One Enhanced CT instance that holds the 64 slices of ct-j2k as frames, in a study of its own so the
+# main study's series list does not change. The directory name sorts after "ct-evrle": the mock treats
+# the first directory's study as the main one.
+MULTIFRAME_STUDY = "study-multiframe"
+MULTIFRAME_CT_SERIES = "multiframe-ct"
+MULTIFRAME_CT_SERIES_NUMBER = 60
+EnhancedCTImageStorage = UID("1.2.840.10008.5.1.4.1.1.2.1")
+
 SEG_SOURCE_SERIES = "ct-j2k"
 # Fixed so that regenerating the phantom reproduces every SEG byte for byte.
 SEG_DATE = "20260101"
@@ -616,6 +624,101 @@ def sr_dataset(spec: CtSpec) -> Dataset:
     return dataset
 
 
+def _item(**attributes: object) -> Dataset:
+    item = Dataset()
+    for keyword, value in attributes.items():
+        setattr(item, keyword, value)
+    return item
+
+
+def enhanced_ct_dataset(spec: CtSpec) -> Dataset:
+    """An Enhanced CT whose frames are the slices of the main series: same picture, same positions."""
+    series = MULTIFRAME_CT_SERIES
+    sop_uid = uid(f"{series}/instance")
+
+    meta = FileMetaDataset()
+    meta.MediaStorageSOPClassUID = EnhancedCTImageStorage
+    meta.MediaStorageSOPInstanceUID = sop_uid
+    meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    meta.ImplementationClassUID = PYDICOM_IMPLEMENTATION_UID
+
+    ds = Dataset()
+    ds.file_meta = meta
+    ds.SOPClassUID = EnhancedCTImageStorage
+    ds.SOPInstanceUID = sop_uid
+    ds.Modality = "CT"
+    ds.Manufacturer = "dicom-viewer phantom"
+    ds.PatientName = "Phantom^CT"
+    ds.PatientID = "PHANTOM-001"
+    ds.PatientBirthDate = ""
+    ds.PatientSex = "O"
+    ds.PatientIdentityRemoved = "YES"
+    ds.StudyInstanceUID = uid(MULTIFRAME_STUDY)
+    ds.StudyID = "1"
+    ds.StudyDate = "20260101"
+    ds.StudyTime = "090000"
+    ds.AccessionNumber = ""
+    ds.ReferringPhysicianName = ""
+    ds.StudyDescription = "Synthetic multi-frame phantom"
+    ds.SeriesInstanceUID = uid(f"{series}/series")
+    ds.SeriesNumber = MULTIFRAME_CT_SERIES_NUMBER
+    ds.SeriesDescription = f"Phantom CT ({series})"
+    ds.FrameOfReferenceUID = uid("frame-of-reference")
+    ds.PositionReferenceIndicator = ""
+    ds.InstanceNumber = 1
+    ds.PatientPosition = "HFS"
+    ds.ImageType = ["ORIGINAL", "PRIMARY", "VOLUME", "NONE"]
+    ds.AcquisitionDateTime = "20260101090000"
+    ds.ContentDate = "20260101"
+    ds.ContentTime = "090000"
+    ds.NumberOfFrames = spec.slices
+
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.Rows = spec.rows
+    ds.Columns = spec.columns
+    ds.BitsAllocated = 16
+    ds.BitsStored = 16
+    ds.HighBit = 15
+    ds.PixelRepresentation = 0
+
+    ds.SharedFunctionalGroupsSequence = [
+        _item(
+            PlaneOrientationSequence=[_item(ImageOrientationPatient=[1, 0, 0, 0, 1, 0])],
+            PixelMeasuresSequence=[
+                _item(
+                    PixelSpacing=[spec.pixel_spacing_mm, spec.pixel_spacing_mm],
+                    SliceThickness=spec.slice_spacing_mm,
+                )
+            ],
+            PixelValueTransformationSequence=[
+                _item(RescaleIntercept=RESCALE_INTERCEPT, RescaleSlope=1, RescaleType="HU")
+            ],
+            FrameVOILUTSequence=[_item(WindowCenter=40, WindowWidth=400)],
+        )
+    ]
+    per_frame = []
+    for index in range(spec.slices):
+        x0, y0, z = upright_position(spec, index)
+        per_frame.append(
+            _item(
+                PlanePositionSequence=[
+                    _item(ImagePositionPatient=[round(x0, 4), round(y0, 4), round(z, 4)])
+                ],
+                FrameContentSequence=[
+                    _item(InStackPositionNumber=index + 1, DimensionIndexValues=[1, index + 1])
+                ],
+            )
+        )
+    ds.PerFrameFunctionalGroupsSequence = per_frame
+
+    stored = np.stack(
+        [(slice_hu(spec, i).astype(np.int32) - RESCALE_INTERCEPT).astype(np.uint16) for i in range(spec.slices)]
+    )
+    ds.PixelData = stored.tobytes()
+    return ds
+
+
 def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
     """Writes every phantom series under out_dir and returns the written files."""
     written: list[Path] = []
@@ -661,6 +764,17 @@ def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
         seg_path = seg_dir / "0001.dcm"
         seg_dataset(spec, seg).save_as(seg_path, enforce_file_format=True)
         written.append(seg_path)
+
+    multiframe_dir = out_dir / MULTIFRAME_CT_SERIES
+    multiframe_dir.mkdir(parents=True, exist_ok=True)
+    for stale in multiframe_dir.glob("*.dcm"):
+        stale.unlink()
+    enhanced = enhanced_ct_dataset(spec)
+    # Lossless, one fragment for each frame, and the deterministic instance UID kept.
+    enhanced.compress(JPEG2000Lossless, generate_instance_uid=False)
+    multiframe_path = multiframe_dir / "0001.dcm"
+    enhanced.save_as(multiframe_path, enforce_file_format=True)
+    written.append(multiframe_path)
 
     sr_dir = out_dir / SR_SERIES
     sr_dir.mkdir(parents=True, exist_ok=True)
