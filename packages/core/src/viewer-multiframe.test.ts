@@ -7,6 +7,7 @@ import {
   MULTIFRAME,
   MULTIFRAME_FRAMES,
   MULTIFRAME_SOP,
+  SEG_ON_MULTIFRAME,
   STUDY,
 } from './testing/fakes';
 import { destroyViewersAfterEach, harness, type Harness } from './testing/harness';
@@ -196,6 +197,15 @@ describe('a series of one multi-frame instance', () => {
       await copy.viewer.measurements.importJson(JSON.parse(JSON.stringify(exported)));
       expect(copy.viewer.measurements.get('a')?.reference.frameNumber).toBe(3);
       expect(copy.viewer.measurements.get('b')?.reference).not.toHaveProperty('frameNumber');
+    });
+  });
+
+  describe('SEGs', () => {
+    it('are refused for now, and say why, instead of landing on the wrong frame', async () => {
+      const h = harness();
+      await show(h);
+      await expect(h.viewer.segmentations.load(SEG_ON_MULTIFRAME)).rejects.toThrow(/multi-frame/i);
+      expect(h.viewer.segmentations.list()).toEqual([]);
     });
   });
 });

@@ -394,6 +394,13 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
     const referenced = await deps.getSeries(studyInstanceUID, referencedUid);
     deps.assertAlive();
     const stack = stackOf(referenced, header);
+    // The mapping of a SEG's frames to images is by SOP instance, and the frames of one instance
+    // share it, so they would all land on one frame. Refused until it goes by frame as well.
+    if (stack.instances.some((instance) => instance.frameCount > 1)) {
+      throw new Error(
+        'The SEG is on a multi-frame image, and the viewer cannot draw a SEG on the frames of one instance yet.',
+      );
+    }
     const [first] = stack.instances;
     const rows = numbers(first?.metadata ?? {}, '00280010')[0];
     const columns = numbers(first?.metadata ?? {}, '00280011')[0];

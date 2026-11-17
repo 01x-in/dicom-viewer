@@ -42,6 +42,8 @@ export const SEG_ON_SECOND_STACK = '1.2.3.13';
 export const SR = '1.2.3.20';
 /** An SR the engine refuses, as it does one that is not a TID 1500 measurement report. */
 export const SR_NOT_A_REPORT = '1.2.3.21';
+/** A SEG of the frames of `MULTIFRAME`, which the viewer cannot draw yet. */
+export const SEG_ON_MULTIFRAME = '1.2.3.15';
 /** A SEG whose bytes cannot be read. */
 export const SEG_UNREADABLE = '1.2.3.14';
 /** A study whose only series is the SEG: nothing in it can be shown. */
@@ -202,6 +204,16 @@ export const FAKE_SEGMENTATION_HEADERS: ReadonlyMap<string, SegmentationHeader> 
   ],
   [SEG_OFF, fakeHeader(SEG_OFF, ON_CT, BODY_AND_LESION, '1.2.3.78')],
   [
+    SEG_ON_MULTIFRAME,
+    {
+      ...fakeHeader(SEG_ON_MULTIFRAME, ON_CT, [{ number: 1, label: 'Mass' }]),
+      referencedSeriesInstanceUID: MULTIFRAME,
+      // Every frame of one instance names the same SOP instance.
+      referencedSopInstanceUIDs: [MULTIFRAME_SOP],
+      frames: [{ segmentNumber: 1, referencedSopInstanceUID: MULTIFRAME_SOP }],
+    },
+  ],
+  [
     SEG_ON_SECOND_STACK,
     fakeHeader(SEG_ON_SECOND_STACK, { series: CT_TWO_STACKS, stack: 1, count: 3 }, [
       { number: 1, label: 'Small' },
@@ -298,7 +310,15 @@ export function fakeSource(): FakeSource {
       ]),
     ),
     ...Object.fromEntries(
-      [SEG, SEG_SECOND, SEG_OVERLAP, SEG_OFF, SEG_ON_SECOND_STACK, SEG_UNREADABLE].map((uid) => [
+      [
+        SEG,
+        SEG_SECOND,
+        SEG_OVERLAP,
+        SEG_OFF,
+        SEG_ON_SECOND_STACK,
+        SEG_ON_MULTIFRAME,
+        SEG_UNREADABLE,
+      ].map((uid) => [
         uid,
         {
           studyInstanceUID: STUDY,
