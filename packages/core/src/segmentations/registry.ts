@@ -4,6 +4,7 @@ import { numbers } from '../data/dicom-json';
 import type { RenderingPort, SegmentationHandle, StackPort } from '../rendering-port';
 import { displayOf } from './display';
 import type { SegmentationHeader } from './header';
+import { planBinaryDecode } from './plan';
 import { centroidMm, imageToShow, JUMP_STRATEGIES, type JumpStrategy } from './locate';
 import {
   assertFraction,
@@ -64,6 +65,8 @@ export interface JumpToSegmentResult {
   /** The series that was shown: the one the SEG segments. */
   readonly seriesInstanceUID: string;
   readonly sopInstanceUID: string;
+  /** The frame of that instance, from 1. 1 for an image of one frame. */
+  readonly frameNumber: number;
   readonly imageIndex: number;
   readonly strategy: JumpStrategy;
 }
@@ -150,6 +153,7 @@ export interface SegmentationDeps {
   navigateNow(target: {
     readonly seriesInstanceUID: string;
     readonly sopInstanceUID: string;
+    readonly frameNumber?: number;
     readonly viewportId?: string;
   }): Promise<unknown>;
   /** The image a viewport shows, if it shows this stack of this series. */
@@ -394,6 +398,17 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
     const referenced = await deps.getSeries(studyInstanceUID, referencedUid);
     deps.assertAlive();
     const stack = stackOf(referenced, header);
+    // The frames of one instance share its SOP instance, so a SEG on them is told apart by the
+    // frame each of its own frames names. Only a binary SEG the viewer reads itself does so: the
+    // adapters of the other kinds match by instance and would put every frame on one image.
+    if (
+      stack.instances.some((instance) => instance.frameCount > 1) &&
+      planBinaryDecode(header, stack.instances) === undefined
+    ) {
+      throw new Error(
+        'The SEG is on a multi-frame image and is not a binary SEG that names a segment, an instance, and a frame for each of its frames, so the viewer cannot tell which frame each of its frames is on.',
+      );
+    }
     const [first] = stack.instances;
     const rows = numbers(first?.metadata ?? {}, '00280010')[0];
     const columns = numbers(first?.metadata ?? {}, '00280011')[0];
@@ -597,19 +612,22 @@ export function createSegmentationsRegistry(deps: SegmentationDeps): Segmentatio
           entry.info.referencedStackIndex,
         );
         const imageIndex = imageToShow(located, strategy, current);
-        const sopInstanceUID = entry.stack.instances[imageIndex]?.sopInstanceUID;
-        if (sopInstanceUID === undefined) {
+        const image = entry.stack.instances[imageIndex];
+        if (image === undefined) {
           throw new RangeError(`The series has no image ${imageIndex.toString()}.`);
         }
+        const { sopInstanceUID, frameNumber } = image;
         await deps.navigateNow({
           seriesInstanceUID: entry.info.referencedSeriesInstanceUID,
           sopInstanceUID,
+          frameNumber,
           viewportId,
         });
         return {
           viewportId,
           seriesInstanceUID: entry.info.referencedSeriesInstanceUID,
           sopInstanceUID,
+          frameNumber,
           imageIndex,
           strategy,
         };

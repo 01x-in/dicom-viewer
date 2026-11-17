@@ -37,6 +37,7 @@ interface ViewerHandle {
     play(options?: { fps?: number; loop?: boolean }): Promise<void>;
     stop(): void;
     readonly playing: boolean;
+    readonly fps: number;
   };
   getImageIndex(): number | undefined;
   setImageIndex(index: number): Promise<void>;

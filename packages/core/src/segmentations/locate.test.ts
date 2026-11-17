@@ -88,9 +88,12 @@ describe('centroidMm', () => {
       };
       return {
         sopInstanceUID: `1.${index.toString()}`,
+        frameNumber: 1,
+        frameCount: 1,
         instanceNumber: index + 1,
         imageId: `i:${index.toString()}`,
         metadata,
+        instanceMetadata: metadata,
       };
     });
     return {

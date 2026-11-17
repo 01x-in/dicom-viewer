@@ -888,6 +888,7 @@ describe('jumpToSegment', () => {
       viewportId: 'vp-0',
       seriesInstanceUID: CT,
       sopInstanceUID: `${CT}.0.4`,
+      frameNumber: 1,
       imageIndex: 4,
       strategy: 'largestSlice',
     });

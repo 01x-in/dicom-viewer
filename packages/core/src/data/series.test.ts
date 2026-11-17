@@ -256,8 +256,200 @@ describe('buildSeries', () => {
       expect(series.instances.map((instance) => instance.sopInstanceUID)).toEqual(['seg1']);
     });
 
-    it('rejects a multi-frame image series, which this version cannot show', () => {
-      expect(() => build([{ sop: 'mf', frames: 40 }])).toThrow(/multi-frame/i);
+    it('does not refuse a multi-frame image series any more', () => {
+      expect(() => build([{ sop: 'mf', frames: 40 }])).not.toThrow();
+    });
+
+    it('rejects a NumberOfFrames that is not a whole number from 1', () => {
+      expect(() => build([{ sop: 'mf', frames: 0 }])).toThrow(/NumberOfFrames/);
+      expect(() => build([{ sop: 'mf', frames: 2.5 }])).toThrow(/NumberOfFrames/);
+    });
+  });
+
+  describe('single-frame instances', () => {
+    it('are one image each, frame 1 of 1, with the metadata they came with', () => {
+      const specs = axial(3);
+      const metadata = specs.map(dicom);
+      const calls: [string, number][] = [];
+      const series = buildSeries({
+        studyInstanceUID: STUDY,
+        seriesInstanceUID: SERIES,
+        metadata,
+        imageIdFor: (sop, _metadata, frame) => {
+          calls.push([sop, frame]);
+          return `test:${sop}`;
+        },
+      });
+      const [stack] = series.stacks;
+      expect(stack?.instances.map((i) => [i.frameNumber, i.frameCount])).toEqual([
+        [1, 1],
+        [1, 1],
+        [1, 1],
+      ]);
+      expect(stack?.instances.map((i) => i.metadata)).toEqual(metadata);
+      expect(stack?.imageIds).toEqual(['test:s0', 'test:s1', 'test:s2']);
+      expect(calls).toEqual([
+        ['s0', 1],
+        ['s1', 1],
+        ['s2', 1],
+      ]);
+      expect(series.instances).toHaveLength(3);
+    });
+
+    it('treat NumberOfFrames of 1 as a single frame', () => {
+      const series = build([{ sop: 'one', frames: 1, position: [0, 0, 0] }]);
+      expect(series.stacks[0]?.instances.map((i) => i.frameCount)).toEqual([1]);
+    });
+  });
+
+  describe('multi-frame instances', () => {
+    const seq = (...items: DicomJsonInstance[]): { vr: string; Value: DicomJsonInstance[] } => ({
+      vr: 'SQ',
+      Value: items,
+    });
+
+    /** An enhanced instance: orientation and spacing shared, a position for each frame. */
+    function enhanced(
+      sop: string,
+      zs: readonly number[],
+      options: { orientation?: number[]; number?: number } = {},
+    ): DicomJsonInstance {
+      return {
+        '00080018': { vr: 'UI', Value: [sop] },
+        '00080060': { vr: 'CS', Value: ['CT'] },
+        '00280008': { vr: 'IS', Value: [zs.length] },
+        '00280010': { vr: 'US', Value: [128] },
+        '00280011': { vr: 'US', Value: [128] },
+        ...(options.number === undefined
+          ? {}
+          : { '00200013': { vr: 'IS', Value: [options.number] } }),
+        '52009229': seq({
+          '00209116': seq({ '00200037': { vr: 'DS', Value: options.orientation ?? AXIAL } }),
+          '00289110': seq({ '00280030': { vr: 'DS', Value: [1, 1] } }),
+        }),
+        '52009230': seq(
+          ...zs.map((z) => ({
+            '00209113': seq({ '00200032': { vr: 'DS', Value: [0, 0, z] } }),
+          })),
+        ),
+      };
+    }
+
+    function buildEnhanced(
+      metadata: DicomJsonInstance[],
+      calls: [string, number][] = [],
+    ): ReturnType<typeof buildSeries> {
+      return buildSeries({
+        studyInstanceUID: STUDY,
+        seriesInstanceUID: SERIES,
+        metadata,
+        imageIdFor: (sop, _metadata, frame) => {
+          calls.push([sop, frame]);
+          return `test:${sop}/${frame.toString()}`;
+        },
+      });
+    }
+
+    it('become one image for each frame, sorted by the position the frame says', () => {
+      const calls: [string, number][] = [];
+      // Frames stored top-down: the stack still runs from the lowest position up.
+      const series = buildEnhanced([enhanced('mf', [6, 4, 2, 0])], calls);
+      expect(series.stacks).toHaveLength(1);
+      const [stack] = series.stacks;
+      expect(stack?.instances.map((i) => i.frameNumber)).toEqual([4, 3, 2, 1]);
+      expect(stack?.instances.every((i) => i.sopInstanceUID === 'mf' && i.frameCount === 4)).toBe(
+        true,
+      );
+      expect(stack?.imageIds).toEqual(['test:mf/4', 'test:mf/3', 'test:mf/2', 'test:mf/1']);
+      // One id for each frame, asked in frame order, whatever the order they end up in.
+      expect(calls).toEqual([
+        ['mf', 1],
+        ['mf', 2],
+        ['mf', 3],
+        ['mf', 4],
+      ]);
+    });
+
+    it('can be reformatted when the frames are even and parallel', () => {
+      const [stack] = buildEnhanced([enhanced('mf', [0, 2, 4, 6, 8])]).stacks;
+      expect(stack?.reconstructable).toEqual({ ok: true, spacingMm: 2 });
+    });
+
+    it('say why they cannot be reformatted when the spacing is uneven', () => {
+      const [stack] = buildEnhanced([enhanced('mf', [0, 2, 4, 9])]).stacks;
+      expect(stack?.reconstructable).toEqual({ ok: false, reason: 'non-uniform-spacing' });
+    });
+
+    it('give each frame the geometry it says, as a single-frame instance would have', () => {
+      const [stack] = buildEnhanced([enhanced('mf', [0, 2.5, 5])]).stacks;
+      const frame = stack?.instances[1];
+      expect(frame?.metadata['00200032']?.Value).toEqual([0, 0, 2.5]);
+      expect(frame?.metadata['00200037']?.Value).toEqual(AXIAL);
+      expect(frame?.metadata['52009230']).toBeUndefined();
+      expect(frame?.metadata['52009229']).toBeUndefined();
+    });
+
+    it('all point at the whole instance JSON, for the engine to register once', () => {
+      const instance = enhanced('mf', [0, 2, 4]);
+      const [stack] = buildEnhanced([instance]).stacks;
+      expect(stack?.instances.every((i) => i.instanceMetadata === instance)).toBe(true);
+      // A single-frame instance is its own record.
+      const [single] = build([{ sop: 's', position: [0, 0, 0] }]).stacks[0]?.instances ?? [];
+      expect(single?.instanceMetadata).toBe(single?.metadata);
+    });
+
+    it('keep the real instance in `instances`, once, for retrieval', () => {
+      const series = buildEnhanced([enhanced('mf', [0, 2, 4])]);
+      expect(series.instances.map((i) => [i.sopInstanceUID, i.frameCount])).toEqual([['mf', 3]]);
+    });
+
+    it('put frames at the same positions into layers, as repeated slices are', () => {
+      const series = buildEnhanced([enhanced('a', [0, 2, 4]), enhanced('b', [0, 2, 4])]);
+      expect(series.stacks).toHaveLength(2);
+      expect(series.stacks.map((s) => s.instances.map((i) => i.sopInstanceUID))).toEqual([
+        ['a', 'a', 'a'],
+        ['b', 'b', 'b'],
+      ]);
+    });
+
+    it('mix with single-frame instances of the same plane in one stack', () => {
+      const series = buildEnhanced([
+        enhanced('mf', [0, 2]),
+        dicom({ sop: 'single', position: [0, 0, 4] }),
+      ]);
+      expect(series.stacks).toHaveLength(1);
+      expect(series.stacks[0]?.instances.map((i) => [i.sopInstanceUID, i.frameNumber])).toEqual([
+        ['mf', 1],
+        ['mf', 2],
+        ['single', 1],
+      ]);
+    });
+
+    it('keep frames with no geometry in frame order, in a stack that cannot be reformatted', () => {
+      const series = buildEnhanced([dicom({ sop: 'loop', frames: 5 })]);
+      expect(series.stacks).toHaveLength(1);
+      const [stack] = series.stacks;
+      expect(stack?.instances.map((i) => i.frameNumber)).toEqual([1, 2, 3, 4, 5]);
+      expect(stack?.reconstructable).toEqual({ ok: false, reason: 'missing-geometry' });
+    });
+
+    it('order two loops by instance number, then by frame', () => {
+      const series = buildEnhanced([
+        dicom({ sop: 'second', frames: 2, number: 2 }),
+        dicom({ sop: 'first', frames: 2, number: 1 }),
+      ]);
+      expect(series.stacks[0]?.instances.map((i) => [i.sopInstanceUID, i.frameNumber])).toEqual([
+        ['first', 1],
+        ['first', 2],
+        ['second', 1],
+        ['second', 2],
+      ]);
+    });
+
+    it('do not expand a SEG, which has frames of its own that are not images', () => {
+      const series = buildEnhanced([dicom({ sop: 'seg', modality: 'SEG', frames: 64 })]);
+      expect(series.stacks).toEqual([]);
+      expect(series.instances).toHaveLength(1);
     });
   });
 });

@@ -35,7 +35,7 @@ A person asked whether the viewer reads GSPS or Structured Reports. It read neit
 
 - **Only TID 1500 measurement reports are read.** A report of another template, text only, or with no image coordinates is refused or empty. GSPS is not read.
 - **Only what Cornerstone's reader understands.** Shapes are recognised by the tracking identifier the Cornerstone tools write (`Cornerstone3DTools@^0.1.0:Length` and so on). Another tool's report is read only when its identifiers and shapes follow that. highdicom's, written in that way, is. A report from a vendor has not been tried, and the viewer does not claim it works.
-- **Single-frame images only.** A shape on a frame of a multi-frame image is looked up as frame 1.
+- **Single-frame images only.** A shape on a frame of a multi-frame image is looked up as frame 1. (Changed by [ADR 0015](0015-multi-frame-images.md): a shape is looked up by SOP instance and frame.)
 - **A bidirectional measurement is not in the committed fixture.** highdicom's measurement groups hold one shape, and a bidirectional measurement has two. It is tested with Cornerstone's writer at test time.
 - **The report is Latin-1.** A name in another script shows as `?`. Embedding a font would fix it, at the size of the font. The writer does not do that.
 - **No version number in the report.** The build has none to read.

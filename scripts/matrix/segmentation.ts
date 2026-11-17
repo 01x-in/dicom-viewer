@@ -4,11 +4,11 @@ import type { Browser, Page } from 'playwright';
 import { expectReady, type HeadlessInput, query, watch } from './harness.ts';
 import './page-types.ts';
 
-type Rgb = readonly [number, number, number];
+export type Rgb = readonly [number, number, number];
 
 // The palette of packages/core/src/segmentations/model.ts, which segments with no colour of their own get.
-const RED: Rgb = [230, 25, 75];
-const GREEN: Rgb = [60, 180, 75];
+export const RED: Rgb = [230, 25, 75];
+export const GREEN: Rgb = [60, 180, 75];
 const DEEP_BLUE: Rgb = [0, 130, 200];
 const PURE_BLUE: Rgb = [0, 0, 255];
 const YELLOW: Rgb = [255, 255, 0];
@@ -19,24 +19,28 @@ const SLICE = 31;
 const SIZE = 128;
 const PIXEL_MM = 1.5;
 
-interface Point {
+export interface Point {
   readonly row: number;
   readonly column: number;
 }
 
-const BODY: Point = { row: 64, column: 64 };
+export const BODY: Point = { row: 64, column: 64 };
 const MARKER: Point = { row: 43, column: 103 };
-const BONE: Point = { row: 64, column: 92 };
+export const BONE: Point = { row: 64, column: 92 };
 const AIR: Point = { row: 36, column: 64 };
 const WATER: Point = { row: 92, column: 64 };
 const FAT: Point = { row: 64, column: 36 };
-const OUTSIDE: Point = { row: 5, column: 5 };
+export const OUTSIDE: Point = { row: 5, column: 5 };
 // Where the slab of seg-overlap is alone, where its disc is alone, and (the body's centre) where they meet.
 const SLAB: Point = { row: 64, column: 20 };
 const DISC: Point = { row: 50, column: 64 };
 
 /** Reads the colours of pixels of the phantom image from the canvas of a viewport element. */
-async function colours(page: Page, selector: string, points: readonly Point[]): Promise<Rgb[]> {
+export async function colours(
+  page: Page,
+  selector: string,
+  points: readonly Point[],
+): Promise<Rgb[]> {
   return page.evaluate(
     ({ element, wanted, size }) => {
       const canvas = document.querySelector(`${element} canvas`);
@@ -61,7 +65,7 @@ async function colours(page: Page, selector: string, points: readonly Point[]): 
 }
 
 /** Waits for what was just changed to be drawn: Cornerstone renders on the next frame. */
-async function settle(page: Page): Promise<void> {
+export async function settle(page: Page): Promise<void> {
   await page.evaluate(
     () =>
       new Promise<void>((done) => {
@@ -75,7 +79,7 @@ async function settle(page: Page): Promise<void> {
 }
 
 /** What a colour looks like laid over a base at an opacity. */
-function over(base: Rgb, colour: Rgb, alpha: number): Rgb {
+export function over(base: Rgb, colour: Rgb, alpha: number): Rgb {
   const mix = (at: 0 | 1 | 2): number => Math.round(base[at] * (1 - alpha) + colour[at] * alpha);
   return [mix(0), mix(1), mix(2)];
 }
@@ -94,13 +98,13 @@ function overTwice(base: Rgb, first: Rgb, second: Rgb, alpha: number): Rgb {
 
 const TOLERANCE = 8;
 
-function close(actual: Rgb | undefined, expected: Rgb): boolean {
+export function close(actual: Rgb | undefined, expected: Rgb): boolean {
   return (
     actual?.every((channel, at) => Math.abs(channel - (expected[at] ?? 0)) <= TOLERANCE) === true
   );
 }
 
-const show = (colour: Rgb | undefined): string =>
+export const show = (colour: Rgb | undefined): string =>
   colour === undefined ? 'nothing' : colour.join(',');
 
 interface Run {
@@ -138,7 +142,7 @@ async function expectColours(
 }
 
 /** The series UID of a phantom SEG, by the name of its directory. */
-function segOf(input: HeadlessInput, name: string): string {
+export function segOf(input: HeadlessInput, name: string): string {
   const found = input.mock.fixtures.series.find((item) => item.description.includes(name));
   if (found === undefined) throw new Error(`the phantom has no ${name}`);
   return found.seriesUid;
