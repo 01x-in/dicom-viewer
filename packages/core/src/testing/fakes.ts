@@ -42,8 +42,10 @@ export const SEG_ON_SECOND_STACK = '1.2.3.13';
 export const SR = '1.2.3.20';
 /** An SR the engine refuses, as it does one that is not a TID 1500 measurement report. */
 export const SR_NOT_A_REPORT = '1.2.3.21';
-/** A SEG of the frames of `MULTIFRAME`, which the viewer cannot draw yet. */
+/** A binary SEG of frames 2 to 4 of `MULTIFRAME`: its frames name one instance, and a frame of it each. */
 export const SEG_ON_MULTIFRAME = '1.2.3.15';
+/** A fractional SEG of the same frames, which the viewer does not read itself. */
+export const SEG_FRACTIONAL_ON_MULTIFRAME = '1.2.3.16';
 /** A SEG whose bytes cannot be read. */
 export const SEG_UNREADABLE = '1.2.3.14';
 /** A study whose only series is the SEG: nothing in it can be shown. */
@@ -197,6 +199,26 @@ function fakeHeader(
   };
 }
 
+/** A SEG of frames 2 to 4 of the one instance of `MULTIFRAME`. */
+function multiFrameHeader(
+  uid: string,
+  segmentationType: 'BINARY' | 'FRACTIONAL',
+  bitsAllocated: number,
+): SegmentationHeader {
+  return {
+    ...fakeHeader(uid, ON_CT, [{ number: 1, label: 'Mass' }]),
+    segmentationType,
+    pixelData: { offset: 0, length: 1_000_000, bitsAllocated },
+    referencedSeriesInstanceUID: MULTIFRAME,
+    referencedSopInstanceUIDs: [MULTIFRAME_SOP],
+    frames: [2, 3, 4].map((referencedFrameNumber) => ({
+      segmentNumber: 1,
+      referencedSopInstanceUID: MULTIFRAME_SOP,
+      referencedFrameNumber,
+    })),
+  };
+}
+
 const ON_CT = { series: CT, stack: 0, count: 10 } as const;
 const BODY_AND_LESION: readonly FakeSegmentSpec[] = [
   { number: 1, label: 'Body' },
@@ -221,16 +243,8 @@ export const FAKE_SEGMENTATION_HEADERS: ReadonlyMap<string, SegmentationHeader> 
     ]),
   ],
   [SEG_OFF, fakeHeader(SEG_OFF, ON_CT, BODY_AND_LESION, '1.2.3.78')],
-  [
-    SEG_ON_MULTIFRAME,
-    {
-      ...fakeHeader(SEG_ON_MULTIFRAME, ON_CT, [{ number: 1, label: 'Mass' }]),
-      referencedSeriesInstanceUID: MULTIFRAME,
-      // Every frame of one instance names the same SOP instance.
-      referencedSopInstanceUIDs: [MULTIFRAME_SOP],
-      frames: [{ segmentNumber: 1, referencedSopInstanceUID: MULTIFRAME_SOP }],
-    },
-  ],
+  [SEG_ON_MULTIFRAME, multiFrameHeader(SEG_ON_MULTIFRAME, 'BINARY', 1)],
+  [SEG_FRACTIONAL_ON_MULTIFRAME, multiFrameHeader(SEG_FRACTIONAL_ON_MULTIFRAME, 'FRACTIONAL', 8)],
   [
     SEG_ON_SECOND_STACK,
     fakeHeader(SEG_ON_SECOND_STACK, { series: CT_TWO_STACKS, stack: 1, count: 3 }, [
@@ -245,7 +259,16 @@ export const FAKE_SEGMENTATION_HEADERS: ReadonlyMap<string, SegmentationHeader> 
  * The images are 3 to 5 of the CT, or 0 to 2 of a stack that has three.
  */
 export function fakeIndexOf(header: SegmentationHeader): SegmentIndexResult {
-  const first = header.referencedSopInstanceUIDs.length === 3 ? 0 : 3;
+  const named = header.frames.flatMap((frame) =>
+    frame.referencedFrameNumber === undefined ? [] : [frame.referencedFrameNumber - 1],
+  );
+  // The frames of one instance are the images, so the first of them is the first the SEG names.
+  const first =
+    named.length > 0
+      ? Math.min(...named)
+      : header.referencedSopInstanceUIDs.length === 3
+        ? 0
+        : 3;
   const segments: SegmentIndexEntry[] = header.segments.map((segment) => {
     const counts = [10 * segment.number, 30 * segment.number, 20 * segment.number];
     const voxelCount = counts.reduce((sum, count) => sum + count, 0);
@@ -336,6 +359,7 @@ export function fakeSource(): FakeSource {
         SEG_OFF,
         SEG_ON_SECOND_STACK,
         SEG_ON_MULTIFRAME,
+        SEG_FRACTIONAL_ON_MULTIFRAME,
         SEG_UNREADABLE,
       ].map((uid) => [
         uid,

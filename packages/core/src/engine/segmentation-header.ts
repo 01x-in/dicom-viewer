@@ -25,6 +25,7 @@ const SOURCE_IMAGE = 'x00082112';
 const REFERENCED_SERIES = 'x00081115';
 const REFERENCED_INSTANCE = 'x0008114a';
 const REFERENCED_SOP_INSTANCE_UID = 'x00081155';
+const REFERENCED_FRAME_NUMBER = 'x00081160';
 const IMAGE_POSITION = 'x00200032';
 const IMAGE_ORIENTATION = 'x00200037';
 const PIXEL_SPACING = 'x00280030';
@@ -96,6 +97,8 @@ function frameOf(dataSet: DataSet, sharedSegment: number | undefined): FrameHead
     segmentNumber: identification?.uint16(REFERENCED_SEGMENT_NUMBER) ?? sharedSegment,
     referencedSopInstanceUID:
       source === undefined ? undefined : text(source, REFERENCED_SOP_INSTANCE_UID),
+    // The first frame it names: a frame of a SEG is on one frame of the instance.
+    referencedFrameNumber: source?.intString(REFERENCED_FRAME_NUMBER, 0),
     position: x === undefined || y === undefined || z === undefined ? undefined : [x, y, z],
   };
 }

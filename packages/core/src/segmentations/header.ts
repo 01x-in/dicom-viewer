@@ -19,6 +19,11 @@ export interface FrameHeader {
   readonly segmentNumber?: number | undefined;
   /** The image this frame is derived from. */
   readonly referencedSopInstanceUID?: string | undefined;
+  /**
+   * Which frame of that instance, from 1. Absent when the SEG does not say, as it does not for an
+   * image of one frame.
+   */
+  readonly referencedFrameNumber?: number | undefined;
   /** Where the frame's first pixel is, in patient millimetres. */
   readonly position?: Point3 | undefined;
 }
@@ -71,6 +76,7 @@ const segmentSchema: z.ZodType<SegmentHeader> = z.object({
 const frameSchema: z.ZodType<FrameHeader> = z.object({
   segmentNumber: z.number().int().min(1).optional(),
   referencedSopInstanceUID: uid.optional(),
+  referencedFrameNumber: z.number().int().min(1).optional(),
   position: point.optional(),
 });
 

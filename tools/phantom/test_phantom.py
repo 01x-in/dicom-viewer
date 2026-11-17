@@ -22,6 +22,7 @@ from phantom import (
     CINE_FRAMES,
     CINE_SERIES,
     MULTIFRAME_CT_SERIES,
+    MULTIFRAME_SEG_SERIES,
     MULTIFRAME_STUDY,
     LEFT_MARKER_HU,
     MISMATCH_SEG_SERIES,
@@ -565,3 +566,48 @@ def test_the_cine_is_reproducible(tmp_path: Path) -> None:
     generate(second)
     name = Path(CINE_SERIES) / "0001.dcm"
     assert (first / name).read_bytes() == (second / name).read_bytes()
+
+
+def test_the_multiframe_seg_names_frames_of_the_one_enhanced_ct_instance(out_dir: Path) -> None:
+    ct = pydicom.dcmread(out_dir / MULTIFRAME_CT_SERIES / "0001.dcm")
+    seg = pydicom.dcmread(out_dir / MULTIFRAME_SEG_SERIES / "0001.dcm")
+    assert seg.Modality == "SEG"
+    assert seg.StudyInstanceUID == ct.StudyInstanceUID
+    assert seg.FrameOfReferenceUID == ct.FrameOfReferenceUID
+    assert seg.SeriesDescription == f"Phantom SEG ({MULTIFRAME_SEG_SERIES})"
+    # Every frame of the SEG says which frame of the one instance it is on.
+    named = []
+    for frame in seg.PerFrameFunctionalGroupsSequence:
+        source = frame.DerivationImageSequence[0].SourceImageSequence[0]
+        assert source.ReferencedSOPInstanceUID == ct.SOPInstanceUID
+        named.append(int(source.ReferencedFrameNumber))
+    assert len(named) == len(seg.PerFrameFunctionalGroupsSequence) > 0
+    assert min(named) >= 1 and max(named) <= int(ct.NumberOfFrames)
+
+
+def test_the_multiframe_seg_is_on_the_same_planes_as_the_frames_it_names(out_dir: Path) -> None:
+    ct = pydicom.dcmread(out_dir / MULTIFRAME_CT_SERIES / "0001.dcm")
+    seg = pydicom.dcmread(out_dir / MULTIFRAME_SEG_SERIES / "0001.dcm")
+    for frame in seg.PerFrameFunctionalGroupsSequence:
+        number = int(frame.DerivationImageSequence[0].SourceImageSequence[0].ReferencedFrameNumber)
+        wanted = ct.PerFrameFunctionalGroupsSequence[number - 1].PlanePositionSequence[0]
+        got = frame.PlanePositionSequence[0]
+        assert np.allclose(
+            [float(v) for v in got.ImagePositionPatient],
+            [float(v) for v in wanted.ImagePositionPatient],
+            atol=1e-3,
+        )
+
+
+def test_the_multiframe_seg_has_the_body_on_every_frame_and_the_bone_on_some(out_dir: Path) -> None:
+    seg = hd.seg.segread(str(out_dir / MULTIFRAME_SEG_SERIES / "0001.dcm"))
+    assert seg.number_of_segments == 2
+    ct = pydicom.dcmread(out_dir / MULTIFRAME_CT_SERIES / "0001.dcm")
+    assert len(seg.get_source_image_uids()) == 1
+    body = seg.get_pixels_by_source_frame(
+        source_sop_instance_uid=ct.SOPInstanceUID,
+        source_frame_numbers=list(range(1, int(ct.NumberOfFrames) + 1)),
+        segment_numbers=[1],
+    )
+    assert body.shape[0] == int(ct.NumberOfFrames)
+    assert body.any(axis=(1, 2)).all()

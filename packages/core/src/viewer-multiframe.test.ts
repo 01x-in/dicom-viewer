@@ -7,6 +7,7 @@ import {
   MULTIFRAME,
   MULTIFRAME_FRAMES,
   MULTIFRAME_SOP,
+  SEG_FRACTIONAL_ON_MULTIFRAME,
   SEG_ON_MULTIFRAME,
   STUDY,
 } from './testing/fakes';
@@ -201,10 +202,36 @@ describe('a series of one multi-frame instance', () => {
   });
 
   describe('SEGs', () => {
-    it('are refused for now, and say why, instead of landing on the wrong frame', async () => {
+    it('load on the frames they name, and count the frames each segment is on', async () => {
       const h = harness();
       await show(h);
-      await expect(h.viewer.segmentations.load(SEG_ON_MULTIFRAME)).rejects.toThrow(/multi-frame/i);
+      const info = await h.viewer.segmentations.load(SEG_ON_MULTIFRAME);
+      expect(info.referencedSeriesInstanceUID).toBe(MULTIFRAME);
+      expect(info.segments[0]).toMatchObject({ number: 1, imageCount: 3 });
+      // Drawn on the stack of the five frames, not on one image.
+      expect(h.port.segmentationLoads.at(-1)?.imageIds).toHaveLength(MULTIFRAME_FRAMES);
+    });
+
+    it('jump to a frame of the instance, and say which', async () => {
+      const h = harness();
+      await show(h);
+      await h.viewer.segmentations.load(SEG_ON_MULTIFRAME);
+      // The fake segment is on frames 2 to 4, and most on the middle one.
+      const result = await h.viewer.segmentations.jumpToSegment(SEG_ON_MULTIFRAME, 1);
+      expect(result).toMatchObject({
+        sopInstanceUID: MULTIFRAME_SOP,
+        frameNumber: 3,
+        imageIndex: 2,
+      });
+      expect(h.viewer.getState().viewports[0]?.imageIndex).toBe(2);
+    });
+
+    it('are refused when they are not binary, because the viewer cannot tell their frames apart', async () => {
+      const h = harness();
+      await show(h);
+      await expect(h.viewer.segmentations.load(SEG_FRACTIONAL_ON_MULTIFRAME)).rejects.toThrow(
+        /binary/i,
+      );
       expect(h.viewer.segmentations.list()).toEqual([]);
     });
   });

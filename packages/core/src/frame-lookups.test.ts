@@ -28,7 +28,7 @@ const ALLOWED: readonly { readonly file: string; readonly why: string }[] = [
   { file: 'data/series.ts', why: 'findSlice itself, which checks the frame on the next line' },
   {
     file: 'segmentations/registry.ts',
-    why: 'picks the stack a SEG names the most images of; a SEG on frames is refused after it',
+    why: 'picks the stack a SEG names the most images of; the frames of an instance are then told apart by planBinaryDecode',
   },
   {
     file: 'viewer-core.ts',

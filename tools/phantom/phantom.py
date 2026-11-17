@@ -257,6 +257,9 @@ INSERTS_SEG_SERIES = "seg-inserts"
 OVERLAP_SEG_SERIES = "seg-overlap"
 MISMATCH_SEG_SERIES = "seg-mismatch"
 FRACTIONAL_SEG_SERIES = "seg-fractional"
+# A SEG of the Enhanced CT: its frames name frames of one instance, not instances.
+MULTIFRAME_SEG_SERIES = "multiframe-seg"
+MULTIFRAME_SEG_SERIES_NUMBER = 62
 
 # The slices (0-based) the smaller SEGs cover. A tumour covers a few slices, not the whole series.
 PARTIAL_SLICES = range(20, 41)
@@ -287,6 +290,8 @@ class SegSpec:
     pixels: NDArray[np.uint8] | NDArray[np.bool_] | NDArray[np.float32]
     description: str
     fractional: bool = False
+    # Segments the frames of the Enhanced CT instead of the instances of the J2K series.
+    on_enhanced: bool = False
 
 
 TISSUE = Code("85756007", "SCT", "Tissue")
@@ -414,11 +419,25 @@ def seg_specs(spec: CtSpec) -> tuple[SegSpec, ...]:
             description=f"Phantom SEG ({FRACTIONAL_SEG_SERIES})",
             fractional=True,
         ),
+        SegSpec(
+            series=MULTIFRAME_SEG_SERIES,
+            series_number=MULTIFRAME_SEG_SERIES_NUMBER,
+            segments=(
+                SegmentSpec(BODY_SEGMENT, "Body", Code("38266002", "SCT", "Entire body")),
+                SegmentSpec(BONE_SEGMENT, "Bone insert", Code("272673000", "SCT", "Bone")),
+            ),
+            slices=range(spec.slices),
+            pixels=seg_labelmap(spec),
+            description=f"Phantom SEG ({MULTIFRAME_SEG_SERIES})",
+            on_enhanced=True,
+        ),
     )
 
 
 def seg_sources(spec: CtSpec, seg: SegSpec) -> list[Dataset]:
     """The CT instances a SEG says it segments. The mismatch SEG names the right instances with the wrong planes."""
+    if seg.on_enhanced:
+        return [enhanced_ct_dataset(spec)]
     sources = [ct_dataset(spec, index, SEG_SOURCE_SERIES, 2) for index in seg.slices]
     if seg.series == MISMATCH_SEG_SERIES:
         for source in sources:

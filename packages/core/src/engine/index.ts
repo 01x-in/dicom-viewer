@@ -746,7 +746,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       await ensureRegistered(stack.instances);
       claimImages(stack.imageIds);
       try {
-        return await parseSegmentation(stack.imageIds, bytes, header, () => {
+        return await parseSegmentation(stack.imageIds, stack.instances, bytes, header, () => {
           releaseImages(stack.imageIds);
         });
       } catch (error) {

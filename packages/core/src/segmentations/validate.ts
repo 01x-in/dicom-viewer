@@ -1,3 +1,4 @@
+import { sliceKey } from '../data/series';
 import { numbers, optionalString } from '../data/dicom-json';
 import type { SeriesStack } from '../data/types';
 import { distance } from '../measurements/geometry';
@@ -124,8 +125,8 @@ export function checkSegmentation(input: {
     }
   }
 
-  const imageOf = new Map(stack.instances.map((instance) => [instance.sopInstanceUID, instance]));
-  const missing = header.referencedSopInstanceUIDs.filter((sop) => !imageOf.has(sop));
+  const instanceUIDs = new Set(stack.instances.map((instance) => instance.sopInstanceUID));
+  const missing = header.referencedSopInstanceUIDs.filter((sop) => !instanceUIDs.has(sop));
   if (missing.length > 0) {
     warnings.push({
       code: 'missing-references',
@@ -134,13 +135,20 @@ export function checkSegmentation(input: {
     });
   }
 
+  const imageOf = new Map(
+    stack.instances.map((instance) => [
+      sliceKey(instance.sopInstanceUID, instance.frameNumber),
+      instance,
+    ]),
+  );
   let offFrames = 0;
   let farthest = 0;
   for (const frame of header.frames) {
+    // The image the frame is on: the frame it names of an instance of many, else the first.
     const instance =
       frame.referencedSopInstanceUID === undefined
         ? undefined
-        : imageOf.get(frame.referencedSopInstanceUID);
+        : imageOf.get(sliceKey(frame.referencedSopInstanceUID, frame.referencedFrameNumber ?? 1));
     const [x, y, z] = numbers(instance?.metadata ?? {}, '00200032');
     if (frame.position === undefined || x === undefined || y === undefined || z === undefined) {
       continue;
