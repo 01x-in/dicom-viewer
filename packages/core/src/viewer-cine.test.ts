@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CT, CT_TWO_STACKS, STUDY } from './testing/fakes';
+import { CT, CT_TWO_STACKS, LOOP, LOOP_FRAMES, STUDY } from './testing/fakes';
 import { destroyViewersAfterEach, harness, type Harness } from './testing/harness';
 import type { ViewportApi } from './viewer-core';
 
@@ -250,5 +250,48 @@ describe('cine', () => {
     expect(api.cine.playing).toBe(true);
     await api.cine.toggle();
     expect(api.cine.playing).toBe(false);
+  });
+});
+
+describe('cine of a loop that says its own rate', () => {
+  async function showLoop(h: Harness): Promise<ViewportApi> {
+    h.viewer.viewports.attach('vp-0', h.element);
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.setViewportSeries('vp-0', LOOP, { imageIndex: 0 });
+    const api = h.viewer.viewports.get('vp-0');
+    if (api === undefined) throw new Error('nothing is shown');
+    return api;
+  }
+
+  it('plays at that rate when no rate is asked for', async () => {
+    const h = harness();
+    const api = await showLoop(h);
+    expect(api.imageCount).toBe(LOOP_FRAMES);
+    await api.cine.play();
+    expect(api.cine.fps).toBe(25);
+    await vi.advanceTimersByTimeAsync(40);
+    expect(api.getImageIndex()).toBe(1);
+  });
+
+  it('plays at the rate it is asked for, whatever the loop says', async () => {
+    const h = harness();
+    const api = await showLoop(h);
+    await api.cine.play({ fps: 12 });
+    expect(api.cine.fps).toBe(12);
+  });
+
+  it('plays an image that says no rate at 10 frames a second, as before', async () => {
+    const h = harness();
+    const api = await show(h);
+    await api.cine.play();
+    expect(api.cine.fps).toBe(10);
+  });
+
+  it('keeps the rate it is playing at when play is called again with none', async () => {
+    const h = harness();
+    const api = await showLoop(h);
+    await api.cine.play({ fps: 12 });
+    await api.cine.play();
+    expect(api.cine.fps).toBe(12);
   });
 });

@@ -55,6 +55,9 @@ export const MULTIFRAME = '1.2.3.30';
 export const MULTIFRAME_FRAMES = 5;
 /** The one instance of `MULTIFRAME`. */
 export const MULTIFRAME_SOP = '1.2.3.30.0.0';
+/** A loop of 8 frames with no position, that says it plays at 25 frames a second (a frame time of 40 ms). */
+export const LOOP = '1.2.3.31';
+export const LOOP_FRAMES = 8;
 /** The frame of reference every fake instance is in. */
 export const FRAME_OF_REFERENCE = '1.2.3.77';
 
@@ -90,12 +93,16 @@ function instances(series: string, stack: number, count: number): SeriesInstance
 function frames(
   series: string,
   count: number,
+  loop = false,
 ): { whole: SeriesInstance; slices: SeriesInstance[] } {
   const instanceMetadata = {
     '00280010': { vr: 'US', Value: [256] },
     '00280011': { vr: 'US', Value: [512] },
     '00280008': { vr: 'IS', Value: [count] },
-    '00200052': { vr: 'UI', Value: [FRAME_OF_REFERENCE] },
+    // A loop has no frame of reference or position, and says how long each frame lasts.
+    ...(loop
+      ? { '00181063': { vr: 'DS', Value: [40] } }
+      : { '00200052': { vr: 'UI', Value: [FRAME_OF_REFERENCE] } }),
   };
   const slices = Array.from(
     { length: count },
@@ -105,12 +112,14 @@ function frames(
       frameCount: count,
       instanceNumber: 1,
       imageId: `fake:${series}/0/${(index + 1).toString()}`,
-      metadata: {
-        ...instanceMetadata,
-        '00200032': { vr: 'DS', Value: [0, 0, index * 2.5] },
-        '00200037': { vr: 'DS', Value: [1, 0, 0, 0, 1, 0] },
-        '00280030': { vr: 'DS', Value: [1, 1] },
-      },
+      metadata: loop
+        ? instanceMetadata
+        : {
+            ...instanceMetadata,
+            '00200032': { vr: 'DS', Value: [0, 0, index * 2.5] },
+            '00200037': { vr: 'DS', Value: [1, 0, 0, 0, 1, 0] },
+            '00280030': { vr: 'DS', Value: [1, 1] },
+          },
       instanceMetadata,
     }),
   );
@@ -125,6 +134,15 @@ function stackFrom(members: SeriesInstance[], index: number): SeriesStack {
     instances: members,
     imageIds: members.map((member) => member.imageId),
     reconstructable: { ok: true, spacingMm: 2.5 },
+  };
+}
+
+function loopStack(members: SeriesInstance[]): SeriesStack {
+  return {
+    index: 0,
+    instances: members,
+    imageIds: members.map((member) => member.imageId),
+    reconstructable: { ok: false, reason: 'missing-geometry' },
   };
 }
 
@@ -271,6 +289,7 @@ export function fakeSource(): FakeSource {
     throw new DataSourceError(`HTTP ${status.toString()}`, status);
   }
   const multiFrame = frames(MULTIFRAME, MULTIFRAME_FRAMES);
+  const loop = frames(LOOP, LOOP_FRAMES, true);
   const series: Record<string, LoadedSeriesData> = {
     [NO_PIXELS]: {
       studyInstanceUID: STUDY,
@@ -338,6 +357,14 @@ export function fakeSource(): FakeSource {
       description: 'CT of one instance of frames',
       instances: [multiFrame.whole],
       stacks: [stackFrom(multiFrame.slices, 0)],
+    },
+    [LOOP]: {
+      studyInstanceUID: STUDY,
+      seriesInstanceUID: LOOP,
+      modality: 'US',
+      description: 'A loop with no position',
+      instances: [loop.whole],
+      stacks: [loopStack(loop.slices)],
     },
   };
   return {

@@ -64,7 +64,7 @@ import {
   renderOverlay,
   type OverlayView,
 } from './overlay';
-import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
+import { assertCineFps, type CineApi, type CineController, cineRateOf, createCine } from './cine';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 import { createThumbnails, type ThumbnailsApi } from './thumbnails';
 import { createUiRegistry, type PanelDefinition, type UiApi } from './ui';
@@ -1130,7 +1130,14 @@ export function createViewerCore(
             // A stop, or a later play, made after this call supersedes it, even though it is still queued.
             if (mine === cineCalls) {
               if (shown.port.imageCount > 1) {
-                cine.play(cineOptions);
+                // A loop that says how fast it plays starts at that rate, unless a rate was asked
+                // for or it is already playing at one.
+                const rate = cineRateOf(shown.stack.instances[0]?.instanceMetadata ?? {});
+                cine.play(
+                  cineOptions?.fps === undefined && !cine.playing && rate !== undefined
+                    ? { ...cineOptions, fps: rate }
+                    : cineOptions,
+                );
                 // A series change ahead of this call in the queue stopped the old playback and cleared the wish.
                 cineWanted = true;
               } else cineWanted = false; // One image has nothing to play, so nothing is wanted.
