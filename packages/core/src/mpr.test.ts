@@ -24,6 +24,8 @@ function instance(
   };
   return {
     sopInstanceUID: `1.2.${index.toString()}`,
+    frameNumber: 1,
+    frameCount: 1,
     instanceNumber: index,
     imageId: `wadors:x/${index.toString()}`,
     metadata,

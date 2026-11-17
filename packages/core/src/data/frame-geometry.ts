@@ -148,8 +148,11 @@ function groupOf(
 export function readFrames(metadata: DicomJsonInstance): FrameSet | undefined {
   const frameCount = frameCountOf(metadata);
   if (frameCount === 1) return undefined;
-  const { [SHARED_GROUPS]: sharedSequence, [PER_FRAME_GROUPS]: perFrameSequence, ...base } =
-    metadata;
+  const {
+    [SHARED_GROUPS]: sharedSequence,
+    [PER_FRAME_GROUPS]: perFrameSequence,
+    ...base
+  } = metadata;
 
   const shared: Record<string, { vr?: string | undefined; Value?: unknown[] | undefined }> = {};
   const sharedGroup = groupOf(sharedSequence, 0, 1);

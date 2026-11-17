@@ -37,6 +37,8 @@ function phantomStack(
     };
     return {
       sopInstanceUID,
+      frameNumber: 1,
+      frameCount: 1,
       instanceNumber: index + 1,
       imageId: `id:${index.toString()}`,
       metadata,

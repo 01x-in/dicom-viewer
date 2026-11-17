@@ -9,11 +9,24 @@ export type DicomJsonInstance = Record<
   { vr?: string | undefined; Value?: unknown[] | undefined }
 >;
 
+/**
+ * One image that can be shown. For a single-frame instance that is the instance. For a multi-frame
+ * instance it is one frame of it: the entries of one instance share the SOP instance UID and differ
+ * in `frameNumber` and `imageId`. In `LoadedSeriesData.instances`, an entry is a whole instance.
+ */
 export interface SeriesInstance {
   readonly sopInstanceUID: string;
+  /** 1-based. 1 for a single-frame instance. */
+  readonly frameNumber: number;
+  /** NumberOfFrames of the instance. 1 for a single-frame instance, and for one that is not an image (a SEG). */
+  readonly frameCount: number;
   readonly instanceNumber: number | undefined;
   readonly imageId: string;
-  /** DICOMweb JSON for this instance, to register with the rendering engine. */
+  /**
+   * DICOMweb JSON to register with the rendering engine. For a frame of a multi-frame instance it
+   * is the instance's metadata with that frame's geometry at the top level and without the two
+   * functional group sequences, so it reads as a single-frame instance would.
+   */
   readonly metadata: DicomJsonInstance;
 }
 

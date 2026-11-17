@@ -57,6 +57,8 @@ export const FAKE_DEFAULT_WINDOW = { center: 40, width: 400 } as const;
 function instances(series: string, stack: number, count: number): SeriesInstance[] {
   return Array.from({ length: count }, (_, index) => ({
     sopInstanceUID: `${series}.${stack.toString()}.${index.toString()}`,
+    frameNumber: 1,
+    frameCount: 1,
     instanceNumber: index + 1,
     imageId: `fake:${series}/${stack.toString()}/${index.toString()}`,
     metadata: {
