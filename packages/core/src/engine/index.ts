@@ -18,6 +18,7 @@ import {
   metaData,
   utilities as metadataUtilities,
 } from '@cornerstonejs/metadata';
+import { sliceKey } from '../data/series';
 import type { FrameRequestPolicy, SeriesInstance, SeriesStack } from '../data/types';
 import type { SrRead } from '../measurements/sr';
 import { provideEngineDiagnostics } from '../diagnostics';
@@ -764,7 +765,12 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       try {
         return readStructuredReport(
           bytes,
-          new Map(instances.map((instance) => [instance.sopInstanceUID, instance.imageId])),
+          new Map(
+            instances.map((instance) => [
+              sliceKey(instance.sopInstanceUID, instance.frameNumber),
+              instance.imageId,
+            ]),
+          ),
         );
       } finally {
         releaseImages(imageIds);

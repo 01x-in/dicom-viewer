@@ -48,6 +48,11 @@ export const SEG_UNREADABLE = '1.2.3.14';
 export const ONLY_SEG_STUDY = '1.2.5';
 /** A series that is not a SEG or an SR but has no image with rows and columns, so nothing can be shown. */
 export const NO_PIXELS = '1.2.3.8';
+/** A CT that is one instance of 5 frames, as an Enhanced CT is. Its frames are 2.5 mm apart. */
+export const MULTIFRAME = '1.2.3.30';
+export const MULTIFRAME_FRAMES = 5;
+/** The one instance of `MULTIFRAME`. */
+export const MULTIFRAME_SOP = '1.2.3.30.0.0';
 /** The frame of reference every fake instance is in. */
 export const FRAME_OF_REFERENCE = '1.2.3.77';
 
@@ -77,6 +82,48 @@ function instances(series: string, stack: number, count: number): SeriesInstance
       instanceMetadata: metadata,
     };
   });
+}
+
+/** The frames of one instance: the same SOP instance, a frame number and an image id each. */
+function frames(
+  series: string,
+  count: number,
+): { whole: SeriesInstance; slices: SeriesInstance[] } {
+  const instanceMetadata = {
+    '00280010': { vr: 'US', Value: [256] },
+    '00280011': { vr: 'US', Value: [512] },
+    '00280008': { vr: 'IS', Value: [count] },
+    '00200052': { vr: 'UI', Value: [FRAME_OF_REFERENCE] },
+  };
+  const slices = Array.from(
+    { length: count },
+    (_, index): SeriesInstance => ({
+      sopInstanceUID: `${series}.0.0`,
+      frameNumber: index + 1,
+      frameCount: count,
+      instanceNumber: 1,
+      imageId: `fake:${series}/0/${(index + 1).toString()}`,
+      metadata: {
+        ...instanceMetadata,
+        '00200032': { vr: 'DS', Value: [0, 0, index * 2.5] },
+        '00200037': { vr: 'DS', Value: [1, 0, 0, 0, 1, 0] },
+        '00280030': { vr: 'DS', Value: [1, 1] },
+      },
+      instanceMetadata,
+    }),
+  );
+  const [first] = slices;
+  if (first === undefined) throw new Error('A series needs a frame.');
+  return { whole: { ...first, metadata: instanceMetadata }, slices };
+}
+
+function stackFrom(members: SeriesInstance[], index: number): SeriesStack {
+  return {
+    index,
+    instances: members,
+    imageIds: members.map((member) => member.imageId),
+    reconstructable: { ok: true, spacingMm: 2.5 },
+  };
 }
 
 function stackOf(series: string, index: number, count: number): SeriesStack {
@@ -211,6 +258,7 @@ export function fakeSource(): FakeSource {
     failure = undefined;
     throw new DataSourceError(`HTTP ${status.toString()}`, status);
   }
+  const multiFrame = frames(MULTIFRAME, MULTIFRAME_FRAMES);
   const series: Record<string, LoadedSeriesData> = {
     [NO_PIXELS]: {
       studyInstanceUID: STUDY,
@@ -262,6 +310,15 @@ export function fakeSource(): FakeSource {
         } satisfies LoadedSeriesData,
       ]),
     ),
+    // Last, so the studies the other tests look at keep their order.
+    [MULTIFRAME]: {
+      studyInstanceUID: STUDY,
+      seriesInstanceUID: MULTIFRAME,
+      modality: 'CT',
+      description: 'CT of one instance of frames',
+      instances: [multiFrame.whole],
+      stacks: [stackFrom(multiFrame.slices, 0)],
+    },
   };
   return {
     calls,

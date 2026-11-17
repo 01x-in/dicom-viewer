@@ -20,7 +20,17 @@ export interface MeasurementReference {
   readonly studyInstanceUID: string;
   readonly seriesInstanceUID: string;
   readonly sopInstanceUID: string;
+  /**
+   * The frame, for an image that is one frame of a multi-frame instance. A whole number from 1.
+   * Left out for frame 1 and for an instance of one frame, so a reference has one form for them.
+   */
+  readonly frameNumber?: number | undefined;
   readonly frameOfReferenceUID?: string | undefined;
+}
+
+/** The frame a reference is on: 1 when it names none. */
+export function frameOf(reference: MeasurementReference): number {
+  return reference.frameNumber ?? 1;
 }
 
 /** What the pixels inside an ellipse or a rectangle add up to. Hounsfield units, as the images store them. */
@@ -106,6 +116,7 @@ const referenceSchema: z.ZodType<MeasurementReference> = z.object({
   studyInstanceUID: uid,
   seriesInstanceUID: uid,
   sopInstanceUID: uid,
+  frameNumber: z.number().int().min(1).optional(),
   frameOfReferenceUID: uid.optional(),
 });
 

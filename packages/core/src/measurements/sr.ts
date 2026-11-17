@@ -13,6 +13,8 @@ export interface SrShape {
   readonly label?: string | undefined;
   /** The image the shape is drawn on. */
   readonly sopInstanceUID: string;
+  /** The frame of that image it is on. Left out for 1, as for an image of one frame. */
+  readonly frameNumber?: number | undefined;
   /** The place of its measurement group in the report, whatever the others did. It makes the id. */
   readonly position: number;
 }
@@ -34,8 +36,11 @@ export interface SrSkip {
 export interface SrMapInput {
   readonly srSopInstanceUID: string;
   readonly shapes: readonly SrShape[];
-  /** Where an image is, or `undefined` for one the viewer does not have. */
-  readonly referenceOf: (sopInstanceUID: string) => MeasurementReference | undefined;
+  /** Where a frame of an image is (frame 1 for an image of one frame), or `undefined` for one the viewer does not have. */
+  readonly referenceOf: (
+    sopInstanceUID: string,
+    frameNumber: number,
+  ) => MeasurementReference | undefined;
   /** Measurement groups the reader failed on. */
   readonly unreadable: number;
   /** The reader's names for shapes of a kind the model has no place for, one for each shape. */
@@ -64,7 +69,7 @@ export function measurementsFromSr(input: SrMapInput): SrMapResult {
   let notInStudy = 0;
   let rejected = 0;
   for (const shape of input.shapes) {
-    const reference = input.referenceOf(shape.sopInstanceUID);
+    const reference = input.referenceOf(shape.sopInstanceUID, shape.frameNumber ?? 1);
     if (reference === undefined) {
       notInStudy += 1;
       continue;

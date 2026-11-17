@@ -175,3 +175,58 @@ describe('orderEllipseAxes', () => {
     expect(orderEllipseAxes([...a, ...b], column)).toEqual([...a, ...b]);
   });
 });
+
+describe('measurementsFromSr on frames', () => {
+  const second: MeasurementReference = { ...reference, frameNumber: 40 };
+  const byFrame = (
+    sopInstanceUID: string,
+    frameNumber: number,
+  ): MeasurementReference | undefined =>
+    sopInstanceUID === reference.sopInstanceUID && frameNumber === 40 ? second : undefined;
+
+  it('asks for the frame the shape is on, and 1 when it says none', () => {
+    const asked: [string, number][] = [];
+    measurementsFromSr({
+      srSopInstanceUID: SR_SOP,
+      shapes: [
+        { ...length, frameNumber: 40 },
+        { ...length, position: 1 },
+      ],
+      referenceOf: (sop, frame) => {
+        asked.push([sop, frame]);
+        return undefined;
+      },
+      unreadable: 0,
+      unsupported: [],
+    });
+    expect(asked).toEqual([
+      [reference.sopInstanceUID, 40],
+      [reference.sopInstanceUID, 1],
+    ]);
+  });
+
+  it('keeps the frame in the reference of the measurement', () => {
+    const result = measurementsFromSr({
+      srSopInstanceUID: SR_SOP,
+      shapes: [{ ...length, frameNumber: 40 }],
+      referenceOf: byFrame,
+      unreadable: 0,
+      unsupported: [],
+    });
+    expect(result.measurements[0]?.reference).toEqual(second);
+  });
+
+  it('counts a shape on a frame the study does not have as one on an image it does not have', () => {
+    const result = measurementsFromSr({
+      srSopInstanceUID: SR_SOP,
+      shapes: [{ ...length, frameNumber: 41 }],
+      referenceOf: byFrame,
+      unreadable: 0,
+      unsupported: [],
+    });
+    expect(result.measurements).toEqual([]);
+    expect(result.skipped).toEqual([
+      { reason: 'The report refers to an image that is not in this study.', count: 1 },
+    ]);
+  });
+});
