@@ -1,6 +1,6 @@
 # Spec: multi-frame images
 
-Status: proposed (M12). Nothing is built. Six decisions are open and marked **Maintainer decides** (see "Decisions" at the end). The order of the phases follows the maintainer's answer to the question of which data the host project needs: both, enhanced first.
+Status: built (M12), with the differences listed in "What was built" at the end. The decisions are in [ADR 0015](../adr/0015-multi-frame-images.md), and the spike is [m12-spike.md](../m12-spike.md). The order of the phases follows the maintainer's answer to the question of which data the host project needs: both, enhanced first.
 
 ## Why
 
@@ -251,3 +251,19 @@ Settled by the maintainer:
 6. **Order against M11.** Merge M11 (the SR writer) first, then do step 11 inside M12 (recommended), or merge M12 first and have M11 add the frame number.
 7. **A frame-count warning.** No new limit, and the memory budget does the work (recommended), or a warning event above a set count of frames.
 8. **Milestone ID.** `M12`, as the plan's table continues after M11. The plan's M9 (OncoTrace readiness) is not built, and this does not change that.
+
+## What was built
+
+Everything in the spec is built except the items below. The report is [m12-report.md](../m12-report.md).
+
+- **Spike: go.** Over DICOMweb and from a local file, an Enhanced CT shows with the right HU on every frame, and its coronal and sagittal planes are pixel for pixel those of `ct-j2k`. One thing differed from the plan: Cornerstone keeps one metadata record for each instance, so the engine registers the raw instance JSON once, and `SeriesInstance` has a third new field, `instanceMetadata`.
+- **The loop phantom is `multiframe-loop`,** not `multiframe-cine`: the mock test checks that the series order follows the directory order, and a series named `...-cine` sorted before the CT.
+- **Decision 2 (naming):** `SeriesStack.instances` and `SeriesInstance` keep their names, with `frameNumber`, `frameCount`, and `instanceMetadata` added as required fields. A host that builds `SeriesInstance` by hand must add them; the changeset says so.
+- **Decision 3:** `measurements/v1` stays version 1, as recommended.
+- **Decision 4 changed:** a report shape on a multi-frame image with no frame number is read as frame 1, not counted as unreadable. The reader hands back frame 1 for it, and telling the two apart needs a second parse of the report.
+- **Decision 5 (SEG):** not done. A SEG on the frames of one multi-frame instance rejects at load with a message, because the mapping of its frames to images is by SOP instance and would land on one frame. The phantom has no `multiframe-seg` and no `multiframe-sr`; the SR is tested in the engine with a report written by Cornerstone's writer for frame 3. Matching by `(sop, frame)` is the next piece of work.
+- **Decision 6:** M12 does not depend on M11. Step 11 (the frame number in the SR writer) is not done: the writer is not on `main`.
+- **Decision 7:** no frame-count warning.
+- **`ViewportApi`** has no frame number (it has no SOP instance either). The frame is in the `viewport:image` event and in the result of `navigateTo`.
+- **Series browser:** it still shows the instance count the server gives, so one Enhanced CT file shows as one image. The stack has the right count.
+- **Not measured:** a real scanner's file, a large cine loop, and Safari's engine. The unit and matrix checks are on the phantom.

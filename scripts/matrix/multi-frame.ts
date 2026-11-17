@@ -9,6 +9,7 @@ import { expectReady, type HeadlessInput, query, waitForStatus, watch } from './
 import { EXPECTED_HU } from './smoke.ts';
 
 const FRAMES = 64;
+const LOOP_FRAMES = 24;
 /** Frames (1-based) that have the inserts: slices 9 to 56 of the phantom. */
 const FRAMES_WITH_INSERTS = [10, 32, 55] as const;
 
@@ -202,6 +203,78 @@ export async function scenarioMultiFrameLocalFile(
       );
     await checkFrames(watched, 'local frames');
     if (input.mock.requestLog.length > 0) failures.push('local files made DICOMweb requests');
+  } catch (error) {
+    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await watched.close();
+  }
+  return failures;
+}
+
+/** A loop with no position: its frames in the order they were recorded, played at the rate it says. */
+export async function scenarioMultiFrameLoop(
+  browser: Browser,
+  input: HeadlessInput,
+): Promise<string[]> {
+  const watched = await watch(browser);
+  const { page, failures } = watched;
+  try {
+    const found = input.mock.fixtures.series.find((item) =>
+      item.description.includes('multiframe-loop'),
+    );
+    if (found === undefined) return [...failures, 'the phantom has no multiframe-loop series'];
+    await page.goto(
+      query(input, { wadoRoot: input.mock.url, study: found.studyUid, series: found.seriesUid }),
+      { waitUntil: 'load', timeout: 180_000 },
+    );
+    if (!(await expectReady(watched))) return failures;
+    const count = await page.evaluate(() => window.__dv?.imageCount);
+    if (count !== LOOP_FRAMES)
+      failures.push(`shows ${String(count)} images, expected the ${LOOP_FRAMES.toString()} frames`);
+
+    // The disc moves 3 pixels to the right in each frame, so frames are in the order they were recorded.
+    for (const frame of [0, 11, LOOP_FRAMES - 1]) {
+      const column = 24 + 3 * frame;
+      const [onDisc, off] = await page.evaluate(
+        async ([index, at]) => [
+          (await window.__dv?.sampleHu(index, 64, at)) ?? Number.NaN,
+          (await window.__dv?.sampleHu(index, 64, 0)) ?? Number.NaN,
+        ],
+        [frame, column] as const,
+      );
+      if (onDisc !== 220 || off !== 30) {
+        failures.push(
+          `frame ${(frame + 1).toString()}: ${String(onDisc)} on the disc and ${String(off)} off it, expected 220 and 30`,
+        );
+      }
+    }
+
+    // With no geometry there is no plane to show: the slices are shown, and the reason is said.
+    const plane = await page.evaluate(async (seriesUid) => {
+      await window.__dvViewer?.setViewportSeries('vp-0', seriesUid, { orientation: 'coronal' });
+      return window.__dvViewer?.viewports.get('vp-0')?.mpr;
+    }, found.seriesUid);
+    if (plane?.mode !== 'stack' || plane.reason !== 'missing-geometry') {
+      failures.push(
+        `asked for a plane, got ${JSON.stringify(plane)}, expected slices (missing-geometry)`,
+      );
+    }
+    await page.evaluate(
+      async (seriesUid) =>
+        window.__dvViewer?.setViewportSeries('vp-0', seriesUid, { imageIndex: 0 }),
+      found.seriesUid,
+    );
+
+    // Playing with no rate asked for uses the one the loop states: a frame time of 40 ms is 25 a second.
+    const rate = await page.evaluate(async () => {
+      const viewport = window.__dv;
+      await viewport?.cine.play();
+      const fps = viewport?.cine.fps;
+      viewport?.cine.stop();
+      return fps;
+    });
+    if (rate !== 25)
+      failures.push(`the loop played at ${String(rate)} frames a second, expected 25`);
   } catch (error) {
     failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
   } finally {

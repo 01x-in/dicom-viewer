@@ -388,6 +388,11 @@ export function fakeSource(): FakeSource {
         return {
           studyInstanceUID,
           series: Object.values(series)
+            // The multi-frame series can be asked for by UID, but are not in the list, so the series
+            // browser and the hanging protocols of other tests see the study they always saw.
+            .filter(
+              (item) => item.seriesInstanceUID !== MULTIFRAME && item.seriesInstanceUID !== LOOP,
+            )
             .filter((item) => studyInstanceUID !== ONLY_SEG_STUDY || item.modality === 'SEG')
             .map((item) => ({
               seriesInstanceUID: item.seriesInstanceUID,

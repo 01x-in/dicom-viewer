@@ -19,6 +19,8 @@ from phantom import (
     TILTED_SERIES,
     FRACTIONAL_SEG_SERIES,
     INSERTS_SEG_SERIES,
+    CINE_FRAMES,
+    CINE_SERIES,
     MULTIFRAME_CT_SERIES,
     MULTIFRAME_STUDY,
     LEFT_MARKER_HU,
@@ -505,4 +507,61 @@ def test_the_enhanced_ct_is_reproducible(tmp_path: Path) -> None:
     generate(first)
     generate(second)
     name = Path(MULTIFRAME_CT_SERIES) / "0001.dcm"
+    assert (first / name).read_bytes() == (second / name).read_bytes()
+
+
+# --- A loop with no geometry (an ultrasound cine) --------------------------------------------------
+
+ULTRASOUND_MULTIFRAME_STORAGE = "1.2.840.10008.5.1.4.1.1.3.1"
+
+
+def _loop(out_dir: Path) -> pydicom.Dataset:
+    files = sorted((out_dir / CINE_SERIES).glob("*.dcm"))
+    assert len(files) == 1
+    return pydicom.dcmread(files[0])
+
+
+def test_the_cine_is_an_ultrasound_loop_in_the_multiframe_study(out_dir: Path) -> None:
+    ds = _loop(out_dir)
+    assert ds.SOPClassUID == ULTRASOUND_MULTIFRAME_STORAGE
+    assert ds.Modality == "US"
+    assert int(ds.NumberOfFrames) == CINE_FRAMES
+    assert ds.StudyInstanceUID == _enhanced(out_dir).StudyInstanceUID
+    assert ds.SeriesInstanceUID != _enhanced(out_dir).SeriesInstanceUID
+
+
+def test_the_cine_says_how_long_a_frame_lasts_and_has_no_geometry(out_dir: Path) -> None:
+    ds = _loop(out_dir)
+    assert float(ds.FrameTime) == 40
+    # FrameIncrementPointer says that FrameTime is what separates the frames.
+    assert int(ds.FrameIncrementPointer) == 0x00181063
+    for keyword in (
+        "ImagePositionPatient",
+        "ImageOrientationPatient",
+        "PixelSpacing",
+        "FrameOfReferenceUID",
+        "SharedFunctionalGroupsSequence",
+        "PerFrameFunctionalGroupsSequence",
+    ):
+        assert keyword not in ds
+
+
+def test_the_disc_of_the_cine_moves_one_step_to_the_right_each_frame(out_dir: Path) -> None:
+    frames = _loop(out_dir).pixel_array
+    assert frames.shape == (CINE_FRAMES, 128, 128)
+    assert frames.dtype == np.uint8
+    columns = [float(np.mean(np.nonzero(frame[64] > 100)[0])) for frame in frames]
+    steps = np.diff(columns)
+    assert np.all(steps > 0)
+    assert np.allclose(steps, steps[0], atol=0.6)
+    # No two frames are the same picture.
+    assert len({frame.tobytes() for frame in frames}) == CINE_FRAMES
+
+
+def test_the_cine_is_reproducible(tmp_path: Path) -> None:
+    first = tmp_path / "a"
+    second = tmp_path / "b"
+    generate(first)
+    generate(second)
+    name = Path(CINE_SERIES) / "0001.dcm"
     assert (first / name).read_bytes() == (second / name).read_bytes()

@@ -230,6 +230,21 @@ MULTIFRAME_CT_SERIES = "multiframe-ct"
 MULTIFRAME_CT_SERIES_NUMBER = 60
 EnhancedCTImageStorage = UID("1.2.840.10008.5.1.4.1.1.2.1")
 
+# A loop with no position or orientation, as an ultrasound or an angiogram is: frames in the order
+# they were recorded, 40 ms apart (25 a second). A grey disc moves across it.
+CINE_SERIES = "multiframe-loop"
+CINE_SERIES_NUMBER = 61
+CINE_FRAMES = 24
+CINE_FRAME_TIME_MS = 40
+CINE_SIZE = 128
+CINE_DISC_ROW = 64
+CINE_DISC_RADIUS_PX = 12
+CINE_DISC_FIRST_COLUMN = 24
+CINE_DISC_COLUMN_STEP = 3
+CINE_BACKGROUND = 30
+CINE_DISC = 220
+UltrasoundMultiFrameImageStorage = UID("1.2.840.10008.5.1.4.1.1.3.1")
+
 SEG_SOURCE_SERIES = "ct-j2k"
 # Fixed so that regenerating the phantom reproduces every SEG byte for byte.
 SEG_DATE = "20260101"
@@ -719,6 +734,68 @@ def enhanced_ct_dataset(spec: CtSpec) -> Dataset:
     return ds
 
 
+def cine_dataset() -> Dataset:
+    """An 8-bit grey loop of CINE_FRAMES frames with no geometry: a disc that moves to the right."""
+    series = CINE_SERIES
+    sop_uid = uid(f"{series}/instance")
+
+    meta = FileMetaDataset()
+    meta.MediaStorageSOPClassUID = UltrasoundMultiFrameImageStorage
+    meta.MediaStorageSOPInstanceUID = sop_uid
+    meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    meta.ImplementationClassUID = PYDICOM_IMPLEMENTATION_UID
+
+    ds = Dataset()
+    ds.file_meta = meta
+    ds.SOPClassUID = UltrasoundMultiFrameImageStorage
+    ds.SOPInstanceUID = sop_uid
+    ds.Modality = "US"
+    ds.Manufacturer = "dicom-viewer phantom"
+    ds.PatientName = "Phantom^CT"
+    ds.PatientID = "PHANTOM-001"
+    ds.PatientBirthDate = ""
+    ds.PatientSex = "O"
+    ds.PatientIdentityRemoved = "YES"
+    ds.StudyInstanceUID = uid(MULTIFRAME_STUDY)
+    ds.StudyID = "1"
+    ds.StudyDate = "20260101"
+    ds.StudyTime = "090000"
+    ds.AccessionNumber = ""
+    ds.ReferringPhysicianName = ""
+    ds.StudyDescription = "Synthetic multi-frame phantom"
+    ds.SeriesInstanceUID = uid(f"{series}/series")
+    ds.SeriesNumber = CINE_SERIES_NUMBER
+    ds.SeriesDescription = f"Phantom Loop ({series})"
+    ds.InstanceNumber = 1
+    ds.ContentDate = "20260101"
+    ds.ContentTime = "090000"
+    ds.ImageType = ["ORIGINAL", "PRIMARY"]
+    ds.NumberOfFrames = CINE_FRAMES
+    # The frame increment says what separates the frames: here, the frame time.
+    ds.FrameIncrementPointer = 0x00181063
+    ds.FrameTime = CINE_FRAME_TIME_MS
+
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.Rows = CINE_SIZE
+    ds.Columns = CINE_SIZE
+    ds.BitsAllocated = 8
+    ds.BitsStored = 8
+    ds.HighBit = 7
+    ds.PixelRepresentation = 0
+
+    rows, cols = np.mgrid[0:CINE_SIZE, 0:CINE_SIZE]
+    frames = []
+    for index in range(CINE_FRAMES):
+        column = CINE_DISC_FIRST_COLUMN + index * CINE_DISC_COLUMN_STEP
+        frame = np.full((CINE_SIZE, CINE_SIZE), CINE_BACKGROUND, dtype=np.uint8)
+        inside = (rows - CINE_DISC_ROW) ** 2 + (cols - column) ** 2 <= CINE_DISC_RADIUS_PX**2
+        frame[inside] = CINE_DISC
+        frames.append(frame)
+    ds.PixelData = np.stack(frames).tobytes()
+    return ds
+
+
 def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
     """Writes every phantom series under out_dir and returns the written files."""
     written: list[Path] = []
@@ -775,6 +852,14 @@ def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
     multiframe_path = multiframe_dir / "0001.dcm"
     enhanced.save_as(multiframe_path, enforce_file_format=True)
     written.append(multiframe_path)
+
+    cine_dir = out_dir / CINE_SERIES
+    cine_dir.mkdir(parents=True, exist_ok=True)
+    for stale in cine_dir.glob("*.dcm"):
+        stale.unlink()
+    cine_path = cine_dir / "0001.dcm"
+    cine_dataset().save_as(cine_path, enforce_file_format=True)
+    written.append(cine_path)
 
     sr_dir = out_dir / SR_SERIES
     sr_dir.mkdir(parents=True, exist_ok=True)

@@ -39,14 +39,21 @@ describe('loadFixtures', () => {
     expect(inSecond).toEqual(['Phantom CT (ct-nonuniform)', 'Phantom CT (ct-tilted)']);
   });
 
-  it('keeps the multi-frame phantom in a third study, as one instance with a frame for each slice', async () => {
+  it('keeps the multi-frame phantom in a third study: the Enhanced CT and the loop, one instance each', async () => {
     const store = await loadFixtures(FIXTURES);
     const [main, , third] = store.studyUids;
     const inThird = store.series.filter((item) => item.studyUid === third);
-    expect(inThird.map((item) => item.description)).toEqual(['Phantom CT (multiframe-ct)']);
-    const [series] = inThird;
-    expect(series?.studyUid).not.toBe(main);
-    expect(series?.instances).toHaveLength(1);
-    expect(series?.instances[0]?.frames).toHaveLength(64);
+    expect(inThird.map((item) => item.description).sort()).toEqual([
+      'Phantom CT (multiframe-ct)',
+      'Phantom Loop (multiframe-loop)',
+    ]);
+    for (const series of inThird) {
+      expect(series.studyUid).not.toBe(main);
+      expect(series.instances).toHaveLength(1);
+    }
+    const frames = (name: string): number | undefined =>
+      inThird.find((item) => item.description.includes(name))?.instances[0]?.frames.length;
+    expect(frames('multiframe-ct')).toBe(64);
+    expect(frames('multiframe-loop')).toBe(24);
   });
 });
