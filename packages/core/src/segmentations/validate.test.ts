@@ -37,9 +37,12 @@ function phantomStack(
     };
     return {
       sopInstanceUID,
+      frameNumber: 1,
+      frameCount: 1,
       instanceNumber: index + 1,
       imageId: `id:${index.toString()}`,
       metadata,
+      instanceMetadata: metadata,
     };
   });
   return {
@@ -95,6 +98,59 @@ describe('checkSegmentation on the phantom SEGs', () => {
     expect(warnings[1]?.message).toBe(
       '21 frames of the SEG are not on the plane of the image they name, by up to 12.0 mm.',
     );
+  });
+});
+
+describe('checkSegmentation on a SEG of the frames of one instance', () => {
+  const header = headerOf('multiframe-seg');
+  const [sop] = header.referencedSopInstanceUIDs;
+  /** The 64 frames of the one Enhanced CT instance, as the series model hoists them. */
+  function frameStack(): SeriesStack {
+    const stack = phantomStack(
+      header.frameOfReferenceUID,
+      Array.from({ length: 64 }, () => sop ?? ''),
+    );
+    // The whole instance is one object shared by its frames, and has no position of its own: a
+    // check that read the plane from it would find none.
+    const instanceMetadata: DicomJsonInstance = { '00080018': { vr: 'UI', Value: [sop ?? ''] } };
+    const instances = stack.instances.map((instance, at) => ({
+      ...instance,
+      frameNumber: at + 1,
+      frameCount: 64,
+      instanceMetadata,
+    }));
+    return { ...stack, instances };
+  }
+  const index = buildSegmentIndex({ rows: 1, columns: 2, layers: [[Uint8Array.of(1, 2)]] });
+
+  it('finds each frame of the SEG on the plane of the frame it names', () => {
+    expect(checkSegmentation({ header, stack: frameStack(), index })).toEqual([]);
+  });
+
+  it('does not compare the plane of a frame that names no frame of an instance of many', () => {
+    // The decoder puts such a frame on no image, so there is no plane to be off.
+    const unnamed: SegmentationHeader = {
+      ...header,
+      frames: header.frames.map((frame) => ({
+        segmentNumber: frame.segmentNumber,
+        referencedSopInstanceUID: frame.referencedSopInstanceUID,
+        position: frame.position,
+      })),
+    };
+    expect(
+      checkSegmentation({ header: unnamed, stack: frameStack(), index }).map(
+        (warning) => warning.code,
+      ),
+    ).not.toContain('plane-position');
+  });
+
+  it('finds the frames that are not on the plane of the frame they name', () => {
+    const wrong: SegmentationHeader = {
+      ...header,
+      frames: header.frames.map((frame) => ({ ...frame, referencedFrameNumber: 1 })),
+    };
+    const warnings = checkSegmentation({ header: wrong, stack: frameStack(), index });
+    expect(warnings.map((warning) => warning.code)).toContain('plane-position');
   });
 });
 

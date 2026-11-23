@@ -1,3 +1,6 @@
+import { firstNumber } from './data/dicom-json';
+import type { DicomJsonInstance } from './data/types';
+
 export interface CineOptions {
   /** Slices per second, above 0 and up to 60. Default 10, or the rate it is already playing at. */
   readonly fps?: number;
@@ -20,7 +23,27 @@ export interface CineApi {
 }
 
 export const DEFAULT_CINE_FPS = 10;
+export const MIN_CINE_FPS = 1;
 export const MAX_CINE_FPS = 60;
+
+/**
+ * The rate an image says it should play at, in frames a second, or `undefined` when it says none.
+ * The first of these that is a positive number: the recommended display rate (0008,2144), the cine
+ * rate (0018,0040), and the frame time (0018,1063, in milliseconds). It is kept within 1 to 60, what
+ * cine plays at.
+ */
+export function cineRateOf(metadata: DicomJsonInstance): number | undefined {
+  const rates: readonly (number | undefined)[] = [
+    firstNumber(metadata, '00082144'),
+    firstNumber(metadata, '00180040'),
+    (() => {
+      const frameTimeMs = firstNumber(metadata, '00181063');
+      return frameTimeMs === undefined ? undefined : 1000 / frameTimeMs;
+    })(),
+  ];
+  const rate = rates.find((value) => value !== undefined && Number.isFinite(value) && value > 0);
+  return rate === undefined ? undefined : Math.min(Math.max(rate, MIN_CINE_FPS), MAX_CINE_FPS);
+}
 
 export function assertCineFps(fps: number): void {
   if (!Number.isFinite(fps) || fps <= 0 || fps > MAX_CINE_FPS) {

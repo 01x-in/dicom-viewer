@@ -19,6 +19,11 @@ from phantom import (
     TILTED_SERIES,
     FRACTIONAL_SEG_SERIES,
     INSERTS_SEG_SERIES,
+    CINE_FRAMES,
+    CINE_SERIES,
+    MULTIFRAME_CT_SERIES,
+    MULTIFRAME_SEG_SERIES,
+    MULTIFRAME_STUDY,
     LEFT_MARKER_HU,
     MISMATCH_SEG_SERIES,
     MISMATCH_SHIFT_MM,
@@ -419,3 +424,190 @@ def test_the_sr_probe_is_on_the_water_insert_and_the_length_crosses_it(out_dir: 
     (c1, r1), (c2, r2) = length.points
     # 18 pixels of 1.5 mm, as the measurement says.
     assert length.measurement[1] == pytest.approx(((c2 - c1) ** 2 + (r2 - r1) ** 2) ** 0.5 * 1.5)
+
+
+# --- Enhanced CT (one instance, 64 frames) ---------------------------------------------------------
+
+ENHANCED_CT_STORAGE = "1.2.840.10008.5.1.4.1.1.2.1"
+
+
+def _enhanced(out_dir: Path) -> pydicom.Dataset:
+    files = sorted((out_dir / MULTIFRAME_CT_SERIES).glob("*.dcm"))
+    assert len(files) == 1
+    return pydicom.dcmread(files[0])
+
+
+def _per_frame(ds: pydicom.Dataset, index: int) -> pydicom.Dataset:
+    return ds.PerFrameFunctionalGroupsSequence[index]
+
+
+def test_the_enhanced_ct_is_one_instance_of_the_enhanced_class_with_every_frame(out_dir: Path) -> None:
+    ds = _enhanced(out_dir)
+    assert ds.SOPClassUID == ENHANCED_CT_STORAGE
+    assert ds.file_meta.TransferSyntaxUID == JPEG2000Lossless
+    assert int(ds.NumberOfFrames) == CT_SPEC.slices
+    assert len(ds.PerFrameFunctionalGroupsSequence) == CT_SPEC.slices
+    assert len(ds.SharedFunctionalGroupsSequence) == 1
+
+
+def test_the_enhanced_ct_is_in_a_study_of_its_own_with_the_phantom_frame_of_reference(out_dir: Path) -> None:
+    ds = _enhanced(out_dir)
+    main = _load_series(out_dir / "ct-j2k")[0]
+    assert ds.StudyInstanceUID != main.StudyInstanceUID
+    assert ds.FrameOfReferenceUID == main.FrameOfReferenceUID
+    assert MULTIFRAME_STUDY == "study-multiframe"
+
+
+def test_the_geometry_of_each_frame_is_that_of_the_same_slice_of_the_legacy_series(out_dir: Path) -> None:
+    ds = _enhanced(out_dir)
+    legacy = _load_series(out_dir / "ct-j2k")
+    shared = ds.SharedFunctionalGroupsSequence[0]
+    assert [float(v) for v in shared.PlaneOrientationSequence[0].ImageOrientationPatient] == [1, 0, 0, 0, 1, 0]
+    measures = shared.PixelMeasuresSequence[0]
+    assert [float(v) for v in measures.PixelSpacing] == [1.5, 1.5]
+    assert float(measures.SliceThickness) == 2.5
+    transform = shared.PixelValueTransformationSequence[0]
+    assert float(transform.RescaleIntercept) == -1024 and float(transform.RescaleSlope) == 1
+    for index, slice_ds in enumerate(legacy):
+        position = _per_frame(ds, index).PlanePositionSequence[0].ImagePositionPatient
+        assert [float(v) for v in position] == pytest.approx(
+            [float(v) for v in slice_ds.ImagePositionPatient], abs=1e-6
+        )
+
+
+def test_the_pixels_of_each_frame_are_those_of_the_same_slice_of_the_legacy_series(out_dir: Path) -> None:
+    ds = _enhanced(out_dir)
+    legacy = _load_series(out_dir / "ct-j2k")
+    frames = ds.pixel_array
+    assert frames.shape == (CT_SPEC.slices, CT_SPEC.rows, CT_SPEC.columns)
+    for index, slice_ds in enumerate(legacy):
+        assert np.array_equal(frames[index], slice_ds.pixel_array)
+
+
+def test_each_frame_has_its_own_in_stack_position_and_the_instance_has_the_enhanced_header(out_dir: Path) -> None:
+    ds = _enhanced(out_dir)
+    positions = [
+        int(_per_frame(ds, i).FrameContentSequence[0].InStackPositionNumber)
+        for i in range(CT_SPEC.slices)
+    ]
+    assert positions == list(range(1, CT_SPEC.slices + 1))
+    assert list(ds.ImageType)[:2] == ["ORIGINAL", "PRIMARY"]
+    assert ds.Modality == "CT"
+    assert int(ds.InstanceNumber) == 1
+
+
+def test_highdicom_reads_the_enhanced_ct_as_a_volume_with_the_phantom_spacing(out_dir: Path) -> None:
+    volume = hd.Image.from_dataset(_enhanced(out_dir)).get_volume()
+    assert volume.shape == (CT_SPEC.slices, CT_SPEC.rows, CT_SPEC.columns)
+    assert volume.spacing == pytest.approx((CT_SPEC.slice_spacing_mm, 1.5, 1.5))
+
+
+def test_the_enhanced_ct_is_reproducible(tmp_path: Path) -> None:
+    first = tmp_path / "a"
+    second = tmp_path / "b"
+    generate(first)
+    generate(second)
+    name = Path(MULTIFRAME_CT_SERIES) / "0001.dcm"
+    assert (first / name).read_bytes() == (second / name).read_bytes()
+
+
+# --- A loop with no geometry (an ultrasound cine) --------------------------------------------------
+
+ULTRASOUND_MULTIFRAME_STORAGE = "1.2.840.10008.5.1.4.1.1.3.1"
+
+
+def _loop(out_dir: Path) -> pydicom.Dataset:
+    files = sorted((out_dir / CINE_SERIES).glob("*.dcm"))
+    assert len(files) == 1
+    return pydicom.dcmread(files[0])
+
+
+def test_the_cine_is_an_ultrasound_loop_in_the_multiframe_study(out_dir: Path) -> None:
+    ds = _loop(out_dir)
+    assert ds.SOPClassUID == ULTRASOUND_MULTIFRAME_STORAGE
+    assert ds.Modality == "US"
+    assert int(ds.NumberOfFrames) == CINE_FRAMES
+    assert ds.StudyInstanceUID == _enhanced(out_dir).StudyInstanceUID
+    assert ds.SeriesInstanceUID != _enhanced(out_dir).SeriesInstanceUID
+
+
+def test_the_cine_says_how_long_a_frame_lasts_and_has_no_geometry(out_dir: Path) -> None:
+    ds = _loop(out_dir)
+    assert float(ds.FrameTime) == 40
+    # FrameIncrementPointer says that FrameTime is what separates the frames.
+    assert int(ds.FrameIncrementPointer) == 0x00181063
+    for keyword in (
+        "ImagePositionPatient",
+        "ImageOrientationPatient",
+        "PixelSpacing",
+        "FrameOfReferenceUID",
+        "SharedFunctionalGroupsSequence",
+        "PerFrameFunctionalGroupsSequence",
+    ):
+        assert keyword not in ds
+
+
+def test_the_disc_of_the_cine_moves_one_step_to_the_right_each_frame(out_dir: Path) -> None:
+    frames = _loop(out_dir).pixel_array
+    assert frames.shape == (CINE_FRAMES, 128, 128)
+    assert frames.dtype == np.uint8
+    columns = [float(np.mean(np.nonzero(frame[64] > 100)[0])) for frame in frames]
+    steps = np.diff(columns)
+    assert np.all(steps > 0)
+    assert np.allclose(steps, steps[0], atol=0.6)
+    # No two frames are the same picture.
+    assert len({frame.tobytes() for frame in frames}) == CINE_FRAMES
+
+
+def test_the_cine_is_reproducible(tmp_path: Path) -> None:
+    first = tmp_path / "a"
+    second = tmp_path / "b"
+    generate(first)
+    generate(second)
+    name = Path(CINE_SERIES) / "0001.dcm"
+    assert (first / name).read_bytes() == (second / name).read_bytes()
+
+
+def test_the_multiframe_seg_names_frames_of_the_one_enhanced_ct_instance(out_dir: Path) -> None:
+    ct = pydicom.dcmread(out_dir / MULTIFRAME_CT_SERIES / "0001.dcm")
+    seg = pydicom.dcmread(out_dir / MULTIFRAME_SEG_SERIES / "0001.dcm")
+    assert seg.Modality == "SEG"
+    assert seg.StudyInstanceUID == ct.StudyInstanceUID
+    assert seg.FrameOfReferenceUID == ct.FrameOfReferenceUID
+    assert seg.SeriesDescription == f"Phantom SEG ({MULTIFRAME_SEG_SERIES})"
+    # Every frame of the SEG says which frame of the one instance it is on.
+    named = []
+    for frame in seg.PerFrameFunctionalGroupsSequence:
+        source = frame.DerivationImageSequence[0].SourceImageSequence[0]
+        assert source.ReferencedSOPInstanceUID == ct.SOPInstanceUID
+        named.append(int(source.ReferencedFrameNumber))
+    assert len(named) == len(seg.PerFrameFunctionalGroupsSequence) > 0
+    assert min(named) >= 1 and max(named) <= int(ct.NumberOfFrames)
+
+
+def test_the_multiframe_seg_is_on_the_same_planes_as_the_frames_it_names(out_dir: Path) -> None:
+    ct = pydicom.dcmread(out_dir / MULTIFRAME_CT_SERIES / "0001.dcm")
+    seg = pydicom.dcmread(out_dir / MULTIFRAME_SEG_SERIES / "0001.dcm")
+    for frame in seg.PerFrameFunctionalGroupsSequence:
+        number = int(frame.DerivationImageSequence[0].SourceImageSequence[0].ReferencedFrameNumber)
+        wanted = ct.PerFrameFunctionalGroupsSequence[number - 1].PlanePositionSequence[0]
+        got = frame.PlanePositionSequence[0]
+        assert np.allclose(
+            [float(v) for v in got.ImagePositionPatient],
+            [float(v) for v in wanted.ImagePositionPatient],
+            atol=1e-3,
+        )
+
+
+def test_the_multiframe_seg_has_the_body_on_every_frame_and_the_bone_on_some(out_dir: Path) -> None:
+    seg = hd.seg.segread(str(out_dir / MULTIFRAME_SEG_SERIES / "0001.dcm"))
+    assert seg.number_of_segments == 2
+    ct = pydicom.dcmread(out_dir / MULTIFRAME_CT_SERIES / "0001.dcm")
+    assert len(seg.get_source_image_uids()) == 1
+    body = seg.get_pixels_by_source_frame(
+        source_sop_instance_uid=ct.SOPInstanceUID,
+        source_frame_numbers=list(range(1, int(ct.NumberOfFrames) + 1)),
+        segment_numbers=[1],
+    )
+    assert body.shape[0] == int(ct.NumberOfFrames)
+    assert body.any(axis=(1, 2)).all()

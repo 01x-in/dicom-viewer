@@ -1,3 +1,4 @@
+import { sliceKey } from '../data/series';
 import { numbers, optionalString } from '../data/dicom-json';
 import type { SeriesStack } from '../data/types';
 import { distance } from '../measurements/geometry';
@@ -124,8 +125,8 @@ export function checkSegmentation(input: {
     }
   }
 
-  const imageOf = new Map(stack.instances.map((instance) => [instance.sopInstanceUID, instance]));
-  const missing = header.referencedSopInstanceUIDs.filter((sop) => !imageOf.has(sop));
+  const instanceUIDs = new Set(stack.instances.map((instance) => instance.sopInstanceUID));
+  const missing = header.referencedSopInstanceUIDs.filter((sop) => !instanceUIDs.has(sop));
   if (missing.length > 0) {
     warnings.push({
       code: 'missing-references',
@@ -134,13 +135,32 @@ export function checkSegmentation(input: {
     });
   }
 
+  const imageOf = new Map(
+    stack.instances.map((instance) => [
+      sliceKey(instance.sopInstanceUID, instance.frameNumber),
+      instance,
+    ]),
+  );
+  const manyFrames = new Set(
+    stack.instances
+      .filter((instance) => instance.frameCount > 1)
+      .map((instance) => instance.sopInstanceUID),
+  );
   let offFrames = 0;
   let farthest = 0;
   for (const frame of header.frames) {
-    const instance =
-      frame.referencedSopInstanceUID === undefined
+    // The image the frame is on: the frame it names, or, if it names none, the only frame of an
+    // image of one. On an instance of many it is on no image (as `planBinaryDecode` has it).
+    const referencedFrame =
+      frame.referencedFrameNumber ??
+      (frame.referencedSopInstanceUID !== undefined &&
+      manyFrames.has(frame.referencedSopInstanceUID)
         ? undefined
-        : imageOf.get(frame.referencedSopInstanceUID);
+        : 1);
+    const instance =
+      frame.referencedSopInstanceUID === undefined || referencedFrame === undefined
+        ? undefined
+        : imageOf.get(sliceKey(frame.referencedSopInstanceUID, referencedFrame));
     const [x, y, z] = numbers(instance?.metadata ?? {}, '00200032');
     if (frame.position === undefined || x === undefined || y === undefined || z === undefined) {
       continue;

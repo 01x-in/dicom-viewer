@@ -42,12 +42,24 @@ export const SEG_ON_SECOND_STACK = '1.2.3.13';
 export const SR = '1.2.3.20';
 /** An SR the engine refuses, as it does one that is not a TID 1500 measurement report. */
 export const SR_NOT_A_REPORT = '1.2.3.21';
+/** A binary SEG of frames 2 to 4 of `MULTIFRAME`: its frames name one instance, and a frame of it each. */
+export const SEG_ON_MULTIFRAME = '1.2.3.15';
+/** A fractional SEG of the same frames, which the viewer does not read itself. */
+export const SEG_FRACTIONAL_ON_MULTIFRAME = '1.2.3.16';
 /** A SEG whose bytes cannot be read. */
 export const SEG_UNREADABLE = '1.2.3.14';
 /** A study whose only series is the SEG: nothing in it can be shown. */
 export const ONLY_SEG_STUDY = '1.2.5';
 /** A series that is not a SEG or an SR but has no image with rows and columns, so nothing can be shown. */
 export const NO_PIXELS = '1.2.3.8';
+/** A CT that is one instance of 5 frames, as an Enhanced CT is. Its frames are 2.5 mm apart. */
+export const MULTIFRAME = '1.2.3.30';
+export const MULTIFRAME_FRAMES = 5;
+/** The one instance of `MULTIFRAME`. */
+export const MULTIFRAME_SOP = '1.2.3.30.0.0';
+/** A loop of 8 frames with no position, that says it plays at 25 frames a second (a frame time of 40 ms). */
+export const LOOP = '1.2.3.31';
+export const LOOP_FRAMES = 8;
 /** The frame of reference every fake instance is in. */
 export const FRAME_OF_REFERENCE = '1.2.3.77';
 
@@ -55,11 +67,8 @@ export const FRAME_OF_REFERENCE = '1.2.3.77';
 export const FAKE_DEFAULT_WINDOW = { center: 40, width: 400 } as const;
 
 function instances(series: string, stack: number, count: number): SeriesInstance[] {
-  return Array.from({ length: count }, (_, index) => ({
-    sopInstanceUID: `${series}.${stack.toString()}.${index.toString()}`,
-    instanceNumber: index + 1,
-    imageId: `fake:${series}/${stack.toString()}/${index.toString()}`,
-    metadata: {
+  return Array.from({ length: count }, (_, index): SeriesInstance => {
+    const metadata = {
       '00280010': { vr: 'US', Value: [256] },
       '00280011': { vr: 'US', Value: [512] },
       '00100010': { vr: 'PN', Value: [{ Alphabetic: 'DOE^JANE^^^' }] },
@@ -69,8 +78,74 @@ function instances(series: string, stack: number, count: number): SeriesInstance
       '00200037': { vr: 'DS', Value: [1, 0, 0, 0, 1, 0] },
       '00280030': { vr: 'DS', Value: [1, 1] },
       '00200052': { vr: 'UI', Value: [FRAME_OF_REFERENCE] },
-    },
-  }));
+    };
+    return {
+      sopInstanceUID: `${series}.${stack.toString()}.${index.toString()}`,
+      frameNumber: 1,
+      frameCount: 1,
+      instanceNumber: index + 1,
+      imageId: `fake:${series}/${stack.toString()}/${index.toString()}`,
+      metadata,
+      instanceMetadata: metadata,
+    };
+  });
+}
+
+/** The frames of one instance: the same SOP instance, a frame number and an image id each. */
+function frames(
+  series: string,
+  count: number,
+  loop = false,
+): { whole: SeriesInstance; slices: SeriesInstance[] } {
+  const instanceMetadata = {
+    '00280010': { vr: 'US', Value: [256] },
+    '00280011': { vr: 'US', Value: [512] },
+    '00280008': { vr: 'IS', Value: [count] },
+    // A loop has no frame of reference or position, and says how long each frame lasts.
+    ...(loop
+      ? { '00181063': { vr: 'DS', Value: [40] } }
+      : { '00200052': { vr: 'UI', Value: [FRAME_OF_REFERENCE] } }),
+  };
+  const slices = Array.from(
+    { length: count },
+    (_, index): SeriesInstance => ({
+      sopInstanceUID: `${series}.0.0`,
+      frameNumber: index + 1,
+      frameCount: count,
+      instanceNumber: 1,
+      imageId: `fake:${series}/0/${(index + 1).toString()}`,
+      metadata: loop
+        ? instanceMetadata
+        : {
+            ...instanceMetadata,
+            '00200032': { vr: 'DS', Value: [0, 0, index * 2.5] },
+            '00200037': { vr: 'DS', Value: [1, 0, 0, 0, 1, 0] },
+            '00280030': { vr: 'DS', Value: [1, 1] },
+          },
+      instanceMetadata,
+    }),
+  );
+  const [first] = slices;
+  if (first === undefined) throw new Error('A series needs a frame.');
+  return { whole: { ...first, metadata: instanceMetadata }, slices };
+}
+
+function stackFrom(members: SeriesInstance[], index: number): SeriesStack {
+  return {
+    index,
+    instances: members,
+    imageIds: members.map((member) => member.imageId),
+    reconstructable: { ok: true, spacingMm: 2.5 },
+  };
+}
+
+function loopStack(members: SeriesInstance[]): SeriesStack {
+  return {
+    index: 0,
+    instances: members,
+    imageIds: members.map((member) => member.imageId),
+    reconstructable: { ok: false, reason: 'missing-geometry' },
+  };
 }
 
 function stackOf(series: string, index: number, count: number): SeriesStack {
@@ -124,6 +199,26 @@ function fakeHeader(
   };
 }
 
+/** A SEG of frames 2 to 4 of the one instance of `MULTIFRAME`. */
+function multiFrameHeader(
+  uid: string,
+  segmentationType: 'BINARY' | 'FRACTIONAL',
+  bitsAllocated: number,
+): SegmentationHeader {
+  return {
+    ...fakeHeader(uid, ON_CT, [{ number: 1, label: 'Mass' }]),
+    segmentationType,
+    pixelData: { offset: 0, length: 1_000_000, bitsAllocated },
+    referencedSeriesInstanceUID: MULTIFRAME,
+    referencedSopInstanceUIDs: [MULTIFRAME_SOP],
+    frames: [2, 3, 4].map((referencedFrameNumber) => ({
+      segmentNumber: 1,
+      referencedSopInstanceUID: MULTIFRAME_SOP,
+      referencedFrameNumber,
+    })),
+  };
+}
+
 const ON_CT = { series: CT, stack: 0, count: 10 } as const;
 const BODY_AND_LESION: readonly FakeSegmentSpec[] = [
   { number: 1, label: 'Body' },
@@ -148,6 +243,8 @@ export const FAKE_SEGMENTATION_HEADERS: ReadonlyMap<string, SegmentationHeader> 
     ]),
   ],
   [SEG_OFF, fakeHeader(SEG_OFF, ON_CT, BODY_AND_LESION, '1.2.3.78')],
+  [SEG_ON_MULTIFRAME, multiFrameHeader(SEG_ON_MULTIFRAME, 'BINARY', 1)],
+  [SEG_FRACTIONAL_ON_MULTIFRAME, multiFrameHeader(SEG_FRACTIONAL_ON_MULTIFRAME, 'FRACTIONAL', 8)],
   [
     SEG_ON_SECOND_STACK,
     fakeHeader(SEG_ON_SECOND_STACK, { series: CT_TWO_STACKS, stack: 1, count: 3 }, [
@@ -162,7 +259,12 @@ export const FAKE_SEGMENTATION_HEADERS: ReadonlyMap<string, SegmentationHeader> 
  * The images are 3 to 5 of the CT, or 0 to 2 of a stack that has three.
  */
 export function fakeIndexOf(header: SegmentationHeader): SegmentIndexResult {
-  const first = header.referencedSopInstanceUIDs.length === 3 ? 0 : 3;
+  const named = header.frames.flatMap((frame) =>
+    frame.referencedFrameNumber === undefined ? [] : [frame.referencedFrameNumber - 1],
+  );
+  // The frames of one instance are the images, so the first of them is the first the SEG names.
+  const first =
+    named.length > 0 ? Math.min(...named) : header.referencedSopInstanceUIDs.length === 3 ? 0 : 3;
   const segments: SegmentIndexEntry[] = header.segments.map((segment) => {
     const counts = [10 * segment.number, 30 * segment.number, 20 * segment.number];
     const voxelCount = counts.reduce((sum, count) => sum + count, 0);
@@ -205,6 +307,8 @@ export function fakeSource(): FakeSource {
     failure = undefined;
     throw new DataSourceError(`HTTP ${status.toString()}`, status);
   }
+  const multiFrame = frames(MULTIFRAME, MULTIFRAME_FRAMES);
+  const loop = frames(LOOP, LOOP_FRAMES, true);
   const series: Record<string, LoadedSeriesData> = {
     [NO_PIXELS]: {
       studyInstanceUID: STUDY,
@@ -244,7 +348,16 @@ export function fakeSource(): FakeSource {
       ]),
     ),
     ...Object.fromEntries(
-      [SEG, SEG_SECOND, SEG_OVERLAP, SEG_OFF, SEG_ON_SECOND_STACK, SEG_UNREADABLE].map((uid) => [
+      [
+        SEG,
+        SEG_SECOND,
+        SEG_OVERLAP,
+        SEG_OFF,
+        SEG_ON_SECOND_STACK,
+        SEG_ON_MULTIFRAME,
+        SEG_FRACTIONAL_ON_MULTIFRAME,
+        SEG_UNREADABLE,
+      ].map((uid) => [
         uid,
         {
           studyInstanceUID: STUDY,
@@ -256,6 +369,23 @@ export function fakeSource(): FakeSource {
         } satisfies LoadedSeriesData,
       ]),
     ),
+    // Last, so the studies the other tests look at keep their order.
+    [MULTIFRAME]: {
+      studyInstanceUID: STUDY,
+      seriesInstanceUID: MULTIFRAME,
+      modality: 'CT',
+      description: 'CT of one instance of frames',
+      instances: [multiFrame.whole],
+      stacks: [stackFrom(multiFrame.slices, 0)],
+    },
+    [LOOP]: {
+      studyInstanceUID: STUDY,
+      seriesInstanceUID: LOOP,
+      modality: 'US',
+      description: 'A loop with no position',
+      instances: [loop.whole],
+      stacks: [loopStack(loop.slices)],
+    },
   };
   return {
     calls,
@@ -278,6 +408,11 @@ export function fakeSource(): FakeSource {
         return {
           studyInstanceUID,
           series: Object.values(series)
+            // The multi-frame series can be asked for by UID, but are not in the list, so the series
+            // browser and the hanging protocols of other tests see the study they always saw.
+            .filter(
+              (item) => item.seriesInstanceUID !== MULTIFRAME && item.seriesInstanceUID !== LOOP,
+            )
             .filter((item) => studyInstanceUID !== ONLY_SEG_STUDY || item.modality === 'SEG')
             .map((item) => ({
               seriesInstanceUID: item.seriesInstanceUID,

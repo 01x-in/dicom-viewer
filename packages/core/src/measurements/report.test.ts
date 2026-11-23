@@ -1,3 +1,4 @@
+import { sliceKey } from '../data/series';
 import { describe, expect, it } from 'vitest';
 import {
   buildReport,
@@ -49,7 +50,10 @@ const series = (uid: string, count: number, description?: string): [string, Repo
     modality: 'CT',
     description,
     slices: new Map(
-      Array.from({ length: count }, (_, index) => [`${uid}.0.${index.toString()}`, index + 1]),
+      Array.from({ length: count }, (_, index) => [
+        sliceKey(`${uid}.0.${index.toString()}`, 1),
+        index + 1,
+      ]),
     ),
   },
 ];
@@ -111,8 +115,8 @@ describe('buildReport', () => {
       description: undefined,
       // The first instance of the series is the last slice of the stack.
       slices: new Map([
-        ['1.2.3.1.0.0', 10],
-        ['1.2.3.1.0.4', 6],
+        [sliceKey('1.2.3.1.0.0', 1), 10],
+        [sliceKey('1.2.3.1.0.4', 1), 6],
       ]),
     };
     const row = buildReport(input({ series: new Map([['1.2.3.1', reversed]]) })).rows[0];

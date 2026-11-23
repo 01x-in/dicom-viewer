@@ -18,7 +18,7 @@ import {
   type DecodeBinaryResult,
 } from '../segmentations/decode-binary';
 import type { SegmentationHeader } from '../segmentations/header';
-import { planBinaryDecode, type BinaryPlan } from '../segmentations/plan';
+import { planBinaryDecode, type BinaryPlan, type PlanImage } from '../segmentations/plan';
 import {
   buildSegmentIndex as buildSegmentIndexOnThisThread,
   type SegmentIndexInput,
@@ -158,16 +158,6 @@ interface Decoded {
     readonly frames: readonly (ArrayLike<number> | undefined)[];
   }[];
   readonly index: SegmentIndexResult;
-}
-
-function sopInstanceOf(imageId: string): string | undefined {
-  const common: unknown = metaData.get('sopCommonModule', imageId);
-  return typeof common === 'object' &&
-    common !== null &&
-    'sopInstanceUID' in common &&
-    typeof common.sopInstanceUID === 'string'
-    ? common.sopInstanceUID
-    : undefined;
 }
 
 function removeFromCache(imageIds: readonly string[]): void {
@@ -310,16 +300,15 @@ function addLabelmapSegmentation(
  */
 export async function parseSegmentation(
   imageIds: readonly string[],
+  /** The instance and frame each of `imageIds` is, in the same order. */
+  images: readonly PlanImage[],
   bytes: ArrayBuffer,
   header: SegmentationHeader,
   /** Called once when the handle is disposed, after its segmentations are gone. */
   onDispose: () => void = () => undefined,
 ): Promise<SegmentationHandle> {
   const labels = new Map(header.segments.map((segment) => [segment.number, segment.label]));
-  const plan = planBinaryDecode(
-    header,
-    imageIds.map((imageId) => sopInstanceOf(imageId) ?? ''),
-  );
+  const plan = planBinaryDecode(header, images);
   const decoded =
     plan === undefined
       ? await decodeWithAdapters(imageIds, bytes)

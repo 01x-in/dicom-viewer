@@ -5,6 +5,7 @@ import { metaData } from '@cornerstonejs/core';
 import { data } from 'dcmjs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { sliceKey } from '../data/series';
 import type { MeasurementType, Point3 } from '../measurements/model';
 import {
   liftSiblingCoordinates,
@@ -15,6 +16,8 @@ import {
 
 const PHANTOM = fileURLToPath(new URL('../../../../fixtures/phantom', import.meta.url));
 const IMAGE_ID = 'phantom:1';
+/** The same image as frame 3 of a multi-frame instance. */
+const FRAME_3_ID = 'phantom:1?frame=3';
 const SPACING = 1.5;
 
 function arrayBufferOf(path: string): ArrayBuffer {
@@ -48,7 +51,10 @@ const plane = {
 
 /** What Cornerstone would know about the one image the reports in these tests are drawn on. */
 function provide(type: string, imageId: string): unknown {
-  if (imageId !== IMAGE_ID) return undefined;
+  // The same image, as frame 3 of a multi-frame instance.
+  if (imageId === FRAME_3_ID && type === 'frameNumber') return 3;
+  if (imageId === FRAME_3_ID && type === 'instance') return { ...ct, NumberOfFrames: 5 };
+  if (imageId !== IMAGE_ID && imageId !== FRAME_3_ID) return undefined;
   if (type === 'imagePlaneModule') return plane;
   if (type === 'sopCommonModule') {
     return { sopInstanceUID: ctInfo.SOPInstanceUID, sopClassUID: ctInfo.SOPClassUID };
@@ -73,17 +79,17 @@ interface WrittenShape {
 const reportSchema = z.object({ dataset: z.unknown() });
 
 /** A report made by Cornerstone's own writer: what the reader is built to read. */
-function writeReport(shapes: readonly WrittenShape[]): ArrayBuffer {
-  const toolState: Record<string, Record<string, { data: unknown[] }>> = { [IMAGE_ID]: {} };
+function writeReport(shapes: readonly WrittenShape[], imageId = IMAGE_ID): ArrayBuffer {
+  const toolState: Record<string, Record<string, { data: unknown[] }>> = { [imageId]: {} };
   for (const shape of shapes) {
-    const tools = toolState[IMAGE_ID] ?? {};
+    const tools = toolState[imageId] ?? {};
     tools[shape.tool] ??= { data: [] };
     tools[shape.tool]?.data.push({
       data: {
         handles: { points: shape.points },
-        cachedStats: { [`imageId:${IMAGE_ID}`]: shape.stats },
+        cachedStats: { [`imageId:${imageId}`]: shape.stats },
       },
-      metadata: { referencedImageId: IMAGE_ID, FrameOfReferenceUID: ctInfo.FrameOfReferenceUID },
+      metadata: { referencedImageId: imageId, FrameOfReferenceUID: ctInfo.FrameOfReferenceUID },
       finding: undefined,
       findingSites: [],
     });
@@ -96,7 +102,7 @@ function writeReport(shapes: readonly WrittenShape[]): ArrayBuffer {
   return data.datasetToDict(reportSchema.parse(report).dataset).write();
 }
 
-const imageIdBySop = new Map([[ctInfo.SOPInstanceUID, IMAGE_ID]]);
+const imageIdBySop = new Map([[sliceKey(ctInfo.SOPInstanceUID, 1), IMAGE_ID]]);
 
 const providerPriority = 100;
 const provider = (type: string, query: unknown): unknown =>
@@ -180,6 +186,38 @@ describe('readStructuredReport', () => {
         { tool: 'Length', points: [at(20, 30), at(60, 30)], stats: { length: 60, unit: 'mm' } },
       ]),
       new Map(),
+    );
+    expect(read.shapes).toEqual([]);
+    expect(read.unreadable).toBe(1);
+  });
+
+  it('says the frame a shape is on, for an instance of many frames', () => {
+    const wrote: WrittenShape = {
+      tool: 'Length',
+      points: [at(20, 30), at(60, 30)],
+      stats: { length: 60, unit: 'mm' },
+    };
+    const images = new Map([
+      [sliceKey(ctInfo.SOPInstanceUID, 1), IMAGE_ID],
+      [sliceKey(ctInfo.SOPInstanceUID, 3), FRAME_3_ID],
+    ]);
+    const onThree = readStructuredReport(writeReport([wrote], FRAME_3_ID), images);
+    expect(onThree.unreadable).toBe(0);
+    expect(onThree.shapes.map((shape) => [shape.sopInstanceUID, shape.frameNumber])).toEqual([
+      [ctInfo.SOPInstanceUID, 3],
+    ]);
+    const onOne = readStructuredReport(writeReport([wrote]), images);
+    // Frame 1 is left out, as it is for an image of one frame.
+    expect(onOne.shapes.map((shape) => shape.frameNumber)).toEqual([undefined]);
+  });
+
+  it('counts a shape on a frame it was not given as one it could not read', () => {
+    const read = readStructuredReport(
+      writeReport(
+        [{ tool: 'Length', points: [at(20, 30), at(60, 30)], stats: { length: 60, unit: 'mm' } }],
+        FRAME_3_ID,
+      ),
+      imageIdBySop,
     );
     expect(read.shapes).toEqual([]);
     expect(read.unreadable).toBe(1);
@@ -355,7 +393,9 @@ describe('the phantom report, written by highdicom and not by Cornerstone', () =
   });
 
   const report = arrayBufferOf(`${PHANTOM}/sr-measurements/0001.dcm`);
-  const imageIds = new Map([...slices.values()].map((slice) => [slice.sop, slice.imageId]));
+  const imageIds = new Map(
+    [...slices.values()].map((slice) => [sliceKey(slice.sop, 1), slice.imageId]),
+  );
   /** A pixel of the slice, in patient millimetres. */
   const pixel = (index: number, column: number, row: number): Point3 => {
     const [x, y, z] = slices.get(index)?.position ?? [0, 0, 0];

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { readSegmentationHeader } from '../engine/segmentation-header';
 import { decodeBinarySegmentation } from './decode-binary';
 import type { SegmentationHeader } from './header';
-import { planBinaryDecode } from './plan';
+import { planBinaryDecode, type PlanImage } from './plan';
 
 const PHANTOM = fileURLToPath(new URL('../../../../fixtures/phantom', import.meta.url));
 
@@ -159,5 +159,57 @@ describe('decoding the phantom SEGs', () => {
     ]);
     expect(index.segments[0]?.imageIndices[0]).toBe(20);
     expect(index.segments[0]?.imageIndices.at(-1)).toBe(40);
+  });
+});
+
+describe('planBinaryDecode on the frames of one instance', () => {
+  const INSTANCE = '1.2.3.4.5';
+  const frameImages = (count: number): PlanImage[] =>
+    Array.from({ length: count }, (_, at) => ({
+      sopInstanceUID: INSTANCE,
+      frameNumber: at + 1,
+      frameCount: count,
+    }));
+  /** A SEG of the phantom, whose first frames are changed to name frames of `INSTANCE`. */
+  function segOn(referencedFrameNumbers: readonly (number | undefined)[]): SegmentationHeader {
+    const header = load('seg-body-bone').header;
+    return {
+      ...header,
+      frames: header.frames.slice(0, referencedFrameNumbers.length).map((frame, at) => ({
+        segmentNumber: frame.segmentNumber,
+        referencedSopInstanceUID: INSTANCE,
+        referencedFrameNumber: referencedFrameNumbers[at],
+      })),
+    };
+  }
+
+  it('puts each frame of the SEG on the frame of the instance it names', () => {
+    const plan = planBinaryDecode(segOn([3, 1, 5]), frameImages(5));
+    expect(plan?.frames.map((frame) => frame.imageIndex)).toEqual([2, 0, 4]);
+    expect(plan?.skipped).toBe(0);
+  });
+
+  it('counts a frame that names a frame the instance does not have as skipped', () => {
+    const plan = planBinaryDecode(segOn([2, 9]), frameImages(5));
+    expect(plan?.frames.map((frame) => frame.imageIndex)).toEqual([1, -1]);
+    expect(plan?.skipped).toBe(1);
+  });
+
+  it('does not guess the frame of a SEG frame that names none, on an instance of many frames', () => {
+    const plan = planBinaryDecode(segOn([undefined, 2]), frameImages(5));
+    expect(plan?.frames.map((frame) => frame.imageIndex)).toEqual([-1, 1]);
+    expect(plan?.skipped).toBe(1);
+  });
+
+  it('takes a frame that names none as the first frame of an image of one frame', () => {
+    const plan = planBinaryDecode(segOn([undefined]), [
+      { sopInstanceUID: INSTANCE, frameNumber: 1, frameCount: 1 },
+    ]);
+    expect(plan?.frames.map((frame) => frame.imageIndex)).toEqual([0]);
+  });
+
+  it('keeps taking a bare UID as an image of one frame', () => {
+    const plan = planBinaryDecode(segOn([1]), [INSTANCE]);
+    expect(plan?.frames.map((frame) => frame.imageIndex)).toEqual([0]);
   });
 });

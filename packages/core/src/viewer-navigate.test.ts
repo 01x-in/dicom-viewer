@@ -26,6 +26,7 @@ describe('navigateTo', () => {
       stackIndex: 0,
       imageIndex: 7,
       sopInstanceUID: `${CT}.0.7`,
+      frameNumber: 1,
     });
     expect(vp0(h.viewer)).toMatchObject({ seriesInstanceUID: CT, stackIndex: 0, imageIndex: 7 });
     expect(h.port.stacks[0]?.getImageIndex()).toBe(7);
@@ -97,7 +98,6 @@ describe('navigateTo', () => {
   });
 
   it.each([
-    ['a frame beyond the first, since multi-frame images are not supported yet', 2, /multi-frame/i],
     ['a frame number of zero', 0, /frame/i],
     ['a frame number that is not a whole number', 1.5, /frame/i],
   ])('refuses %s', async (_name, frameNumber, message) => {
