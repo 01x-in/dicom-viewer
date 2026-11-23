@@ -8,7 +8,7 @@ import type {
   ViewportApi,
 } from '@01x/dicom-viewer-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DvViewerElement } from '@01x/dicom-viewer-elements';
+import type { DvViewerElement, DvPanelDockElement } from '@01x/dicom-viewer-elements';
 import {
   type App,
   createApp,
@@ -110,6 +110,24 @@ const shown = (): string | undefined =>
   made.at(-1)?.viewer.getState().viewports[0]?.seriesInstanceUID;
 
 describe('<DicomViewer>', () => {
+  it('sets thumbnail display and preserves an expanded dock through prop changes', async () => {
+    const props = await mount({ seriesDisplay: 'thumbnails', defaultRightPanelCollapsed: true });
+    const viewer = element().viewer;
+    const dock = element().shadowRoot?.querySelector<DvPanelDockElement>(
+      'dv-panel-dock[placement="right"]',
+    );
+    if (dock === null || dock === undefined) throw new Error('No right dock');
+    expect(element().seriesDisplay).toBe('thumbnails');
+    expect(dock.collapsed).toBe(true);
+    dock.shadowRoot?.querySelector<HTMLButtonElement>('[role="tab"]')?.click();
+    await dock.updateComplete;
+    props.messages = { viewerLabel: 'Visor' };
+    await settle();
+    expect(dock.collapsed).toBe(false);
+    expect(element().viewer).toBe(viewer);
+    expect(made).toHaveLength(1);
+  });
+
   it('renders the shell, sized to its parent, and shows the first series with pictures', async () => {
     await mount();
     expect(element().style.height).toBe('100%');

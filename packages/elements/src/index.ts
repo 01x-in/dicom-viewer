@@ -4,6 +4,7 @@ export { DvMeasurementListElement, measurementName } from './measurement-list';
 export { DvPanelDockElement } from './panel-dock';
 export { DvSegmentationListElement, segmentationName } from './segmentation-list';
 export { describeSeries, DvSeriesBrowserElement, isDisplayableModality } from './series-browser';
+export type { SeriesDisplay } from './series-browser';
 export { DvToolbarElement } from './toolbar';
 export type { ToolbarErrorDetail, ToolbarLabels } from './toolbar';
 export {

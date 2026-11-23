@@ -13,6 +13,7 @@ import type {
   DvViewerElement,
   PaletteName,
   ThemeName,
+  SeriesDisplay,
   ToolbarLabels,
   ToolbarItem,
   ViewerErrorDetail,
@@ -90,6 +91,10 @@ export interface DicomViewerProps {
   /** Extra side panels, by id. The series browser, the measurements list, and the segments list are built in. */
   readonly panels?: Readonly<Record<string, ReactPanel>> | undefined;
   readonly hideSeriesPanel?: boolean | undefined;
+  /** Default: detailed rows. Thumbnail tiles retain accessible names and hover identification. */
+  readonly seriesDisplay?: SeriesDisplay | undefined;
+  /** Initial right dock state. Later changes preserve the user's expansion choice. */
+  readonly defaultRightPanelCollapsed?: boolean | undefined;
   /** Hides the built-in list of measurements, a tab in the right-hand dock. */
   readonly hideMeasurementsPanel?: boolean | undefined;
   /** Hides the built-in list of SEGs and their segments, a tab in the right-hand dock. */
@@ -220,6 +225,8 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     toolbar,
     toolbarLabels,
     hideSeriesPanel,
+    seriesDisplay,
+    defaultRightPanelCollapsed,
     hideMeasurementsPanel,
     hideSegmentationsPanel,
     messages,
@@ -234,6 +241,8 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     element.toolbarLabels = toolbarLabels;
     element.toolbarItems = toolbar === undefined || toolbar === false ? undefined : toolbar;
     element.hideSeriesPanel = hideSeriesPanel === true;
+    element.seriesDisplay = seriesDisplay ?? 'detailed';
+    element.defaultRightPanelCollapsed = defaultRightPanelCollapsed;
     element.hideMeasurementsPanel = hideMeasurementsPanel === true;
     element.hideSegmentationsPanel = hideSegmentationsPanel === true;
   }, [
@@ -244,6 +253,8 @@ export function DicomViewer(props: DicomViewerProps): JSX.Element {
     toolbar,
     toolbarLabels,
     hideSeriesPanel,
+    seriesDisplay,
+    defaultRightPanelCollapsed,
     hideMeasurementsPanel,
     hideSegmentationsPanel,
   ]);

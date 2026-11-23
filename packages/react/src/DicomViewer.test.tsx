@@ -4,7 +4,11 @@ import type { Viewer, ViewerOptions, ViewerStateV1 } from '@01x/dicom-viewer-cor
 import { type JSX, type RefObject, StrictMode, createRef } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react';
-import type { DvViewerElement } from '@01x/dicom-viewer-elements';
+import type {
+  DvViewerElement,
+  DvPanelDockElement,
+  DvSeriesBrowserElement,
+} from '@01x/dicom-viewer-elements';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DicomViewer,
@@ -92,6 +96,39 @@ const shown = (): string | undefined =>
   made.at(-1)?.viewer.getState().viewports[0]?.seriesInstanceUID;
 
 describe('<DicomViewer>', () => {
+  it('supports thumbnail series and a collapsed right dock without resetting expansion on rerenders', async () => {
+    await render({ seriesDisplay: 'thumbnails', defaultRightPanelCollapsed: true });
+    const viewer = element().viewer;
+    const dock = element().shadowRoot?.querySelector<DvPanelDockElement>(
+      'dv-panel-dock[placement="right"]',
+    );
+    const left = element().shadowRoot?.querySelector<DvPanelDockElement>(
+      'dv-panel-dock[placement="left"]',
+    );
+    if (dock === null || dock === undefined || left === null || left === undefined)
+      throw new Error('No docks');
+    expect(dock.collapsed).toBe(true);
+    expect(left.collapsed).toBe(false);
+    const browser = left.shadowRoot?.querySelector<DvSeriesBrowserElement>('dv-series-browser');
+    expect(browser?.seriesDisplay).toBe('thumbnails');
+    const tab = dock.shadowRoot?.querySelector<HTMLButtonElement>('[role="tab"]');
+    await act(async () => {
+      tab?.click();
+      await dock.updateComplete;
+    });
+    expect(dock.collapsed).toBe(false);
+
+    await render({
+      seriesDisplay: 'thumbnails',
+      defaultRightPanelCollapsed: true,
+      messages: { viewerLabel: 'Visor' },
+    });
+    expect(element().viewer).toBe(viewer);
+    expect(made).toHaveLength(1);
+    expect(dock.collapsed).toBe(false);
+    expect(browser?.seriesDisplay).toBe('thumbnails');
+  });
+
   it('updates translated chrome without restarting the viewer or clearing measurements', async () => {
     await render({ messages: { viewerLabel: 'DICOM viewer' } });
     const before = made[0]?.viewer;

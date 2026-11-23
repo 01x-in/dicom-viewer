@@ -34,6 +34,21 @@ Nothing in the viewer runs on the server.
   `location`, create it in `onMounted` too (the Nuxt example does), or wrap the viewer in `<ClientOnly>`.
 - **Anything else.** `createViewer` needs a browser. Do not call it on the server.
 
+## Series and panel appearance
+
+The styled viewer keeps detailed series rows and an expanded right dock by default. For image-only
+tiles, pass `seriesDisplay="thumbnails"` to the React or Vue adapter, or set `series-display="thumbnails"`
+on `<dv-viewer>`. Tiles use a black image background in both themes. They omit the visible series
+caption and details. Their accessible names and hover titles still identify each series. Modality
+placeholders remain visible when a thumbnail is unavailable. Set `seriesDisplay="detailed"` to restore
+the normal rows. A change updates the browser without loading the study again.
+
+Pass `defaultRightPanelCollapsed={true}` in React, bind `:default-right-panel-collapsed="true"` in Vue,
+or set `default-right-panel-collapsed` on `<dv-viewer>` to start the right dock collapsed. Its tabs and
+expand control remain available. The default applies once, before the user operates the dock.
+Subsequent host updates and changes to this default never replace the user's expansion choice.
+This setting does not hide the panels or change the left series dock.
+
 ## Host text and languages
 
 The shell uses English unless the host supplies `messages`. Import `ViewerMessages` and

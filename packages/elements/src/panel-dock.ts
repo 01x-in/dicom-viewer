@@ -41,6 +41,7 @@ export class DvPanelDockElement extends LitElement {
     messages: { attribute: false },
     placement: { reflect: true },
     collapsed: { type: Boolean, reflect: true },
+    defaultCollapsed: { type: Boolean, attribute: 'default-collapsed' },
     selectedId: { state: true },
   };
 
@@ -175,11 +176,14 @@ export class DvPanelDockElement extends LitElement {
   declare placement: PanelPlacement;
   /** Folded to a strip of pictures down the edge. A click on a tab opens it again. */
   declare collapsed: boolean;
+  /** Initial collapsed state. Later changes never replace a user choice. */
+  declare defaultCollapsed: boolean | undefined;
   declare selectedId: string | undefined;
 
   #entries = new Map<string, Mounted>();
   #off: (() => void) | undefined;
   #listeningTo: Viewer | undefined;
+  #collapseInitialized = false;
 
   constructor() {
     super();
@@ -206,6 +210,10 @@ export class DvPanelDockElement extends LitElement {
   }
 
   override willUpdate(changed: PropertyValues<this>): void {
+    if (!this.#collapseInitialized && this.defaultCollapsed !== undefined) {
+      this.collapsed = this.defaultCollapsed;
+      this.#collapseInitialized = true;
+    }
     if (changed.has('viewer')) this.#listen();
     this.#reconcile();
   }
@@ -356,6 +364,7 @@ export class DvPanelDockElement extends LitElement {
             title=${selected && !collapsed ? nothing : title}
             tabindex=${selected ? 0 : -1}
             @click=${(): void => {
+              this.#collapseInitialized = true;
               this.selectedId = definition.id;
               this.collapsed = false;
             }}
@@ -373,6 +382,7 @@ export class DvPanelDockElement extends LitElement {
           aria-expanded=${collapsed ? 'false' : 'true'}
           title=${collapseLabel}
           @click=${(): void => {
+            this.#collapseInitialized = true;
             this.collapsed = !this.collapsed;
           }}
         >

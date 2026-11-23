@@ -51,6 +51,9 @@ type Thumbnail =
 
 const THUMBNAIL_SIZE = 96;
 
+/** The series browser keeps captions by default; thumbnail tiles show identification on hover. */
+export type SeriesDisplay = 'detailed' | 'thumbnails';
+
 /**
  * The series of the study, as a listbox of rows with a thumbnail. Choosing one shows it in the
  * viewport. Thumbnails are asked for as rows scroll into view (the core draws two at a time).
@@ -59,6 +62,7 @@ export class DvSeriesBrowserElement extends LitElement {
   static override properties: PropertyDeclarations = {
     viewer: { attribute: false },
     messages: { attribute: false },
+    seriesDisplay: { attribute: 'series-display', reflect: true },
     viewportId: { attribute: 'viewport-id' },
     label: {},
     series: { state: true },
@@ -135,11 +139,21 @@ export class DvSeriesBrowserElement extends LitElement {
         padding: calc(var(--dv-space, 0.25rem) * 3);
         color: var(--dv-color-text-muted, #a7b0be);
       }
+      :host([series-display='thumbnails']) [role='option'] {
+        background: #000;
+      }
+      :host([series-display='thumbnails']) .thumb {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 4 / 3;
+      }
     `,
   ];
 
   declare viewer: Viewer | undefined;
   declare messages: Partial<ViewerMessages> | undefined;
+  /** Default: detailed rows. Thumbnail tiles retain accessible names and hover identification. */
+  declare seriesDisplay: SeriesDisplay;
   /** The viewport the browser shows and fills. Default: the active one, which follows the person. */
   declare viewportId: string | undefined;
   declare label: string;
@@ -157,6 +171,7 @@ export class DvSeriesBrowserElement extends LitElement {
   constructor() {
     super();
     this.viewportId = undefined;
+    this.seriesDisplay = 'detailed';
     this.label = 'Series';
     this.series = [];
     this.shownUid = undefined;
@@ -337,6 +352,7 @@ export class DvSeriesBrowserElement extends LitElement {
       aria-selected=${selected ? 'true' : 'false'}
       aria-disabled=${displayable ? nothing : 'true'}
       aria-label=${`${title}, ${detail}`}
+      title=${this.seriesDisplay === 'thumbnails' ? `${title}, ${detail}` : nothing}
       draggable=${displayable ? 'true' : 'false'}
       @dragstart=${(event: DragEvent): void => {
         this.#onDragStart(event, summary, displayable);
@@ -359,10 +375,14 @@ export class DvSeriesBrowserElement extends LitElement {
             : html`<span>${summary.modality}</span>`
         }
       </span>
-      <span>
+      ${
+        this.seriesDisplay === 'thumbnails'
+          ? nothing
+          : html`<span>
         <span class="title" part="series-title">${title}</span><br />
         <span class="detail">${detail}</span>
-      </span>
+      </span>`
+      }
     </li>`;
   }
 

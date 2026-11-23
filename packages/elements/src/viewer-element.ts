@@ -26,7 +26,11 @@ import { hasSeriesDrag, readSeriesDrag, SERIES_DRAG_TYPE } from './series-drag';
 import { createThrottledAnnouncer, describeViewport, type ThrottledAnnouncer } from './live-label';
 import type { DvMeasurementListElement } from './measurement-list';
 import type { DvSegmentationListElement } from './segmentation-list';
-import { type DvSeriesBrowserElement, isDisplayableModality } from './series-browser';
+import {
+  type DvSeriesBrowserElement,
+  isDisplayableModality,
+  type SeriesDisplay,
+} from './series-browser';
 import { baseStyles, shellThemeStyles } from './theme';
 import { DEFAULT_TOOLBAR, type ToolbarItem } from './toolbar-config';
 import type { PaletteName, ThemeName } from './tokens';
@@ -116,6 +120,8 @@ export class DvViewerElement extends LitElement {
     toolbarLabels: { attribute: 'toolbar-labels' },
     hideToolbar: { type: Boolean, attribute: 'hide-toolbar' },
     hideSeriesPanel: { type: Boolean, attribute: 'hide-series-panel' },
+    seriesDisplay: { attribute: 'series-display' },
+    defaultRightPanelCollapsed: { type: Boolean, attribute: 'default-right-panel-collapsed' },
     hideMeasurementsPanel: { type: Boolean, attribute: 'hide-measurements-panel' },
     hideSegmentationsPanel: { type: Boolean, attribute: 'hide-segmentations-panel' },
     label: {},
@@ -279,6 +285,10 @@ export class DvViewerElement extends LitElement {
   /** What the viewer's config comes to now, so the shell draws it. */
   declare resolved: ResolvedViewerConfig | undefined;
   declare hideSeriesPanel: boolean;
+  /** Detailed rows by default. Thumbnail tiles have no visible series captions. */
+  declare seriesDisplay: SeriesDisplay;
+  /** Initial right dock state. User expansion and collapse persist across updates. */
+  declare defaultRightPanelCollapsed: boolean | undefined;
   declare hideMeasurementsPanel: boolean;
   declare hideSegmentationsPanel: boolean;
   /** The accessible name of the viewer as a whole, a landmark. Default `DICOM viewer`. */
@@ -317,6 +327,7 @@ export class DvViewerElement extends LitElement {
     this.toolbarLabels = undefined;
     this.hideToolbar = false;
     this.hideSeriesPanel = false;
+    this.seriesDisplay = 'detailed';
     this.hideMeasurementsPanel = false;
     this.hideSegmentationsPanel = false;
     this.label = 'DICOM viewer';
@@ -362,8 +373,11 @@ export class DvViewerElement extends LitElement {
       void this.#load();
       return;
     }
-    if (changed.has('messages')) {
-      for (const target of this.#messageTargets) target.messages = this.messages;
+    if (changed.has('messages') || changed.has('seriesDisplay')) {
+      for (const target of this.#messageTargets) {
+        target.messages = this.messages;
+        if ('seriesDisplay' in target) target.seriesDisplay = this.seriesDisplay;
+      }
       this.#refreshLabels(true);
     }
     if (changed.has('hideSeriesPanel') && this.#viewer !== undefined) {
@@ -693,6 +707,7 @@ export class DvViewerElement extends LitElement {
         const browser = document.createElement('dv-series-browser') as DvSeriesBrowserElement;
         browser.viewer = viewer;
         browser.messages = this.messages;
+        browser.seriesDisplay = this.seriesDisplay;
         this.#messageTargets.add(browser);
         container.append(browser);
         return (): void => {
@@ -942,7 +957,7 @@ export class DvViewerElement extends LitElement {
           </div>
         </div>
         <slot name="panel-right"></slot>
-        <dv-panel-dock part="dock-right" .viewer=${viewer} .messages=${this.messages} placement="right"></dv-panel-dock>
+        <dv-panel-dock part="dock-right" .viewer=${viewer} .messages=${this.messages} .defaultCollapsed=${this.defaultRightPanelCollapsed} placement="right"></dv-panel-dock>
       </div>
     </div>`;
   }

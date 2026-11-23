@@ -50,6 +50,39 @@ const nth = <T>(list: readonly T[], index: number): T => {
 };
 
 describe('<dv-panel-dock>', () => {
+  it('applies a collapsed default once and preserves the user choice', async () => {
+    const { dock, fake } = await mount('right');
+    expect(dock.collapsed).toBe(false);
+    dock.defaultCollapsed = true;
+    fake.viewer.ui.registerPanel(panel('measurements', { placement: 'right' }));
+    await dock.updateComplete;
+    expect(dock.collapsed).toBe(true);
+    expect(panels(dock).every((item) => item.hidden)).toBe(true);
+
+    nth(tabs(dock), 0).click();
+    await dock.updateComplete;
+    expect(dock.collapsed).toBe(false);
+    expect(nth(panels(dock), 0).hidden).toBe(false);
+    dock.messages = { rightPanels: 'Paneles derechos' };
+    dock.defaultCollapsed = false;
+    await dock.updateComplete;
+    dock.defaultCollapsed = true;
+    await dock.updateComplete;
+    expect(dock.collapsed).toBe(false);
+    expect(nth(panels(dock), 0).hidden).toBe(false);
+  });
+
+  it('does not apply a late default after the user operates the dock', async () => {
+    const { dock, fake } = await mount('right');
+    fake.viewer.ui.registerPanel(panel('measurements', { placement: 'right' }));
+    await dock.updateComplete;
+    nth(tabs(dock), 0).click();
+    await dock.updateComplete;
+    dock.defaultCollapsed = true;
+    await dock.updateComplete;
+    expect(dock.collapsed).toBe(false);
+  });
+
   it('hides itself with no panels, and shows them as tabs when they are registered', async () => {
     const { dock, fake } = await mount();
     expect(dock.hidden).toBe(true);

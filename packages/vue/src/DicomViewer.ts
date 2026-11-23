@@ -13,6 +13,7 @@ import type {
   DvViewerElement,
   PaletteName,
   ThemeName,
+  SeriesDisplay,
   ToolbarLabels,
   ToolbarItem,
   ViewerErrorDetail,
@@ -71,6 +72,10 @@ export interface DicomViewerProps {
   /** Extra side panels. Each one's content is the slot `panel-<id>`. The series browser, the measurements list, and the segments list are built in. */
   readonly panels?: readonly VuePanel[];
   readonly hideSeriesPanel?: boolean;
+  /** Default: detailed rows. Thumbnail tiles retain accessible names and hover identification. */
+  readonly seriesDisplay?: SeriesDisplay;
+  /** Initial right dock state. Later changes preserve the user's expansion choice. */
+  readonly defaultRightPanelCollapsed?: boolean;
   /** Hides the built-in list of measurements, a tab in the right-hand dock. */
   readonly hideMeasurementsPanel?: boolean;
   /** Hides the built-in list of SEGs and their segments, a tab in the right-hand dock. */
@@ -136,6 +141,8 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
     },
     panels: { type: Array as PropType<readonly VuePanel[]>, default: undefined },
     hideSeriesPanel: { type: Boolean, default: false },
+    seriesDisplay: { type: String as PropType<SeriesDisplay>, default: 'detailed' },
+    defaultRightPanelCollapsed: { type: Boolean, default: undefined },
     hideMeasurementsPanel: { type: Boolean, default: false },
     hideSegmentationsPanel: { type: Boolean, default: false },
     theme: { type: String as PropType<ThemeName>, default: undefined },
@@ -193,6 +200,8 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
       target.toolbarItems =
         props.toolbar === undefined || props.toolbar === false ? undefined : toRaw(props.toolbar);
       target.hideSeriesPanel = props.hideSeriesPanel === true;
+      target.seriesDisplay = props.seriesDisplay ?? 'detailed';
+      target.defaultRightPanelCollapsed = props.defaultRightPanelCollapsed;
       target.hideMeasurementsPanel = props.hideMeasurementsPanel === true;
       target.hideSegmentationsPanel = props.hideSegmentationsPanel === true;
     }
@@ -293,6 +302,8 @@ export const DicomViewer: Component<DicomViewerProps> = defineComponent({
         () => props.toolbar,
         () => props.toolbarLabels,
         () => props.hideSeriesPanel,
+        () => props.seriesDisplay,
+        () => props.defaultRightPanelCollapsed,
         () => props.hideMeasurementsPanel,
         () => props.hideSegmentationsPanel,
       ],

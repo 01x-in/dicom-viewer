@@ -92,6 +92,37 @@ describe('describeSeries', () => {
 });
 
 describe('<dv-series-browser>', () => {
+  it('keeps detailed rows by default and offers thumbnail tiles with accessible hover names', async () => {
+    const { browser, fake } = await mount();
+    const summary = fake.viewer
+      .getStudy()
+      ?.series.find((series) => series.seriesInstanceUID === FAKE_IDS.ct);
+    if (summary === undefined) throw new Error('No CT series');
+    const description = describeSeries(summary);
+    expect(browser.seriesDisplay).toBe('detailed');
+    expect(row(browser, FAKE_IDS.ct).querySelector('[part="series-title"]')?.textContent).toBe(
+      description.title,
+    );
+
+    browser.seriesDisplay = 'thumbnails';
+    await settle(browser);
+    const thumbnail = row(browser, FAKE_IDS.ct);
+    expect(browser.getAttribute('series-display')).toBe('thumbnails');
+    expect(thumbnail.querySelector('[part="series-title"]')).toBeNull();
+    expect(thumbnail.querySelector('.detail')).toBeNull();
+    expect(thumbnail.querySelector('[part="thumbnail"]')).not.toBeNull();
+    expect(thumbnail.getAttribute('aria-label')).toBe(
+      `${description.title}, ${description.detail}`,
+    );
+    expect(thumbnail.getAttribute('title')).toBe(`${description.title}, ${description.detail}`);
+    expect(thumbnail.getAttribute('draggable')).toBe('true');
+
+    press(thumbnail, 'Enter');
+    await settle(browser);
+    expect(fake.viewer.getState().viewports[0]?.seriesInstanceUID).toBe(FAKE_IDS.ct);
+    expect(row(browser, FAKE_IDS.ct).getAttribute('aria-selected')).toBe('true');
+  });
+
   it('says there are no series before a study is loaded', async () => {
     const { browser } = await mount({ study: false });
     expect(browser.shadowRoot?.querySelector('[role="status"]')?.textContent).toBe('No series.');
