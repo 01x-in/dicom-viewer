@@ -1,5 +1,20 @@
 # @01x/dicom-viewer-core
 
+## 1.3.0
+
+### Minor Changes
+
+- 883bf6a: Each row of the measurements panel now says which slice the measurement is on ("Slice 31", counted as the overlay counts), and **Previous** and **Next** buttons step through the measurements, showing the slice of each. A measurement is drawn only on its own slice, so before this a person could not tell where the others were. Core gains `viewer.measurements.slices()`, which gives the slice of each measurement by id, and three translatable messages: `measurementSlice`, `previousMeasurement`, and `nextMeasurement`.
+  
+  The panel can also choose several measurements: a box on each row (or **X** on the focused row, or Ctrl+A for all), a **Select all** box, and a count. **Show together** puts the chosen measurements side by side, one in each viewport on its own slice (two in a row of two, three or four in a grid of four, and the first four when more are chosen, which it says). **Delete selected** removes them. Choosing is separate from picking: it does not show an image. The option's `aria-checked` says whether it is chosen. New translatable messages: `measurementSelection`, `selectAll`, `selectedCount`, `showTogether`, `deleteSelected`, and `showingFirstSelected`.
+  
+  Once a report is loaded, a **Reload report** button loads it again, replacing what it made (the select cannot, as choosing the report that is already chosen sends no change). The message is `reloadReport`.
+- b1da859: Multi-frame images open. A series of Enhanced CT, MR, or PT instances shows each frame as one slice, with the position, orientation, and rescale of its own, over DICOMweb and from local files, and reformats into planes when the frames are even and parallel. A loop with no geometry (ultrasound, angiography) shows its frames in the order they were recorded, and cine plays at the rate the image states (`RecommendedDisplayFrameRate`, `CineRate`, or `FrameTime`) unless `fps` is given. Single-frame series are unchanged.
+  
+  `navigateTo` takes a `frameNumber` (from 1, default 1) and rejects a frame the instance does not have, naming how many it has. A measurement on a frame above 1 has `reference.frameNumber`; a measurement with none is on frame 1, and `measurements/v1` stays version 1. `measurements.list` takes a `frameNumber` filter. The `viewport:image` event and the result of `navigateTo` say the frame. A Structured Report is read by frame. A binary SEG on the frames of one multi-frame instance is drawn on the frame each of its frames names; `segmentations.jumpToSegment` says the `frameNumber` it showed. A SEG of another kind (fractional or labelmap) on a multi-frame image rejects and says why, because the viewer cannot tell its frames apart.
+  
+  `SeriesInstance` has three new fields: `frameNumber`, `frameCount`, and `instanceMetadata`. A host with its own data source that builds `SeriesInstance` by hand must add them, and make one `SeriesInstance` for each frame of a multi-frame instance: the same `sopInstanceUID`, the `frameNumber` and `frameCount`, an `imageId` for that frame, the frame's own position and orientation at the top level of its `metadata`, and the whole instance in `instanceMetadata`.
+
 ## 1.2.0
 
 ### Minor Changes
