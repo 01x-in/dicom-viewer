@@ -54,6 +54,20 @@ describe('frameCountOf', () => {
     expect(frameCountOf({ '00280008': { vr: 'IS', Value: ['40'] } })).toBe(40);
   });
 
+  it.each([[{ vr: 'IS' }], [{ vr: 'IS', Value: [] }]])(
+    'rejects a NumberOfFrames that is there with no value: %j',
+    (element) => {
+      expect(() => frameCountOf({ '00280008': element })).toThrow(/NumberOfFrames/);
+    },
+  );
+
+  it('rejects a count no instance has, before anything is made for each frame', () => {
+    expect(() => frameCountOf({ '00280008': { vr: 'IS', Value: [2_000_000_000] } })).toThrow(
+      /NumberOfFrames.*2000000000/,
+    );
+    expect(frameCountOf({ '00280008': { vr: 'IS', Value: [10_000] } })).toBe(10_000);
+  });
+
   it.each([[0], [-3], [1.5], ['abc'], ['']])('rejects %j, naming the attribute', (value) => {
     expect(() => frameCountOf({ '00280008': { vr: 'IS', Value: [value] } })).toThrow(
       /NumberOfFrames/,

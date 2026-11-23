@@ -93,11 +93,16 @@ measurements, and (when the frames have positions) reformats into planes.
   Enhanced MR with several echoes or phases at one position is split into one stack for each repeat, with no names. A
   Structured Report that names a multi-frame image without a frame number is read as frame 1. The series browser shows
   the number of instances the server counts, so one Enhanced CT file shows as one image there.
-- **Memory.** There is no limit on the number of frames. The image cache is limited by `memory.maxCacheBytes`, so a loop
+- **Your own source.** `getSeries` returns one stack entry for each frame: the same `sopInstanceUID`, `frameNumber` and
+  `frameCount`, an `imageId` for that frame (DICOMweb: `.../frames/<n>`), the frame's position and orientation at the
+  top level of its `metadata`, and the whole instance in `instanceMetadata`. The DICOMweb and local sources do this
+  with a helper that the package does not export.
+- **Memory.** An instance may have up to 100,000 frames; a larger `NumberOfFrames`, or one that is there with no value, is
+  rejected as a malformed instance. The image cache is limited by `memory.maxCacheBytes`, so a loop
   longer than the cache is decoded again at each turn.
 
 ## Your own source
 
 A data source implements `getStudy` (the series of a study), `getSeries` (the instances, their metadata, and the image
-ids to load, one for each frame of a multi-frame instance: use `buildSeries` to make them), `getInstanceBytes` (one whole instance, used for SEG), and says what the server allows in `capabilities`. Read `DataSource` and `LoadedSeriesData` in the API reference and the
+ids to load, and, for a multi-frame instance, one entry for each frame: see "Multi-frame images" above), `getInstanceBytes` (one whole instance, used for SEG), and says what the server allows in `capabilities`. Read `DataSource` and `LoadedSeriesData` in the API reference and the
 DICOMweb implementation (`packages/core/src/data/dicomweb.ts`) as a model.

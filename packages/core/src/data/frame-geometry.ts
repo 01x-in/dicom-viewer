@@ -79,17 +79,27 @@ function formatTag(tag: string): string {
   return `(${tag.slice(0, 4)},${tag.slice(4)})`;
 }
 
+/** The most frames of one instance that the viewer makes images for: a count past it is a corrupt or hostile value. */
+export const MAX_FRAMES = 100_000;
+
 /**
  * The number of frames the instance says it has: 1 when `NumberOfFrames` is missing. Throws a
- * `DataSourceError` for a value that is not a whole number from 1.
+ * `DataSourceError` for one that is there and is not a whole number from 1 to `MAX_FRAMES`.
  */
 export function frameCountOf(metadata: DicomJsonInstance): number {
-  const values = metadata[NUMBER_OF_FRAMES]?.Value ?? [];
-  if (values.length === 0) return 1;
+  const found = metadata[NUMBER_OF_FRAMES];
+  // The tag missing means one frame; the tag there with nothing in it is a malformed instance.
+  if (found === undefined) return 1;
+  const values = found.Value ?? [];
   const [count] = numbers(metadata, NUMBER_OF_FRAMES);
   if (count === undefined || !Number.isInteger(count) || count < 1) {
     throw new DataSourceError(
       `NumberOfFrames (0028,0008) must be a whole number from 1, not ${JSON.stringify(values[0])}.`,
+    );
+  }
+  if (count > MAX_FRAMES) {
+    throw new DataSourceError(
+      `NumberOfFrames (0028,0008) is ${count.toString()}, more than the ${MAX_FRAMES.toString()} frames of one instance that the viewer makes slices for.`,
     );
   }
   return count;

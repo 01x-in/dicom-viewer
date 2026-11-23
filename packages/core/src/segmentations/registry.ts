@@ -1,4 +1,5 @@
 import type { LoadedSeriesData, SeriesStack } from '../data/types';
+import { sliceKey } from '../data/series';
 import { assertDicomUid } from '../data/uid';
 import { numbers } from '../data/dicom-json';
 import type { RenderingPort, SegmentationHandle, StackPort } from '../rendering-port';
@@ -217,18 +218,33 @@ interface Entry {
   readonly located: ReadonlyMap<number, SegmentIndexEntry>;
 }
 
-/** The stack of the series that holds most of the instances the SEG names. */
-function stackOf(series: LoadedSeriesData, header: SegmentationHeader): SeriesStack {
+/**
+ * The stack of the series that holds most of the images the SEG names. An image is a frame of an
+ * instance: an instance of many frames can be split into stacks, so a frame the SEG names counts
+ * for the stack that has that frame, and an image of one frame counts for the instance.
+ */
+export function stackOf(series: LoadedSeriesData, header: SegmentationHeader): SeriesStack {
   const named = new Set([
     ...header.referencedSopInstanceUIDs,
     ...header.frames.flatMap((frame) =>
       frame.referencedSopInstanceUID === undefined ? [] : [frame.referencedSopInstanceUID],
     ),
   ]);
+  const namedFrames = new Set(
+    header.frames.flatMap((frame) =>
+      frame.referencedSopInstanceUID === undefined || frame.referencedFrameNumber === undefined
+        ? []
+        : [sliceKey(frame.referencedSopInstanceUID, frame.referencedFrameNumber)],
+    ),
+  );
   let best: SeriesStack | undefined;
   let most = 0;
   for (const stack of series.stacks) {
-    const count = stack.instances.filter((instance) => named.has(instance.sopInstanceUID)).length;
+    const count = stack.instances.filter((instance) =>
+      instance.frameCount > 1
+        ? namedFrames.has(sliceKey(instance.sopInstanceUID, instance.frameNumber))
+        : named.has(instance.sopInstanceUID),
+    ).length;
     if (count > most) {
       most = count;
       best = stack;

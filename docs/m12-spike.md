@@ -15,7 +15,7 @@
 
 - `SeriesInstance` has a third new field, `instanceMetadata`, beside `frameNumber` and `frameCount`.
 - The engine counts users for each instance as well as for each image, so the record of an instance is forgotten only when the last frame of it is released (`engine/index.ts`).
-- Added fields on `SeriesInstance` are required. A host that wrote its own data source and builds `SeriesInstance` by hand must add the three fields (the fix is to use `buildSeries`, which the DICOMweb and local sources use). This is listed in the changeset.
+- Added fields on `SeriesInstance` are required. A host that wrote its own data source and builds `SeriesInstance` by hand must add the three fields (`buildSeries`, which the DICOMweb and local sources use, is not exported). This is listed in the changeset.
 
 ## Not covered
 

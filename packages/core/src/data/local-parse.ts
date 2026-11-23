@@ -15,6 +15,10 @@ const ATTRIBUTES: readonly { tag: string; vr: string; kind: Kind }[] = [
   { tag: '00200013', vr: 'IS', kind: 'numbers' },
   { tag: '00200032', vr: 'DS', kind: 'numbers' },
   { tag: '00200037', vr: 'DS', kind: 'numbers' },
+  // How fast a loop plays: read by `cineRateOf`.
+  { tag: '00082144', vr: 'IS', kind: 'numbers' },
+  { tag: '00180040', vr: 'IS', kind: 'numbers' },
+  { tag: '00181063', vr: 'DS', kind: 'numbers' },
   { tag: '00280008', vr: 'IS', kind: 'numbers' },
   { tag: '00280010', vr: 'US', kind: 'uint16' },
   { tag: '00280011', vr: 'US', kind: 'uint16' },

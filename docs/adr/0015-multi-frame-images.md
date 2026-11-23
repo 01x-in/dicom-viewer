@@ -20,7 +20,7 @@ The viewer refused a series with a multi-frame instance: "Multi-frame image seri
 
 ## Consequences
 
-- `SeriesInstance` has three new required fields (`frameNumber`, `frameCount`, `instanceMetadata`). Reading is not affected. A host with its own data source that builds `SeriesInstance` by hand must add them, or use `buildSeries`. The changeset says so.
+- `SeriesInstance` has three new required fields (`frameNumber`, `frameCount`, `instanceMetadata`). Reading is not affected. A host with its own data source that builds `SeriesInstance` by hand must add them. `buildSeries` is not exported from the package, so such a host makes one entry for each frame itself; exporting it is a possible follow-up. The changeset says so.
 - Each frame is a request, so a large Enhanced CT makes many requests. Batching (`frames/1,2,3`) is a later optimization.
 - The local source reads a whole file to read its header, as it did. A large multi-frame file takes memory while it does.
 - An Enhanced MR with several dimensions at one position splits into one stack for each repeat, with no names. Naming them needs `DimensionIndexSequence`.

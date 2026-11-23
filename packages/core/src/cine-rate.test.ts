@@ -7,6 +7,12 @@ const tag = (id: string, value: unknown): DicomJsonInstance => ({
 });
 
 describe('cineRateOf', () => {
+  it('keeps a slow rate at 1 frame a second, the least cine plays at', () => {
+    // A frame time of 2000 ms is half a frame a second.
+    expect(cineRateOf(tag('00181063', 2000))).toBe(1);
+    expect(cineRateOf(tag('00180040', 0.25))).toBe(1);
+  });
+
   it('is nothing for an image that says nothing about its rate', () => {
     expect(cineRateOf({})).toBeUndefined();
   });

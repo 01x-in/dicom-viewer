@@ -110,10 +110,14 @@ describe('checkSegmentation on a SEG of the frames of one instance', () => {
       header.frameOfReferenceUID,
       Array.from({ length: 64 }, () => sop ?? ''),
     );
+    // The whole instance is one object shared by its frames, and has no position of its own: a
+    // check that read the plane from it would find none.
+    const instanceMetadata: DicomJsonInstance = { '00080018': { vr: 'UI', Value: [sop ?? ''] } };
     const instances = stack.instances.map((instance, at) => ({
       ...instance,
       frameNumber: at + 1,
       frameCount: 64,
+      instanceMetadata,
     }));
     return { ...stack, instances };
   }
@@ -121,6 +125,23 @@ describe('checkSegmentation on a SEG of the frames of one instance', () => {
 
   it('finds each frame of the SEG on the plane of the frame it names', () => {
     expect(checkSegmentation({ header, stack: frameStack(), index })).toEqual([]);
+  });
+
+  it('does not compare the plane of a frame that names no frame of an instance of many', () => {
+    // The decoder puts such a frame on no image, so there is no plane to be off.
+    const unnamed: SegmentationHeader = {
+      ...header,
+      frames: header.frames.map((frame) => ({
+        segmentNumber: frame.segmentNumber,
+        referencedSopInstanceUID: frame.referencedSopInstanceUID,
+        position: frame.position,
+      })),
+    };
+    expect(
+      checkSegmentation({ header: unnamed, stack: frameStack(), index }).map(
+        (warning) => warning.code,
+      ),
+    ).not.toContain('plane-position');
   });
 
   it('finds the frames that are not on the plane of the frame they name', () => {

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { cineRateOf } from '../cine';
 import { numbers } from './dicom-json';
 import { readFrames } from './frame-geometry';
 import { parseLocalInstance } from './local-parse';
@@ -51,5 +52,12 @@ describe('parseLocalInstance of an Enhanced CT', () => {
     const slice = parse('ct-j2k/0001.dcm');
     expect(slice['52009229']).toBeUndefined();
     expect(slice['52009230']).toBeUndefined();
+  });
+});
+
+describe('parseLocalInstance of a loop', () => {
+  it('keeps the tags that say how fast it plays, so a local file plays at its own rate', () => {
+    // The phantom loop has a frame time of 40 ms.
+    expect(cineRateOf(parse('multiframe-loop/0001.dcm'))).toBe(25);
   });
 });
