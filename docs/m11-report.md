@@ -43,7 +43,7 @@ The writer is in the engine chunk already, through the reader, so the engine chu
 
 ## Matrix
 
-MATRIX_RESULT
+On the merge of M12 and M11, in Chromium: `pnpm matrix --only headless` passes 40 of 40 scenarios (both asset modes, including `structured report`, where highdicom reads the exported file, and every multi-frame scenario of M12), and `pnpm matrix --only vanilla` passes 6 of 6. The full matrix with React, Vue, and the other frameworks was not run for M11, and the visual baselines were not made (the *Visual regression* workflow makes them).
 
 ## Changes to the API
 
