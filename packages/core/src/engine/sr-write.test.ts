@@ -523,7 +523,9 @@ describe('writeStructuredReport on the frames of one multi-frame image', () => {
   });
 
   it('refuses a measurement on a frame it was not given', () => {
-    const lost: SrWriteMeasurement = { ...(measurements[0] as SrWriteMeasurement), frameNumber: 3 };
+    const [first] = measurements;
+    if (first === undefined) throw new Error('No measurement');
+    const lost: SrWriteMeasurement = { ...first, frameNumber: 3 };
     expect(() => writeStructuredReport({ ...input, measurements: [lost] })).toThrow(
       /image the report was not given/,
     );

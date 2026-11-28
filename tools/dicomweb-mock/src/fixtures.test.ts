@@ -77,6 +77,7 @@ describe('addInstance', () => {
   it('adds a file as a series of its own study, which is then found like the others', async () => {
     const store = await loadFixtures(FIXTURES);
     const before = store.series.length;
+    const studies = store.studyUids.length;
     store.addInstance(anotherReport());
     expect(store.series).toHaveLength(before + 1);
     const added = store.series.find((item) => item.seriesUid === '2.25.9001');
@@ -85,7 +86,7 @@ describe('addInstance', () => {
     expect(added?.instances[0]?.frames).toEqual([]);
     expect(store.findSeries(added?.studyUid ?? '', '2.25.9001')).toBe(added);
     // It is in the study the report is of, and adds no study.
-    expect(store.studyUids).toHaveLength(2);
+    expect(store.studyUids).toHaveLength(studies);
   });
 
   it('adds to a series that is there, and refuses a file that is not DICOM', async () => {
