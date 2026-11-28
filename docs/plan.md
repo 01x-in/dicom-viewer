@@ -324,6 +324,18 @@ Reference files:
 - **`measurements.downloadPdf` is a command,** so a config file can put it on the toolbar as data.
 - Still open: a report from a vendor (only Cornerstone's and highdicom's are tried), writing an SR (`exportSr`), GSPS, shapes with no model type (circle, arrow, free-hand outline, Cobb angle), the visual baselines for the two new panel controls, and Safari and Firefox.
 
+## M11 outcome
+
+**Done and not released**, with the limits in [m11-report.md](m11-report.md); the decisions are in [ADR 0014](adr/0014-sr-export-and-text.md) and what the spike found is in [m11-spike.md](m11-spike.md). It was built before M12 was merged and finished after, so it writes the frame of a measurement. Changes to this plan that came out of the milestone:
+
+- **Cornerstone's writer makes the SR, and a pure step mends it.** The spike found the file was not shippable as written (a code too long for its field, a random tracking identifier, no character set, a placeholder for a probe, no minimum for a rectangle, two evidence entries for one study), so `engine/sr-finish.ts` fixes each, with a test for each. The writer is in the engine chunk already, through the reader.
+- **The shape goes beside its number and the label is a short code with the whole label in a Comment.** Both are the standard's way, and both mean OHIF will not draw these groups on the image and shows no label. The maintainer chose it; the guide says so.
+- **The file has the patient's identity in it,** whatever `showPatientInfo` says, and the menu item says so.
+- **The panel's controls are config.** `measurements: { downloadFormats, copyText }`. A format left out is left out of the panel only.
+- **dcmjs reads UTF-8 as Windows-1252,** so the reader repairs text for a file that says `ISO_IR 192`. This also mends M10.
+- **Three size budgets were raised:** the core viewer chunk to 27.5 kB, the elements viewer chunk to 29 kB, and `core/testing` to 4.5 kB.
+- Still open: a PACS, OHIF, and 3D Slicer have not been tried with an exported file, `dciodvfy` has not been run, a report on a real Enhanced CT, MR, or PT has not been written, loading an exported report again makes its measurements twice, there is no way to open a `.dcm` from disk as a report, the visual baselines for the new panel controls, and Safari and Firefox.
+
 ## M12 outcome
 
 **Done**, with the limits in [m12-report.md](m12-report.md); the decisions are in [ADR 0015](adr/0015-multi-frame-images.md), and the spike is [m12-spike.md](m12-spike.md). Changes to this plan that came out of the milestone:

@@ -145,7 +145,7 @@ Each step is one commit, `M11: ...`, with its tests.
 4. `exportSr` in the registry, with the queue and the held-image count.
 5. SR in the menu (if decided), the matrix step, and the highdicom check.
 6. Docs: the measurements guide (a section on writing a report, and the identity warning), the config guide and the JSON Schema (the new key), an ADR (0014), the README and site text, the plan's M11 row and outcome, `docs/m11-report.md`, a changeset (minor, core and elements), and the size budgets.
-7. Release: after the pull request is merged, run the *Release* workflow from the Actions tab (`docs/guides/releasing.md`). The changeset makes it 1.3.0.
+7. Release: after the pull request is merged, run the *Release* workflow from the Actions tab (`docs/guides/releasing.md`). The changeset is minor, and 1.3.0 went out with M12 and the panel changes before this milestone was merged, so it makes 1.4.0.
 
 ### Go or no-go (after step 0)
 
