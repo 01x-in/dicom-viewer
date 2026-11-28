@@ -86,6 +86,7 @@ export function shapesFromToolState(
   toolState: unknown,
   columnOf: (imageId: string) => Point3 | undefined,
   position: number,
+  frameOf: (imageId: string) => number = () => 1,
 ): SrRead {
   const shapes: SrShape[] = [];
   const unsupported: string[] = [];
@@ -120,6 +121,9 @@ export function shapesFromToolState(
             : points,
         label: description,
         sopInstanceUID: sopInstanceUid,
+        ...(frameOf(annotation.metadata.referencedImageId) > 1
+          ? { frameNumber: frameOf(annotation.metadata.referencedImageId) }
+          : {}),
         position,
       });
     }
@@ -175,23 +179,28 @@ export function readReportReferences(bytes: ArrayBuffer): readonly string[] {
 }
 
 /**
- * Reads the shapes of a TID 1500 measurement report. `imageIdBySop` holds the images the report may
- * refer to, and Cornerstone must already know their metadata: the reader turns pixel positions
- * into patient millimetres with it. A shape on any other image is counted as unreadable. Throws
- * for a file that is not a TID 1500 report.
+ * Reads the shapes of a TID 1500 measurement report. `images` holds the images the report may refer
+ * to, by `sliceKey` (the SOP instance and the frame, as the reader looks them up), and Cornerstone
+ * must already know their metadata: the reader turns pixel positions into patient millimetres with
+ * it. A shape on any other image or frame is counted as unreadable. Throws for a file that is not
+ * a TID 1500 report.
  */
 export function readStructuredReport(
   bytes: ArrayBuffer,
-  imageIdBySop: ReadonlyMap<string, string>,
+  images: ReadonlyMap<string, string>,
 ): SrRead {
   const dataset = naturalizedReport(bytes);
   const groups = measurementGroups(dataset);
   const report = reportOf(dataset);
   liftSiblingCoordinates(dataset);
 
-  // The reader looks an image up by its SOP instance and frame. Single-frame images are frame 1.
-  const imageIds: Record<string, string> = {};
-  for (const [sopInstanceUID, imageId] of imageIdBySop) imageIds[`${sopInstanceUID}:1`] = imageId;
+  // The reader looks an image up by its SOP instance and frame, which is the key of `images`. What
+  // it hands back names the image id, so the frame of a shape is found from that.
+  const imageIds: Record<string, string> = Object.fromEntries(images);
+  const frameOfImageId = new Map<string, number>();
+  for (const [key, imageId] of images) {
+    frameOfImageId.set(imageId, Number(key.slice(key.lastIndexOf(':') + 1)));
+  }
 
   // One group at a time. The reader gives its shapes by kind, not in the order of the report, and
   // drops a group it fails on with only a log line. Alone, a group has its place in the report, and
@@ -214,7 +223,12 @@ export function readStructuredReport(
         adapterMetadata,
         undefined,
       );
-      read = shapesFromToolState(toolState, columnOfImage, position);
+      read = shapesFromToolState(
+        toolState,
+        columnOfImage,
+        position,
+        (imageId) => frameOfImageId.get(imageId) ?? 1,
+      );
     } catch {
       read = undefined;
     }

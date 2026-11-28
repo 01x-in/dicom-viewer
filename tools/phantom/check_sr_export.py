@@ -34,6 +34,7 @@ class Group:
     numbers: dict[str, tuple[float, str]]
     graphic_type: str | None
     sop: str | None
+    frame: int | None = None
 
 
 def read(path: Path) -> pydicom.Dataset:
@@ -52,14 +53,17 @@ def _children(item: pydicom.Dataset) -> list[pydicom.Dataset]:
     return list(item.get("ContentSequence", []))
 
 
-def _region(item: pydicom.Dataset) -> tuple[str | None, str | None]:
-    """The shape beside the numbers, or inside one of them, and the image it is on."""
+def _region(item: pydicom.Dataset) -> tuple[str | None, str | None, int | None]:
+    """The shape beside the numbers, or inside one of them, the image it is on, and the frame of it (none for an image of one frame)."""
     for child in _children(item):
         if child.ValueType == "SCOORD":
             images = [c for c in _children(child) if c.ValueType == "IMAGE"]
-            sop = images[0].ReferencedSOPSequence[0].ReferencedSOPInstanceUID if images else None
-            return str(child.GraphicType), None if sop is None else str(sop)
-    return None, None
+            reference = images[0].ReferencedSOPSequence[0] if images else None
+            sop = None if reference is None else str(reference.ReferencedSOPInstanceUID)
+            frames = None if reference is None else reference.get("ReferencedFrameNumber")
+            frame = int(frames[0] if isinstance(frames, (list, pydicom.multival.MultiValue)) else frames) if frames is not None else None
+            return str(child.GraphicType), sop, frame
+    return None, None, None
 
 
 def groups_of(ds: pydicom.Dataset) -> list[Group]:
@@ -71,7 +75,7 @@ def groups_of(ds: pydicom.Dataset) -> list[Group]:
         label = None
         uid = None
         numbers: dict[str, tuple[float, str]] = {}
-        graphic, sop = _region(group)
+        graphic, sop, frame = _region(group)
         for child in _children(group):
             if child.ValueType == "TEXT" and _code(child) == COMMENT:
                 label = str(child.TextValue)
@@ -84,8 +88,8 @@ def groups_of(ds: pydicom.Dataset) -> list[Group]:
                 meaning = str(child.ConceptNameCodeSequence[0].CodeMeaning)
                 numbers[meaning] = (float(measured.NumericValue), str(measured.MeasurementUnitsCodeSequence[0].CodeValue))
                 if graphic is None:
-                    graphic, sop = _region(child)
-        found.append(Group(uid, label, numbers, graphic, sop))
+                    graphic, sop, frame = _region(child)
+        found.append(Group(uid, label, numbers, graphic, sop, frame))
     return found
 
 
@@ -166,6 +170,12 @@ def check(path: Path, expect: dict, source: Path | list[Path], allow_extra_group
             problems.append(f"group {at}: the shape is {group.graphic_type}, expected {want['graphic_type']}")
         if want.get("sop") is not None and group.sop != want["sop"]:
             problems.append(f"group {at}: on image {group.sop}, expected {want['sop']}")
+        if "frame" in want and group.frame != want["frame"]:
+            problems.append(f"group {at}: on frame {group.frame}, expected {want['frame']}")
+        if group.frame is not None and group.sop is not None:
+            frames = {int(getattr(i, "NumberOfFrames", 1) or 1) for i in images if str(i.SOPInstanceUID) == group.sop}
+            if frames and group.frame > max(frames):
+                problems.append(f"group {at}: frame {group.frame} of an image that has {max(frames)}")
         for meaning, number in want.get("numbers", {}).items():
             have = group.numbers.get(meaning)
             if have is None:

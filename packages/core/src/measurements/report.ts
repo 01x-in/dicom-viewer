@@ -1,5 +1,6 @@
 import { measurementLines, measurementNames, measurementTitle } from './describe';
-import type { Measurement } from './model';
+import { sliceKey } from '../data/series';
+import { frameOf, type Measurement } from './model';
 import type { MeasurementOrigin } from './registry';
 
 export const REPORT_FOOTER = 'Software for building viewers. Not for diagnosis.';
@@ -103,7 +104,9 @@ export function buildReport(input: ReportInput): ReportModel {
   const names = measurementNames(input.measurements);
   const rows = input.measurements.map((measurement): ReportRow => {
     const series = input.series.get(measurement.reference.seriesInstanceUID);
-    const slice = series?.slices.get(measurement.reference.sopInstanceUID);
+    const slice = series?.slices.get(
+      sliceKey(measurement.reference.sopInstanceUID, frameOf(measurement.reference)),
+    );
     return {
       name: names.get(measurement.id) ?? measurementTitle(measurement),
       type: TYPE_NAMES[measurement.type],

@@ -18,6 +18,7 @@ import {
   metaData,
   utilities as metadataUtilities,
 } from '@cornerstonejs/metadata';
+import { sliceKey } from '../data/series';
 import type { FrameRequestPolicy, SeriesInstance, SeriesStack } from '../data/types';
 import type { SrRead } from '../measurements/sr';
 import { provideEngineDiagnostics } from '../diagnostics';
@@ -32,6 +33,7 @@ import {
   type ViewSnapshot,
   type WindowLevel,
 } from '../rendering-port';
+import { instanceKey } from '../data/instance-key';
 import { isLocalFileImageId, registerLocalFile } from './local-files';
 import { annotation as annotationApi, utilities as toolsUtilities } from '@cornerstonejs/tools';
 import { acquireRuntime, activeViewers, frameRequests, releaseRuntime } from './runtime';
@@ -64,27 +66,33 @@ export interface EngineOptions extends RuntimeOptions {
 
 let engineCount = 0;
 
-/** Tells Cornerstone what the instance's headers say, so its image can be loaded and drawn. */
+/**
+ * Tells Cornerstone what the instance's headers say, so its image can be loaded and drawn. The
+ * whole instance is registered, once for all its frames: Cornerstone keeps one record for each
+ * instance and reads the functional groups of a multi-frame one for the frame it is asked about.
+ */
 function registerInstance(instance: SeriesInstance): Promise<void> {
-  const pending = registering.get(instance.imageId);
+  const key = instanceKey(instance.imageId);
+  const pending = registering.get(key);
   if (pending !== undefined) return pending;
   // `addDicomWebInstance` does not always give a promise back.
   const run = Promise.resolve(
     isLocalFileImageId(instance.imageId)
       ? registerLocalFile(instance.imageId)
-      : metadataUtilities.addDicomWebInstance(instance.imageId, instance.metadata),
+      : metadataUtilities.addDicomWebInstance(instance.imageId, instance.instanceMetadata),
   );
-  registering.set(instance.imageId, run);
+  registering.set(key, run);
   const done = (): void => {
-    if (registering.get(instance.imageId) === run) registering.delete(instance.imageId);
+    if (registering.get(key) === run) registering.delete(key);
   };
   run.then(done, done);
   return run;
 }
 
 /**
- * Registrations that have not finished. A stack claims its images before it has registered them, so
- * an image that has users may still have no metadata: whoever needs it waits for the one in flight.
+ * Registrations that have not finished, by instance. A stack claims its images before it has
+ * registered them, so an image that has users may still have no metadata: whoever needs it waits
+ * for the one in flight.
  */
 const registering = new Map<string, Promise<void>>();
 
@@ -92,7 +100,10 @@ const registering = new Map<string, Promise<void>>();
 function ensureRegistered(instances: readonly SeriesInstance[]): Promise<unknown> {
   return Promise.all(
     instances
-      .filter((instance) => !imageUsers.has(instance.imageId) || registering.has(instance.imageId))
+      .filter((instance) => {
+        const key = instanceKey(instance.imageId);
+        return !metadataUsers.has(key) || registering.has(key);
+      })
       .map(registerInstance),
   );
 }
@@ -119,8 +130,18 @@ function fitOnSquare(source: HTMLCanvasElement, size: number): string {
  */
 const imageUsers = new Map<string, number>();
 
+/** How many images with users each instance has. An instance's metadata is forgotten when this reaches 0. */
+const metadataUsers = new Map<string, number>();
+
 function claimImages(imageIds: readonly string[]): void {
-  for (const imageId of imageIds) imageUsers.set(imageId, (imageUsers.get(imageId) ?? 0) + 1);
+  for (const imageId of imageIds) {
+    const users = imageUsers.get(imageId) ?? 0;
+    imageUsers.set(imageId, users + 1);
+    if (users === 0) {
+      const key = instanceKey(imageId);
+      metadataUsers.set(key, (metadataUsers.get(key) ?? 0) + 1);
+    }
+  }
 }
 
 function releaseImages(imageIds: readonly string[]): void {
@@ -141,6 +162,14 @@ function releaseImages(imageIds: readonly string[]): void {
     ) {
       cache.removeImageLoadObject(imageId);
     }
+    const key = instanceKey(imageId);
+    const instanceUsers = (metadataUsers.get(key) ?? 1) - 1;
+    if (instanceUsers > 0) {
+      metadataUsers.set(key, instanceUsers);
+      continue;
+    }
+    // The last image of the instance is gone, and with it the one record Cornerstone keeps.
+    metadataUsers.delete(key);
     metaData.clearQuery(MetadataEnums.MetadataModules.NATURALIZED, imageId);
   }
   if (dropped.size === 0) return;
@@ -718,7 +747,7 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       await ensureRegistered(stack.instances);
       claimImages(stack.imageIds);
       try {
-        return await parseSegmentation(stack.imageIds, bytes, header, () => {
+        return await parseSegmentation(stack.imageIds, stack.instances, bytes, header, () => {
           releaseImages(stack.imageIds);
         });
       } catch (error) {
@@ -737,7 +766,12 @@ export async function createEngine(options: EngineOptions): Promise<RenderingPor
       try {
         return readStructuredReport(
           bytes,
-          new Map(instances.map((instance) => [instance.sopInstanceUID, instance.imageId])),
+          new Map(
+            instances.map((instance) => [
+              sliceKey(instance.sopInstanceUID, instance.frameNumber),
+              instance.imageId,
+            ]),
+          ),
         );
       } finally {
         releaseImages(imageIds);

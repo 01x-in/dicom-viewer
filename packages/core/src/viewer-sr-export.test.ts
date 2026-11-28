@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { NewMeasurement } from './measurements/registry';
-import { CT, STUDY } from './testing/fakes';
+import { CT, MULTIFRAME, MULTIFRAME_SOP, STUDY } from './testing/fakes';
 import { destroyViewersAfterEach, harness, type Harness } from './testing/harness';
 
 destroyViewersAfterEach();
@@ -68,6 +68,42 @@ describe('measurements.exportSr', () => {
     await h.viewer.measurements.exportSr();
     expect(h.port.reportWrites[0]?.instances.map((i) => i.sopInstanceUID).sort()).toEqual(
       [sop(2), sop(5)].sort(),
+    );
+  });
+
+  it('gives the engine the frame a measurement is on, and each frame of a multi-frame image as an image of its own', async () => {
+    const h = harness();
+    await ready(h);
+    const onFrame = (id: string, frameNumber: number): NewMeasurement => ({
+      id,
+      type: 'length',
+      reference: {
+        studyInstanceUID: STUDY,
+        seriesInstanceUID: MULTIFRAME,
+        sopInstanceUID: MULTIFRAME_SOP,
+        frameNumber,
+      },
+      points: [
+        [0, 0, 0],
+        [3, 4, 0],
+      ],
+    });
+    await h.viewer.measurements.add(onFrame('two', 2));
+    await h.viewer.measurements.add(onFrame('first', 1));
+    await h.viewer.measurements.add(length('ct', 2));
+    await h.viewer.measurements.exportSr();
+    const [written] = h.port.reportWrites;
+    expect(written?.measurements.map((m) => [m.id, m.sopInstanceUID, m.frameNumber])).toEqual([
+      ['two', MULTIFRAME_SOP, 2],
+      ['first', MULTIFRAME_SOP, 1],
+      ['ct', sop(2), 1],
+    ]);
+    expect(written?.instances.map((i) => [i.sopInstanceUID, i.frameNumber]).sort()).toEqual(
+      [
+        [MULTIFRAME_SOP, 1],
+        [MULTIFRAME_SOP, 2],
+        [sop(2), 1],
+      ].sort(),
     );
   });
 

@@ -1,4 +1,5 @@
 import { optionalString } from '../data/dicom-json';
+import { findSlice, sliceKey } from '../data/series';
 import type { LoadedSeriesData, SeriesInstance, SeriesStack } from '../data/types';
 import { isNotFound } from '../data/errors';
 import { assertDicomUid } from '../data/uid';
@@ -8,6 +9,7 @@ import { planeOf } from './geometry';
 import { newId } from './ids';
 import { fromEngineShape, toEngineShape } from './mappers';
 import {
+  frameOf,
   MAX_LABEL_LENGTH,
   MEASUREMENTS_FORMAT,
   type Measurement,
@@ -51,6 +53,8 @@ export interface MeasurementFilter {
   readonly studyInstanceUID?: string;
   readonly seriesInstanceUID?: string;
   readonly sopInstanceUID?: string;
+  /** With `sopInstanceUID`: only the measurements on this frame of it. A reference with no frame is on frame 1. */
+  readonly frameNumber?: number;
 }
 
 export interface MeasurementChanges {
@@ -206,6 +210,7 @@ export interface MeasurementDeps {
   navigateNow(target: {
     readonly seriesInstanceUID: string;
     readonly sopInstanceUID: string;
+    readonly frameNumber?: number;
     readonly viewportId?: string;
   }): Promise<unknown>;
   getSeries(studyInstanceUID: string, seriesInstanceUID: string): Promise<LoadedSeriesData>;
@@ -293,7 +298,8 @@ function matches(measurement: Measurement, filter: MeasurementFilter | undefined
       filter.studyInstanceUID === reference.studyInstanceUID) &&
     (filter.seriesInstanceUID === undefined ||
       filter.seriesInstanceUID === reference.seriesInstanceUID) &&
-    (filter.sopInstanceUID === undefined || filter.sopInstanceUID === reference.sopInstanceUID)
+    (filter.sopInstanceUID === undefined || filter.sopInstanceUID === reference.sopInstanceUID) &&
+    (filter.frameNumber === undefined || filter.frameNumber === frameOf(reference))
   );
 }
 
@@ -323,7 +329,9 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     if (measurement.reference.studyInstanceUID !== deps.study()) return -1;
     if (shown.seriesInstanceUID !== measurement.reference.seriesInstanceUID) return -1;
     return shown.stack.instances.findIndex(
-      (instance) => instance.sopInstanceUID === measurement.reference.sopInstanceUID,
+      (instance) =>
+        instance.sopInstanceUID === measurement.reference.sopInstanceUID &&
+        instance.frameNumber === frameOf(measurement.reference),
     );
   }
 
@@ -453,6 +461,8 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
       studyInstanceUID: study,
       seriesInstanceUID: shown.seriesInstanceUID,
       sopInstanceUID: instance.sopInstanceUID,
+      // Frame 1, and an instance of one frame, have no frame number: one form for each place.
+      ...(instance.frameNumber > 1 ? { frameNumber: instance.frameNumber } : {}),
       ...(frameOfReferenceUID === undefined ? {} : { frameOfReferenceUID }),
     };
   }
@@ -642,11 +652,15 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
       }
       for (const measurement of inStudy) {
         if (measurement.reference.seriesInstanceUID !== seriesInstanceUID) continue;
-        const instance = loaded?.instances.find(
-          (candidate) => candidate.sopInstanceUID === measurement.reference.sopInstanceUID,
-        );
+        const sop = measurement.reference.sopInstanceUID;
+        // The image is the frame the measurement is on: one image of a stack, whose metadata
+        // reads as a single-frame image does. A series with no stack to show has frame 1 only.
+        const frame = frameOf(measurement.reference);
+        const instance =
+          findSlice(loaded?.stacks.flatMap((stack) => stack.instances) ?? [], sop, frame) ??
+          findSlice(loaded?.instances ?? [], sop, frame);
         if (instance === undefined) missing += 1;
-        else instances.set(instance.sopInstanceUID, instance);
+        else instances.set(sliceKey(instance.sopInstanceUID, instance.frameNumber), instance);
       }
     }
     if (missing > 0) {
@@ -663,6 +677,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
         points: measurement.points,
         label: measurement.label,
         sopInstanceUID: measurement.reference.sopInstanceUID,
+        frameNumber: frameOf(measurement.reference),
         values: measurementValues(measurement),
       })),
       instances: [...instances.values()],
@@ -716,25 +731,31 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     const referenced = found.filter((series) => series !== undefined);
     deps.assertAlive();
     const references = new Map<string, MeasurementReference>();
-    const instances = referenced.flatMap((series) =>
-      series.instances.map((instance) => {
+    // Every image that can be shown, a frame each. The engine learns each of them, so a shape is
+    // found on the frame the report names; instances that are not images (a SEG) have no frames.
+    const instances = referenced.flatMap((series) => {
+      const shown = series.stacks.flatMap((stack) => stack.instances);
+      const images = shown.length > 0 ? shown : series.instances;
+      return images.map((instance) => {
         const frameOfReferenceUID = optionalString(instance.metadata, '00200052');
-        references.set(instance.sopInstanceUID, {
+        references.set(sliceKey(instance.sopInstanceUID, instance.frameNumber), {
           studyInstanceUID,
           seriesInstanceUID: series.seriesInstanceUID,
           sopInstanceUID: instance.sopInstanceUID,
+          ...(instance.frameNumber > 1 ? { frameNumber: instance.frameNumber } : {}),
           ...(frameOfReferenceUID === undefined ? {} : { frameOfReferenceUID }),
         });
         return instance;
-      }),
-    );
+      });
+    });
     const read = await port.readReport(bytes, instances);
     deps.assertAlive();
 
     const { measurements, skipped } = measurementsFromSr({
       srSopInstanceUID,
       shapes: read.shapes,
-      referenceOf: (sopInstanceUID) => references.get(sopInstanceUID),
+      referenceOf: (sopInstanceUID, frameNumber) =>
+        references.get(sliceKey(sopInstanceUID, frameNumber)),
       unreadable: read.unreadable,
       unsupported: read.unsupported,
     });
@@ -839,6 +860,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
         await deps.navigateNow({
           seriesInstanceUID: measurement.reference.seriesInstanceUID,
           sopInstanceUID: measurement.reference.sopInstanceUID,
+          frameNumber: frameOf(measurement.reference),
           ...(options.viewportId === undefined ? {} : { viewportId: options.viewportId }),
         });
         // The shape may have gone while the image was being shown.
@@ -872,7 +894,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
       for (const measurement of inStudy) {
         const slice = numbers
           .get(measurement.reference.seriesInstanceUID)
-          ?.get(measurement.reference.sopInstanceUID);
+          ?.get(sliceKey(measurement.reference.sopInstanceUID, frameOf(measurement.reference)));
         if (slice !== undefined) result.set(measurement.id, slice);
       }
       return result;

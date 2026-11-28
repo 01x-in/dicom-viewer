@@ -87,3 +87,28 @@ def test_two_exports_have_the_same_identifiers_and_each_is_a_new_series():
     problems = check.same_identifiers(REPORT, REPORT)
     # The same file is the same series: that is what a second export must not be. The identifiers agree.
     assert problems == ["the two exports are the same series or instance: each should be new"]
+
+
+def _shape_on(frame):
+    from pydicom.dataset import Dataset
+
+    reference = Dataset()
+    reference.ReferencedSOPInstanceUID = "1.2.3"
+    if frame is not None:
+        reference.ReferencedFrameNumber = frame
+    image = Dataset()
+    image.ValueType = "IMAGE"
+    image.ReferencedSOPSequence = [reference]
+    shape = Dataset()
+    shape.ValueType = "SCOORD"
+    shape.GraphicType = "POLYLINE"
+    shape.ContentSequence = [image]
+    group = Dataset()
+    group.ContentSequence = [shape]
+    return group
+
+
+def test_the_frame_a_shape_is_on_is_read_and_an_image_of_one_frame_has_none():
+    assert check._region(_shape_on(3)) == ("POLYLINE", "1.2.3", 3)
+    assert check._region(_shape_on([3])) == ("POLYLINE", "1.2.3", 3)
+    assert check._region(_shape_on(None)) == ("POLYLINE", "1.2.3", None)

@@ -4,14 +4,15 @@ A DICOM viewer that you install from npm into React, Next.js, Vue, or Nuxt. It i
 
 **Live demo, tutorial, guides, and API reference: <https://01x-in.github.io/dicom-viewer/>**
 
-> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) are done, and `1.1.0` is on npm under the `01x` organization. Releases are made by hand from GitHub Actions (see [docs/guides/releasing.md](docs/guides/releasing.md)).
+> Status: milestones M0 to M8 (with M6.5, shell polish, and M6.6, the config layer) and M12, multi-frame images, are done, and the packages are on npm under the `01x` organization. Releases are made by hand from GitHub Actions (see [docs/guides/releasing.md](docs/guides/releasing.md)).
 
 > **Not a medical device.** This is software for building viewers. It is not cleared or approved for diagnosis or any clinical decision, and it comes with no warranty (see [LICENSE](LICENSE)). Whoever uses it in a product is responsible for that product's regulatory and privacy duties. The viewer hides patient-identifying overlay tags unless you turn them on.
 
 ## What works today
 
 - Loading: studies from a DICOMweb server (headers, token refresh, and retries are configurable) or from local files.
-- Navigation: scroll, window and level with presets, zoom, pan, invert, cine playback, keyboard shortcuts, and an overlay with the slice number.
+- Navigation: scroll, window and level with presets, zoom, pan, invert, cine playback (a loop plays at the rate its image states), keyboard shortcuts, and an overlay with the slice number.
+- Multi-frame images: Enhanced CT, MR, and PT show each frame as a slice with its own position, and reform into planes when the frames allow it. Loops with no geometry (ultrasound, angiography) show in the order they were recorded. A measurement, a Structured Report shape, and a binary SEG can be on one frame of an instance. This works over DICOMweb and from local files. See [Multi-frame images](docs/guides/data-sources.md#multi-frame-images) for the limits.
 - Series browser: a list of the series in the study, with a thumbnail for each series that has pictures.
 - Measurements: length, bidirectional, ellipse, rectangle, probe, and angle. Ellipse and rectangle show Hounsfield statistics (the mean, spread, minimum, and maximum of the pixels inside). A list panel lets you jump to, rename, and delete a measurement. You can export and import measurements as JSON, load the measurements of a DICOM Structured Report (a TID 1500 measurement report), copy them as text, and download them as text, a PDF report, or a DICOM Structured Report that highdicom reads (the file has the patient's identity in it). A host chooses which downloads the panel offers.
 - Segmentations: DICOM SEG overlays. A SEG is loaded against the series it names, and each segment can be shown, hidden, recoloured, made more or less opaque, highlighted (the others fade, or the chosen ones get an outline), and gone to (the image with most of it, the one nearest its middle, or the one nearest the image on screen). The same state shows in every viewport. A SEG that does not lie on its images is drawn with a warning. A binary SEG of 512 by 512 by 300 pixels with 100 segments loads in about 2 seconds. A Segments panel lists the SEGs of the study.
@@ -115,7 +116,7 @@ In all three, the viewer starts on the first series that has pictures. Add `seri
 The viewer loads images from a **DICOMweb** server, or from local files. You give it a Study Instance UID (the `study-uid` attribute, or `studyInstanceUid` in code), and optionally a `series-uid`.
 
 - **QIDO-RS** lists the series of that one study: `GET {qidoRoot}/studies/{StudyInstanceUID}/series`. `qidoRoot` is the same as `wadoRoot` unless you set it.
-- **WADO-RS** gives the metadata of each series, the images (one frame request for each instance), and the whole instance of a SEG or SR object.
+- **WADO-RS** gives the metadata of each series, the images (one frame request for each frame), and the whole instance of a SEG or SR object.
 - The answers are DICOM JSON. A server that leaves out the `vr` of an element, such as a static WADO server, is accepted. OHIF's public server works.
 - **Local files** work too, and they never leave the machine.
 

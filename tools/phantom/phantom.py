@@ -222,6 +222,29 @@ SERIES: tuple[tuple[str, int, UID], ...] = (
 )
 
 
+# One Enhanced CT instance that holds the 64 slices of ct-j2k as frames, in a study of its own so the
+# main study's series list does not change. The directory name sorts after "ct-evrle": the mock treats
+# the first directory's study as the main one.
+MULTIFRAME_STUDY = "study-multiframe"
+MULTIFRAME_CT_SERIES = "multiframe-ct"
+MULTIFRAME_CT_SERIES_NUMBER = 60
+EnhancedCTImageStorage = UID("1.2.840.10008.5.1.4.1.1.2.1")
+
+# A loop with no position or orientation, as an ultrasound or an angiogram is: frames in the order
+# they were recorded, 40 ms apart (25 a second). A grey disc moves across it.
+CINE_SERIES = "multiframe-loop"
+CINE_SERIES_NUMBER = 61
+CINE_FRAMES = 24
+CINE_FRAME_TIME_MS = 40
+CINE_SIZE = 128
+CINE_DISC_ROW = 64
+CINE_DISC_RADIUS_PX = 12
+CINE_DISC_FIRST_COLUMN = 24
+CINE_DISC_COLUMN_STEP = 3
+CINE_BACKGROUND = 30
+CINE_DISC = 220
+UltrasoundMultiFrameImageStorage = UID("1.2.840.10008.5.1.4.1.1.3.1")
+
 SEG_SOURCE_SERIES = "ct-j2k"
 # Fixed so that regenerating the phantom reproduces every SEG byte for byte.
 SEG_DATE = "20260101"
@@ -234,6 +257,9 @@ INSERTS_SEG_SERIES = "seg-inserts"
 OVERLAP_SEG_SERIES = "seg-overlap"
 MISMATCH_SEG_SERIES = "seg-mismatch"
 FRACTIONAL_SEG_SERIES = "seg-fractional"
+# A SEG of the Enhanced CT: its frames name frames of one instance, not instances.
+MULTIFRAME_SEG_SERIES = "multiframe-seg"
+MULTIFRAME_SEG_SERIES_NUMBER = 62
 
 # The slices (0-based) the smaller SEGs cover. A tumour covers a few slices, not the whole series.
 PARTIAL_SLICES = range(20, 41)
@@ -264,6 +290,8 @@ class SegSpec:
     pixels: NDArray[np.uint8] | NDArray[np.bool_] | NDArray[np.float32]
     description: str
     fractional: bool = False
+    # Segments the frames of the Enhanced CT instead of the instances of the J2K series.
+    on_enhanced: bool = False
 
 
 TISSUE = Code("85756007", "SCT", "Tissue")
@@ -391,11 +419,25 @@ def seg_specs(spec: CtSpec) -> tuple[SegSpec, ...]:
             description=f"Phantom SEG ({FRACTIONAL_SEG_SERIES})",
             fractional=True,
         ),
+        SegSpec(
+            series=MULTIFRAME_SEG_SERIES,
+            series_number=MULTIFRAME_SEG_SERIES_NUMBER,
+            segments=(
+                SegmentSpec(BODY_SEGMENT, "Body", Code("38266002", "SCT", "Entire body")),
+                SegmentSpec(BONE_SEGMENT, "Bone insert", Code("272673000", "SCT", "Bone")),
+            ),
+            slices=range(spec.slices),
+            pixels=seg_labelmap(spec),
+            description=f"Phantom SEG ({MULTIFRAME_SEG_SERIES})",
+            on_enhanced=True,
+        ),
     )
 
 
 def seg_sources(spec: CtSpec, seg: SegSpec) -> list[Dataset]:
     """The CT instances a SEG says it segments. The mismatch SEG names the right instances with the wrong planes."""
+    if seg.on_enhanced:
+        return [enhanced_ct_dataset(spec)]
     sources = [ct_dataset(spec, index, SEG_SOURCE_SERIES, 2) for index in seg.slices]
     if seg.series == MISMATCH_SEG_SERIES:
         for source in sources:
@@ -616,6 +658,163 @@ def sr_dataset(spec: CtSpec) -> Dataset:
     return dataset
 
 
+def _item(**attributes: object) -> Dataset:
+    item = Dataset()
+    for keyword, value in attributes.items():
+        setattr(item, keyword, value)
+    return item
+
+
+def enhanced_ct_dataset(spec: CtSpec) -> Dataset:
+    """An Enhanced CT whose frames are the slices of the main series: same picture, same positions."""
+    series = MULTIFRAME_CT_SERIES
+    sop_uid = uid(f"{series}/instance")
+
+    meta = FileMetaDataset()
+    meta.MediaStorageSOPClassUID = EnhancedCTImageStorage
+    meta.MediaStorageSOPInstanceUID = sop_uid
+    meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    meta.ImplementationClassUID = PYDICOM_IMPLEMENTATION_UID
+
+    ds = Dataset()
+    ds.file_meta = meta
+    ds.SOPClassUID = EnhancedCTImageStorage
+    ds.SOPInstanceUID = sop_uid
+    ds.Modality = "CT"
+    ds.Manufacturer = "dicom-viewer phantom"
+    ds.PatientName = "Phantom^CT"
+    ds.PatientID = "PHANTOM-001"
+    ds.PatientBirthDate = ""
+    ds.PatientSex = "O"
+    ds.PatientIdentityRemoved = "YES"
+    ds.StudyInstanceUID = uid(MULTIFRAME_STUDY)
+    ds.StudyID = "1"
+    ds.StudyDate = "20260101"
+    ds.StudyTime = "090000"
+    ds.AccessionNumber = ""
+    ds.ReferringPhysicianName = ""
+    ds.StudyDescription = "Synthetic multi-frame phantom"
+    ds.SeriesInstanceUID = uid(f"{series}/series")
+    ds.SeriesNumber = MULTIFRAME_CT_SERIES_NUMBER
+    ds.SeriesDescription = f"Phantom CT ({series})"
+    ds.FrameOfReferenceUID = uid("frame-of-reference")
+    ds.PositionReferenceIndicator = ""
+    ds.InstanceNumber = 1
+    ds.PatientPosition = "HFS"
+    ds.ImageType = ["ORIGINAL", "PRIMARY", "VOLUME", "NONE"]
+    ds.AcquisitionDateTime = "20260101090000"
+    ds.ContentDate = "20260101"
+    ds.ContentTime = "090000"
+    ds.NumberOfFrames = spec.slices
+
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.Rows = spec.rows
+    ds.Columns = spec.columns
+    ds.BitsAllocated = 16
+    ds.BitsStored = 16
+    ds.HighBit = 15
+    ds.PixelRepresentation = 0
+
+    ds.SharedFunctionalGroupsSequence = [
+        _item(
+            PlaneOrientationSequence=[_item(ImageOrientationPatient=[1, 0, 0, 0, 1, 0])],
+            PixelMeasuresSequence=[
+                _item(
+                    PixelSpacing=[spec.pixel_spacing_mm, spec.pixel_spacing_mm],
+                    SliceThickness=spec.slice_spacing_mm,
+                )
+            ],
+            PixelValueTransformationSequence=[
+                _item(RescaleIntercept=RESCALE_INTERCEPT, RescaleSlope=1, RescaleType="HU")
+            ],
+            FrameVOILUTSequence=[_item(WindowCenter=40, WindowWidth=400)],
+        )
+    ]
+    per_frame = []
+    for index in range(spec.slices):
+        x0, y0, z = upright_position(spec, index)
+        per_frame.append(
+            _item(
+                PlanePositionSequence=[
+                    _item(ImagePositionPatient=[round(x0, 4), round(y0, 4), round(z, 4)])
+                ],
+                FrameContentSequence=[
+                    _item(InStackPositionNumber=index + 1, DimensionIndexValues=[1, index + 1])
+                ],
+            )
+        )
+    ds.PerFrameFunctionalGroupsSequence = per_frame
+
+    stored = np.stack(
+        [(slice_hu(spec, i).astype(np.int32) - RESCALE_INTERCEPT).astype(np.uint16) for i in range(spec.slices)]
+    )
+    ds.PixelData = stored.tobytes()
+    return ds
+
+
+def cine_dataset() -> Dataset:
+    """An 8-bit grey loop of CINE_FRAMES frames with no geometry: a disc that moves to the right."""
+    series = CINE_SERIES
+    sop_uid = uid(f"{series}/instance")
+
+    meta = FileMetaDataset()
+    meta.MediaStorageSOPClassUID = UltrasoundMultiFrameImageStorage
+    meta.MediaStorageSOPInstanceUID = sop_uid
+    meta.TransferSyntaxUID = ExplicitVRLittleEndian
+    meta.ImplementationClassUID = PYDICOM_IMPLEMENTATION_UID
+
+    ds = Dataset()
+    ds.file_meta = meta
+    ds.SOPClassUID = UltrasoundMultiFrameImageStorage
+    ds.SOPInstanceUID = sop_uid
+    ds.Modality = "US"
+    ds.Manufacturer = "dicom-viewer phantom"
+    ds.PatientName = "Phantom^CT"
+    ds.PatientID = "PHANTOM-001"
+    ds.PatientBirthDate = ""
+    ds.PatientSex = "O"
+    ds.PatientIdentityRemoved = "YES"
+    ds.StudyInstanceUID = uid(MULTIFRAME_STUDY)
+    ds.StudyID = "1"
+    ds.StudyDate = "20260101"
+    ds.StudyTime = "090000"
+    ds.AccessionNumber = ""
+    ds.ReferringPhysicianName = ""
+    ds.StudyDescription = "Synthetic multi-frame phantom"
+    ds.SeriesInstanceUID = uid(f"{series}/series")
+    ds.SeriesNumber = CINE_SERIES_NUMBER
+    ds.SeriesDescription = f"Phantom Loop ({series})"
+    ds.InstanceNumber = 1
+    ds.ContentDate = "20260101"
+    ds.ContentTime = "090000"
+    ds.ImageType = ["ORIGINAL", "PRIMARY"]
+    ds.NumberOfFrames = CINE_FRAMES
+    # The frame increment says what separates the frames: here, the frame time.
+    ds.FrameIncrementPointer = 0x00181063
+    ds.FrameTime = CINE_FRAME_TIME_MS
+
+    ds.SamplesPerPixel = 1
+    ds.PhotometricInterpretation = "MONOCHROME2"
+    ds.Rows = CINE_SIZE
+    ds.Columns = CINE_SIZE
+    ds.BitsAllocated = 8
+    ds.BitsStored = 8
+    ds.HighBit = 7
+    ds.PixelRepresentation = 0
+
+    rows, cols = np.mgrid[0:CINE_SIZE, 0:CINE_SIZE]
+    frames = []
+    for index in range(CINE_FRAMES):
+        column = CINE_DISC_FIRST_COLUMN + index * CINE_DISC_COLUMN_STEP
+        frame = np.full((CINE_SIZE, CINE_SIZE), CINE_BACKGROUND, dtype=np.uint8)
+        inside = (rows - CINE_DISC_ROW) ** 2 + (cols - column) ** 2 <= CINE_DISC_RADIUS_PX**2
+        frame[inside] = CINE_DISC
+        frames.append(frame)
+    ds.PixelData = np.stack(frames).tobytes()
+    return ds
+
+
 def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
     """Writes every phantom series under out_dir and returns the written files."""
     written: list[Path] = []
@@ -661,6 +860,25 @@ def generate(out_dir: Path, spec: CtSpec = CT_SPEC) -> list[Path]:
         seg_path = seg_dir / "0001.dcm"
         seg_dataset(spec, seg).save_as(seg_path, enforce_file_format=True)
         written.append(seg_path)
+
+    multiframe_dir = out_dir / MULTIFRAME_CT_SERIES
+    multiframe_dir.mkdir(parents=True, exist_ok=True)
+    for stale in multiframe_dir.glob("*.dcm"):
+        stale.unlink()
+    enhanced = enhanced_ct_dataset(spec)
+    # Lossless, one fragment for each frame, and the deterministic instance UID kept.
+    enhanced.compress(JPEG2000Lossless, generate_instance_uid=False)
+    multiframe_path = multiframe_dir / "0001.dcm"
+    enhanced.save_as(multiframe_path, enforce_file_format=True)
+    written.append(multiframe_path)
+
+    cine_dir = out_dir / CINE_SERIES
+    cine_dir.mkdir(parents=True, exist_ok=True)
+    for stale in cine_dir.glob("*.dcm"):
+        stale.unlink()
+    cine_path = cine_dir / "0001.dcm"
+    cine_dataset().save_as(cine_path, enforce_file_format=True)
+    written.append(cine_path)
 
     sr_dir = out_dir / SR_SERIES
     sr_dir.mkdir(parents=True, exist_ok=True)

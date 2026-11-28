@@ -136,6 +136,7 @@ describe('showing a series', () => {
       imageIndex: 5,
       imageCount: 10,
       sopInstanceUID: `${CT}.0.5`,
+      frameNumber: 1,
       origin: 'api',
     });
   });

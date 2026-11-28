@@ -52,6 +52,21 @@ describe('frameImageId', () => {
     );
   });
 
+  it('names the frame, which is 1 when none is given', () => {
+    expect(frameImageId('http://pacs', STUDY, SERIES, '9.1', 'dv-source-7', 40)).toBe(
+      `wadors:http://pacs/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/40#dv-source-7`,
+    );
+    expect(frameImageId('http://pacs', STUDY, SERIES, '9.1', 'dv-source-7', 1)).toBe(
+      frameImageId('http://pacs', STUDY, SERIES, '9.1', 'dv-source-7'),
+    );
+  });
+
+  it.each([[0], [-1], [1.5], [Number.NaN]])('refuses the frame number %s', (frame) => {
+    expect(() => frameImageId('http://pacs', STUDY, SERIES, '9.1', 'dv-source-7', frame)).toThrow(
+      DataSourceError,
+    );
+  });
+
   it('does not double a trailing slash in the root', () => {
     expect(frameImageId('http://pacs/dicom-web/', STUDY, SERIES, '9.1', 'dv-source-7')).toBe(
       `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/9.1/frames/1#dv-source-7`,
@@ -90,6 +105,35 @@ describe('createDicomWebDataSource', () => {
           `wadors:http://pacs/dicom-web/studies/${STUDY}/series/${SERIES}/instances/${sop}/frames/1`,
       ),
     );
+  });
+
+  it('builds one frame image id for each frame of a multi-frame instance', async () => {
+    const enhanced = {
+      ...instance('9.5', [0, 0, 0], 1),
+      '00280008': { vr: 'IS', Value: [3] },
+      '52009230': {
+        vr: 'SQ',
+        Value: [0, 1, 2].map((z) => ({
+          '00209113': { vr: 'SQ', Value: [{ '00200032': { vr: 'DS', Value: [0, 0, z * 2] } }] },
+        })),
+      },
+    };
+    const source = createDicomWebDataSource({
+      wadoRoot: 'http://pacs',
+      fetch: fetchReturning(200, [enhanced]),
+    });
+    const series = await source.getSeries(STUDY, SERIES);
+    const ids = series.stacks[0]?.imageIds.map((id) => id.replace(/#dv-source-\d+$/, ''));
+    expect(ids).toEqual(
+      [1, 2, 3].map(
+        (frame) =>
+          `wadors:http://pacs/studies/${STUDY}/series/${SERIES}/instances/9.5/frames/${frame.toString()}`,
+      ),
+    );
+    // Every frame is owned by the source, so its headers and token refresh apply to all of them.
+    for (const id of series.stacks[0]?.imageIds ?? []) {
+      expect(source.frameRequests?.owns(id)).toBe(true);
+    }
   });
 
   it('gives sources with the same root image ids that only their own frame policy owns', async () => {

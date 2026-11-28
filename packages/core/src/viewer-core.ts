@@ -65,7 +65,7 @@ import {
   renderOverlay,
   type OverlayView,
 } from './overlay';
-import { assertCineFps, type CineApi, type CineController, createCine } from './cine';
+import { assertCineFps, type CineApi, type CineController, cineRateOf, createCine } from './cine';
 import { clampZoom, desiredView, sameWindow, sameZoom, viewChanges } from './view';
 import { createThumbnails, type ThumbnailsApi } from './thumbnails';
 import { createUiRegistry, type PanelDefinition, type UiApi } from './ui';
@@ -89,6 +89,8 @@ export interface ViewerEvents extends MeasurementEvents, SegmentationEvents {
     readonly imageIndex: number;
     readonly imageCount: number;
     readonly sopInstanceUID: string | undefined;
+    /** The frame of that instance on screen, 1-based. 1 for an instance of one frame. */
+    readonly frameNumber: number | undefined;
     readonly origin: StateOrigin;
   };
   /** The window or the inversion changed. */
@@ -159,7 +161,7 @@ export interface ViewportSeriesInfo {
 export interface NavigateTarget {
   readonly seriesInstanceUID: string;
   readonly sopInstanceUID: string;
-  /** 1-based. Only frame 1 exists until multi-frame images are supported. */
+  /** 1-based. Default 1. A frame the instance does not have rejects, naming how many it has. */
   readonly frameNumber?: number;
   /** Default `vp-0`. */
   readonly viewportId?: string;
@@ -177,6 +179,8 @@ export interface NavigateResult {
   readonly stackIndex: number;
   readonly imageIndex: number;
   readonly sopInstanceUID: string;
+  /** The frame shown, 1-based. */
+  readonly frameNumber: number;
   /** Only with `segmentations` in the target: the SEGs that could not be loaded. */
   readonly failedSegmentations?: readonly {
     readonly seriesInstanceUID: string;
@@ -796,6 +800,8 @@ export function createViewerCore(
       imageCount: shown.port.imageCount,
       sopInstanceUID:
         shown.volumeKey === undefined ? shown.stack.instances[index]?.sopInstanceUID : undefined,
+      frameNumber:
+        shown.volumeKey === undefined ? shown.stack.instances[index]?.frameNumber : undefined,
       origin,
     });
   }
@@ -1126,7 +1132,14 @@ export function createViewerCore(
             // A stop, or a later play, made after this call supersedes it, even though it is still queued.
             if (mine === cineCalls) {
               if (shown.port.imageCount > 1) {
-                cine.play(cineOptions);
+                // A loop that says how fast it plays starts at that rate, unless a rate was asked
+                // for or it is already playing at one.
+                const rate = cineRateOf(shown.stack.instances[0]?.instanceMetadata ?? {});
+                cine.play(
+                  cineOptions?.fps === undefined && !cine.playing && rate !== undefined
+                    ? { ...cineOptions, fps: rate }
+                    : cineOptions,
+                );
                 // A series change ahead of this call in the queue stopped the old playback and cleared the wish.
                 cineWanted = true;
               } else cineWanted = false; // One image has nothing to play, so nothing is wanted.
@@ -1598,11 +1611,6 @@ export function createViewerCore(
           `A frame number is a whole number from 1, not ${frameNumber.toString()}.`,
         );
       }
-      if (frameNumber > 1) {
-        throw new RangeError(
-          `Frame ${frameNumber.toString()} was asked for, but multi-frame images are not supported yet.`,
-        );
-      }
     }
   }
 
@@ -1622,17 +1630,36 @@ export function createViewerCore(
         `Series ${target.seriesInstanceUID} (${series.modality}) has no images to display.`,
       );
     }
-    const stackIndex = series.stacks.findIndex((stack) =>
-      stack.instances.some((instance) => instance.sopInstanceUID === target.sopInstanceUID),
+    const frameNumber = target.frameNumber ?? 1;
+    const inSeries = series.stacks.flatMap((stack) => stack.instances);
+    const [named] = inSeries.filter(
+      (instance) => instance.sopInstanceUID === target.sopInstanceUID,
     );
-    const stack = series.stacks[stackIndex];
-    if (stack === undefined) {
+    if (named === undefined) {
       throw new Error(
         `Series ${target.seriesInstanceUID} has no instance ${target.sopInstanceUID}.`,
       );
     }
+    if (frameNumber > named.frameCount) {
+      throw new RangeError(
+        `Frame ${frameNumber.toString()} was asked for, but instance ${target.sopInstanceUID} has ${named.frameCount.toString()} ${named.frameCount === 1 ? 'frame' : 'frames'}.`,
+      );
+    }
+    const stackIndex = series.stacks.findIndex((stack) =>
+      stack.instances.some(
+        (instance) =>
+          instance.sopInstanceUID === target.sopInstanceUID && instance.frameNumber === frameNumber,
+      ),
+    );
+    const stack = series.stacks[stackIndex];
+    if (stack === undefined) {
+      throw new Error(
+        `Series ${target.seriesInstanceUID} has no frame ${frameNumber.toString()} of instance ${target.sopInstanceUID} to show.`,
+      );
+    }
     const imageIndex = stack.instances.findIndex(
-      (instance) => instance.sopInstanceUID === target.sopInstanceUID,
+      (instance) =>
+        instance.sopInstanceUID === target.sopInstanceUID && instance.frameNumber === frameNumber,
     );
     await applySeries(viewportId, target.seriesInstanceUID, { stackIndex, imageIndex });
     return {
@@ -1641,6 +1668,7 @@ export function createViewerCore(
       stackIndex,
       imageIndex: viewportState(viewportId)?.imageIndex ?? imageIndex,
       sopInstanceUID: target.sopInstanceUID,
+      frameNumber,
     };
   }
 

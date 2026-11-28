@@ -14,6 +14,26 @@ function header(series: string): ReturnType<typeof readSegmentationHeader> {
 }
 
 describe('readSegmentationHeader', () => {
+  it('reads the frame of the instance each frame of a SEG of an Enhanced CT is on', () => {
+    const { frames, referencedSopInstanceUIDs } = header('multiframe-seg');
+    // One instance, named once, and each frame of the SEG says which of its frames it is on.
+    expect(referencedSopInstanceUIDs).toHaveLength(1);
+    expect(new Set(frames.map((frame) => frame.referencedSopInstanceUID))).toEqual(
+      new Set(referencedSopInstanceUIDs),
+    );
+    const numbers = frames.map((frame) => frame.referencedFrameNumber);
+    expect(numbers.every((number) => number !== undefined && number >= 1 && number <= 64)).toBe(
+      true,
+    );
+    expect(new Set(numbers).size).toBeGreaterThan(1);
+  });
+
+  it('gives no frame number for a SEG of single-frame images', () => {
+    expect(
+      header('seg-body-bone').frames.every((frame) => frame.referencedFrameNumber === undefined),
+    ).toBe(true);
+  });
+
   it('reads the segments of a SEG, with their numbers and labels', () => {
     expect(header('seg-body-bone').segments.map(({ number, label }) => [number, label])).toEqual([
       [1, 'Body'],

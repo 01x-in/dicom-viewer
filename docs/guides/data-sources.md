@@ -69,8 +69,40 @@ DICOM, is unreadable, or repeats an instance is skipped rather than failing the 
 lists them. `await dataSource.studyInstanceUIDs()` lists the studies found. The files stay on the machine: nothing is
 uploaded. **Call the source's `dispose()` yourself** when you are done with it: destroying the viewer does not dispose its data source, so the source keeps its references to the files until you do.
 
+## Multi-frame images
+
+A series whose instances hold many frames opens like any other. Each frame is one image: it scrolls, plays as cine, takes
+measurements, and (when the frames have positions) reformats into planes.
+
+- **Enhanced CT, MR, and PT.** The position, orientation, pixel spacing, and rescale of each frame come from the shared
+  and per-frame functional groups. A series of one Enhanced CT file shows as one stack of its frames, and shows
+  reformatted planes when the frames are even and parallel, as a series of single files does.
+- **Loops with no geometry** (ultrasound, angiography, multi-frame secondary capture). The frames are shown in the order
+  they were recorded and are never reformatted: asking for a plane shows the slices and says `missing-geometry`. Cine
+  plays at the rate the image states (`RecommendedDisplayFrameRate`, `CineRate`, or `FrameTime`), unless you give `fps`.
+- **Frame numbers.** `navigateTo` takes a `frameNumber` (from 1, default 1), and a frame the instance does not have is
+  rejected with the number it has. A measurement on a frame above 1 has `reference.frameNumber`; a measurement with no
+  frame number is on frame 1, as before. The `viewport:image` event and the result of `navigateTo` say the frame.
+  `imageIndex` in the state is still the place of the image in its stack.
+- **Requests.** Each frame is one request (`.../instances/<uid>/frames/<n>`). A series of 600 frames is 600 requests,
+  limited by the prefetch radius.
+- **SEGs.** A binary SEG made from the frames of one instance is drawn on the frame each of its frames names
+  (`ReferencedFrameNumber`), and `jumpToSegment` shows that frame and says it in `frameNumber`.
+- **Limits.** A SEG on a multi-frame image that is not binary (fractional or labelmap) rejects at load and says why, and
+  a SEG frame that names no frame of an instance of many is counted as on no image. An
+  Enhanced MR with several echoes or phases at one position is split into one stack for each repeat, with no names. A
+  Structured Report that names a multi-frame image without a frame number is read as frame 1. The series browser shows
+  the number of instances the server counts, so one Enhanced CT file shows as one image there.
+- **Your own source.** `getSeries` returns one stack entry for each frame: the same `sopInstanceUID`, `frameNumber` and
+  `frameCount`, an `imageId` for that frame (DICOMweb: `.../frames/<n>`), the frame's position and orientation at the
+  top level of its `metadata`, and the whole instance in `instanceMetadata`. The DICOMweb and local sources do this
+  with a helper that the package does not export.
+- **Memory.** An instance may have up to 100,000 frames; a larger `NumberOfFrames`, or one that is there with no value, is
+  rejected as a malformed instance. The image cache is limited by `memory.maxCacheBytes`, so a loop
+  longer than the cache is decoded again at each turn.
+
 ## Your own source
 
 A data source implements `getStudy` (the series of a study), `getSeries` (the instances, their metadata, and the image
-ids to load), `getInstanceBytes` (one whole instance, used for SEG), and says what the server allows in `capabilities`. Read `DataSource` and `LoadedSeriesData` in the API reference and the
+ids to load, and, for a multi-frame instance, one entry for each frame: see "Multi-frame images" above), `getInstanceBytes` (one whole instance, used for SEG), and says what the server allows in `capabilities`. Read `DataSource` and `LoadedSeriesData` in the API reference and the
 DICOMweb implementation (`packages/core/src/data/dicomweb.ts`) as a model.

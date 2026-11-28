@@ -2,6 +2,7 @@ import { adaptersSR } from '@cornerstonejs/adapters';
 import { metaData } from '@cornerstonejs/core';
 import { data } from 'dcmjs';
 import { z } from 'zod';
+import { sliceKey } from '../data/series';
 import type { SeriesInstance } from '../data/types';
 import type { SrWriteInput, SrWriteMeasurement } from '../measurements/sr-write';
 import { finishReport, labelFinding, TOOL_OF_TYPE } from './sr-finish';
@@ -74,7 +75,7 @@ function metadataProvider(instances: readonly SeriesInstance[]): {
             : { sopInstanceUID: dataset['SOPInstanceUID'], sopClassUID: dataset['SOPClassUID'] };
         }
         case 'frameNumber':
-          return 1;
+          return byImage.get(imageId)?.frameNumber ?? 1;
         default:
           return metaData.get(type, imageId);
       }
@@ -91,14 +92,19 @@ function metadataProvider(instances: readonly SeriesInstance[]): {
  */
 export function writeStructuredReport(input: SrWriteInput): ArrayBuffer {
   const provider = metadataProvider(input.instances);
-  const imageIdBySop = new Map(
-    input.instances.map((instance) => [instance.sopInstanceUID, instance.imageId]),
+  const imageIdBySlice = new Map(
+    input.instances.map((instance) => [
+      sliceKey(instance.sopInstanceUID, instance.frameNumber),
+      instance.imageId,
+    ]),
   );
   const toolState: Record<string, Record<string, { data: WriterEntry['entry'][] }>> = {};
   const entries: WriterEntry[] = [];
   const grouped = new Map<string, Map<string, SrWriteMeasurement[]>>();
   for (const measurement of input.measurements) {
-    const imageId = imageIdBySop.get(measurement.sopInstanceUID);
+    const imageId = imageIdBySlice.get(
+      sliceKey(measurement.sopInstanceUID, measurement.frameNumber),
+    );
     if (imageId === undefined) {
       throw new Error(`The measurement ${measurement.id} is on an image the report was not given.`);
     }

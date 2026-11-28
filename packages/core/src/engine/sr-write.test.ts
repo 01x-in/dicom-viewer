@@ -4,6 +4,7 @@ import { metaData } from '@cornerstonejs/core';
 import { data } from 'dcmjs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { sliceKey } from '../data/series';
 import type { DicomJsonInstance, SeriesInstance } from '../data/types';
 import type { MeasurementType, Point3 } from '../measurements/model';
 import type { SrWriteInput, SrWriteMeasurement } from '../measurements/sr-write';
@@ -51,9 +52,12 @@ function load(
     info,
     instance: {
       sopInstanceUID: info.SOPInstanceUID,
+      frameNumber: 1,
+      frameCount: 1,
       instanceNumber: 1,
       imageId,
       metadata: metadata as DicomJsonInstance,
+      instanceMetadata: metadata as DicomJsonInstance,
     },
   };
 }
@@ -111,6 +115,7 @@ const LIST: readonly SrWriteMeasurement[] = [
     points: [at(1, 50, 50)],
     label: 'Bone insert',
     sopInstanceUID: sopOf(1),
+    frameNumber: 1,
     values: { hu: 100 },
   },
   {
@@ -119,6 +124,7 @@ const LIST: readonly SrWriteMeasurement[] = [
     points: [at(0, 20, 30), at(0, 60, 30)],
     label: 'Aorta',
     sopInstanceUID: sopOf(0),
+    frameNumber: 1,
     values: { lengthMm: 60 },
   },
   {
@@ -126,6 +132,7 @@ const LIST: readonly SrWriteMeasurement[] = [
     type: 'ellipse',
     points: [at(1, 64, 44), at(1, 64, 84), at(1, 54, 64), at(1, 74, 64)],
     sopInstanceUID: sopOf(1),
+    frameNumber: 1,
     values: { areaMm2: 100, meanHu: 12.5, stdDevHu: 3.1, minHu: -3, maxHu: 40 },
   },
   {
@@ -133,6 +140,7 @@ const LIST: readonly SrWriteMeasurement[] = [
     type: 'angle',
     points: [at(0, 20, 20), at(0, 40, 40), at(0, 70, 30)],
     sopInstanceUID: sopOf(0),
+    frameNumber: 1,
     values: { degrees: 40 },
   },
   {
@@ -141,6 +149,7 @@ const LIST: readonly SrWriteMeasurement[] = [
     points: [at(0, 30, 30), at(0, 70, 30), at(0, 50, 25), at(0, 50, 35)],
     label: 'Nodule',
     sopInstanceUID: sopOf(0),
+    frameNumber: 1,
     values: { lengthMm: 60, widthMm: 15 },
   },
   {
@@ -148,6 +157,7 @@ const LIST: readonly SrWriteMeasurement[] = [
     type: 'rectangle',
     points: [at(1, 20, 20), at(1, 60, 20), at(1, 20, 50), at(1, 60, 50)],
     sopInstanceUID: sopOf(1),
+    frameNumber: 1,
     values: { areaMm2: 100 },
   },
 ];
@@ -165,7 +175,7 @@ function inputOf(measurements: readonly SrWriteMeasurement[] = LIST): SrWriteInp
 }
 
 const imageIdBySop = new Map(
-  images.map((image) => [image.info.SOPInstanceUID, image.instance.imageId]),
+  images.map((image) => [sliceKey(image.info.SOPInstanceUID, 1), image.instance.imageId]),
 );
 
 function naturalized(bytes: ArrayBuffer): Record<string, unknown> {
@@ -217,6 +227,7 @@ describe('writeStructuredReport', () => {
       type: 'ellipse',
       points: [at(0, 64, 54), at(0, 64, 74), at(0, 34, 64), at(0, 94, 64)],
       sopInstanceUID: sopOf(0),
+      frameNumber: 1,
       values: { areaMm2: 1 },
     };
     const read = readStructuredReport(writeStructuredReport(inputOf([wide])), imageIdBySop);
@@ -432,6 +443,90 @@ describe('writeStructuredReport', () => {
       sopInstanceUID: '9.9.9',
     };
     expect(() => writeStructuredReport(inputOf([lost]))).toThrow(/image the report was not given/);
+  });
+});
+
+describe('writeStructuredReport on the frames of one multi-frame image', () => {
+  const FRAME_SPACING_MM = 2.5;
+  const frameInstance = (frameNumber: number): SeriesInstance => ({
+    ...A.instance,
+    frameNumber,
+    frameCount: 2,
+    imageId: `phantom:MF:${frameNumber.toString()}`,
+    metadata: { ...A.instance.metadata, '00280008': { vr: 'IS', Value: [2] } },
+    instanceMetadata: { ...A.instance.metadata, '00280008': { vr: 'IS', Value: [2] } },
+  });
+  const frames = [frameInstance(1), frameInstance(2)];
+  const frameProvider = (type: string, query: unknown): unknown => {
+    const index = frames.findIndex((candidate) => candidate.imageId === query);
+    if (index < 0 || type !== 'imagePlaneModule') return undefined;
+    const [x, y, z] = A.info.ImagePositionPatient;
+    return {
+      ...(planeOf(A.info) as Record<string, unknown>),
+      imagePositionPatient: [x, y, z + index * FRAME_SPACING_MM],
+    };
+  };
+  beforeEach(() => {
+    metaData.addProvider(frameProvider, PRIORITY);
+  });
+  afterEach(() => {
+    metaData.removeProvider(frameProvider);
+  });
+  const onFrame = (frame: number, column: number, row: number): Point3 => {
+    const [x, y, z] = A.info.ImagePositionPatient;
+    return [x + column * SPACING, y + row * SPACING, z + (frame - 1) * FRAME_SPACING_MM];
+  };
+  const measurements: SrWriteMeasurement[] = [
+    {
+      id: 'm-two',
+      type: 'length',
+      points: [onFrame(2, 20, 30), onFrame(2, 60, 30)],
+      sopInstanceUID: A.info.SOPInstanceUID,
+      frameNumber: 2,
+      values: { lengthMm: 60 },
+    },
+    {
+      id: 'm-one',
+      type: 'length',
+      points: [onFrame(1, 20, 50), onFrame(1, 60, 50)],
+      sopInstanceUID: A.info.SOPInstanceUID,
+      frameNumber: 1,
+      values: { lengthMm: 60 },
+    },
+  ];
+  const input: SrWriteInput = { ...inputOf(measurements), instances: frames };
+
+  it('names the frame of each shape, and the viewer reads each back on its frame', () => {
+    const bytes = writeStructuredReport(input);
+    const read = readStructuredReport(
+      bytes,
+      new Map(
+        frames.map((frame) => [sliceKey(frame.sopInstanceUID, frame.frameNumber), frame.imageId]),
+      ),
+    );
+    expect(read.unreadable).toBe(0);
+    expect(read.shapes.map((shape) => shape.frameNumber)).toEqual([2, undefined]);
+    for (const [index, expected] of measurements.entries()) {
+      closeTo(read.shapes[index]?.points ?? [], expected.points);
+    }
+  });
+
+  it('lists the instance once as evidence, with no frame, as the frames are in the shapes', () => {
+    const dataset = naturalized(writeStructuredReport(input));
+    const evidence = itemsOf(dataset['CurrentRequestedProcedureEvidenceSequence']);
+    expect(evidence).toHaveLength(1);
+    const images = itemsOf(
+      itemsOf(evidence[0]?.['ReferencedSeriesSequence'])[0]?.['ReferencedSOPSequence'],
+    );
+    expect(images).toHaveLength(1);
+    expect(images[0]?.['ReferencedFrameNumber']).toBeUndefined();
+  });
+
+  it('refuses a measurement on a frame it was not given', () => {
+    const lost: SrWriteMeasurement = { ...(measurements[0] as SrWriteMeasurement), frameNumber: 3 };
+    expect(() => writeStructuredReport({ ...input, measurements: [lost] })).toThrow(
+      /image the report was not given/,
+    );
   });
 });
 

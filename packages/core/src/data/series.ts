@@ -1,5 +1,6 @@
 import { DataSourceError } from './errors';
 import { firstNumber, numbers, optionalString, requiredString } from './dicom-json';
+import { frameCountOf, readFrames } from './frame-geometry';
 import type {
   DicomJsonInstance,
   LoadedSeriesData,
@@ -49,20 +50,86 @@ export interface BuildSeriesInput {
   readonly seriesInstanceUID: string;
   /** DICOM JSON of every instance, in any order. */
   readonly metadata: readonly DicomJsonInstance[];
-  readonly imageIdFor: (sopInstanceUID: string, metadata: DicomJsonInstance) => string;
+  /** The image id of one frame (1 for a single-frame instance). `metadata` is the whole instance's. */
+  readonly imageIdFor: (
+    sopInstanceUID: string,
+    metadata: DicomJsonInstance,
+    frameNumber: number,
+  ) => string;
+}
+
+/** Tells one image of a series from another: the SOP instance and the frame. */
+export function sliceKey(sopInstanceUID: string, frameNumber: number): string {
+  return `${sopInstanceUID}:${frameNumber.toString()}`;
+}
+
+/** The image of a stack that is frame `frameNumber` (1 if not given) of the instance, or `undefined`. */
+export function findSlice(
+  instances: readonly SeriesInstance[],
+  sopInstanceUID: string,
+  frameNumber = 1,
+): SeriesInstance | undefined {
+  return instances.find(
+    (instance) =>
+      instance.sopInstanceUID === sopInstanceUID && instance.frameNumber === frameNumber,
+  );
+}
+
+interface Expanded {
+  /** The whole instance, for retrieval. */
+  readonly whole: SeriesInstance;
+  /** What can be shown: the instance, or its frames. Empty for something that is not an image. */
+  readonly slices: readonly SeriesInstance[];
 }
 
 function toInstance(
   metadata: DicomJsonInstance,
+  modality: string,
   imageIdFor: BuildSeriesInput['imageIdFor'],
-): SeriesInstance {
+): Expanded {
   const sopInstanceUID = requiredString(metadata, '00080018');
-  return {
-    sopInstanceUID,
-    instanceNumber: firstNumber(metadata, '00200013'),
-    imageId: imageIdFor(sopInstanceUID, metadata),
-    metadata,
-  };
+  const instanceNumber = firstNumber(metadata, '00200013');
+  if (!isDisplayable(metadata, modality)) {
+    // A SEG's frames are its own masks, not images, and a bad count in one must not stop the series.
+    const whole: SeriesInstance = {
+      sopInstanceUID,
+      frameNumber: 1,
+      frameCount: 1,
+      instanceNumber,
+      imageId: imageIdFor(sopInstanceUID, metadata, 1),
+      metadata,
+      instanceMetadata: metadata,
+    };
+    return { whole, slices: [] };
+  }
+  const frameCount = frameCountOf(metadata);
+  const split = readFrames(metadata);
+  if (split === undefined) {
+    const whole: SeriesInstance = {
+      sopInstanceUID,
+      frameNumber: 1,
+      frameCount: 1,
+      instanceNumber,
+      imageId: imageIdFor(sopInstanceUID, metadata, 1),
+      metadata,
+      instanceMetadata: metadata,
+    };
+    return { whole, slices: [whole] };
+  }
+  const slices = split.frames.map(
+    (frame, index): SeriesInstance => ({
+      sopInstanceUID,
+      frameNumber: index + 1,
+      frameCount,
+      instanceNumber,
+      imageId: imageIdFor(sopInstanceUID, metadata, index + 1),
+      metadata: frame,
+      instanceMetadata: metadata,
+    }),
+  );
+  const [first] = slices;
+  if (first === undefined) throw new DataSourceError('The instance has no frames.');
+  return { whole: { ...first, metadata }, slices };
 }
 
 function isDisplayable(metadata: DicomJsonInstance, modality: string): boolean {
@@ -85,7 +152,7 @@ function orientationKey(orientation: { row: Vec3; column: Vec3 }): string {
 }
 
 function byInstanceNumber(a: SeriesInstance, b: SeriesInstance): number {
-  return (a.instanceNumber ?? 0) - (b.instanceNumber ?? 0);
+  return (a.instanceNumber ?? 0) - (b.instanceNumber ?? 0) || a.frameNumber - b.frameNumber;
 }
 
 function sameSize(a: DicomJsonInstance, b: DicomJsonInstance): boolean {
@@ -223,16 +290,11 @@ export function buildSeries(input: BuildSeriesInput): LoadedSeriesData {
   const [first] = input.metadata;
   if (first === undefined) throw new DataSourceError('The series has no instances.');
   const modality = optionalString(first, '00080060') ?? 'OT';
-  const instances = input.metadata
-    .map((metadata) => toInstance(metadata, input.imageIdFor))
-    .sort(byInstanceNumber);
-
-  const displayable = instances.filter((instance) => isDisplayable(instance.metadata, modality));
-  if (displayable.some((instance) => (firstNumber(instance.metadata, '00280008') ?? 1) > 1)) {
-    throw new DataSourceError(
-      'Multi-frame image series are not supported yet. Convert the series to single-frame instances.',
-    );
-  }
+  const expanded = input.metadata.map((metadata) =>
+    toInstance(metadata, modality, input.imageIdFor),
+  );
+  const instances = expanded.map((entry) => entry.whole).sort(byInstanceNumber);
+  const displayable = expanded.flatMap((entry) => entry.slices).sort(byInstanceNumber);
 
   return {
     studyInstanceUID: input.studyInstanceUID,

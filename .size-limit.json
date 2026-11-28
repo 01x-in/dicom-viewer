@@ -10,14 +10,9 @@
     "limit": "27.5 kB"
   },
   {
-    "name": "core: series chunk",
-    "path": "packages/core/dist/series-*.js",
-    "limit": "2 kB"
-  },
-  {
-    "name": "core: uid chunk",
+    "name": "core: shared data chunk (UIDs, series, frame geometry, DICOM JSON helpers)",
     "path": "packages/core/dist/uid-*.js",
-    "limit": "1 kB"
+    "limit": "3 kB"
   },
   {
     "name": "core: diagnostics chunk",

@@ -5,6 +5,7 @@ import {
   type MeasurementsDocumentV1,
   parseMeasurement,
   parseMeasurementsDocument,
+  frameOf,
 } from './model';
 
 const reference = {
@@ -157,5 +158,33 @@ describe('parseMeasurement', () => {
     expect(parseMeasurement({ ...roi, stats: { ...roi.stats, pixelCount: 1.5 } }).ok).toBe(false);
     // No pixel, no statistics: such a shape is left to be read, not shown with numbers no pixel gave.
     expect(parseMeasurement({ ...roi, stats: { ...roi.stats, pixelCount: 0 } }).ok).toBe(false);
+  });
+});
+
+describe('the frame of a reference', () => {
+  const withFrame = (frameNumber: unknown): unknown => ({
+    ...length,
+    reference: { ...reference, frameNumber },
+  });
+
+  it('is optional, and a reference without one is frame 1', () => {
+    expect(parseMeasurement(length).ok).toBe(true);
+    expect(frameOf(reference)).toBe(1);
+    expect(frameOf({ ...reference, frameNumber: 7 })).toBe(7);
+  });
+
+  it('is kept when it is a whole number from 1', () => {
+    const parsed = parseMeasurement(withFrame(40));
+    expect(parsed.ok && parsed.measurement.reference.frameNumber).toBe(40);
+  });
+
+  it.each([[0], [-1], [1.5], ['2'], [null]])('rejects %j', (frameNumber) => {
+    expect(parseMeasurement(withFrame(frameNumber)).ok).toBe(false);
+  });
+
+  it('leaves a document of measurements with no frames exactly as it was', () => {
+    const parsed = parseMeasurement(length);
+    expect(parsed.ok && parsed.measurement).toEqual(length);
+    expect(parsed.ok && parsed.measurement.reference).not.toHaveProperty('frameNumber');
   });
 });

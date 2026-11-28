@@ -75,7 +75,10 @@ function mergeEvidence(dataset: Record<string, unknown>): void {
         const inStudy =
           studies.get(study) ?? new Map<string, Map<string, Record<string, unknown>>>();
         const inSeries = inStudy.get(seriesUid) ?? new Map<string, Record<string, unknown>>();
-        inSeries.set(String(image['ReferencedSOPInstanceUID']), image);
+        // The evidence names the instance. The frame a shape is on is named by the shape's own
+        // reference, and several frames of one instance are one entry here, so none is kept.
+        const { ReferencedFrameNumber: _frame, ...whole } = image;
+        inSeries.set(String(image['ReferencedSOPInstanceUID']), whole);
         inStudy.set(seriesUid, inSeries);
         studies.set(study, inStudy);
       }

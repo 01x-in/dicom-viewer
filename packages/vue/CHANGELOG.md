@@ -1,5 +1,15 @@
 # @01x/dicom-viewer-vue
 
+## 1.3.0
+
+### Patch Changes
+
+- Updated dependencies [883bf6a]
+- Updated dependencies [b1da859]
+- Updated dependencies [86a2b59]
+  - @01x/dicom-viewer-core@1.3.0
+  - @01x/dicom-viewer-elements@1.3.0
+
 ## 1.2.0
 
 ### Patch Changes

@@ -1,5 +1,6 @@
 import { DataSourceError } from './errors';
 import { firstNumber, optionalString } from './dicom-json';
+import { frameCountOf } from './frame-geometry';
 import { addLocalFile, removeLocalFile } from './local-files';
 import { parseLocalInstance } from './local-parse';
 import { buildSeries } from './series';
@@ -173,10 +174,13 @@ export function createLocalFileDataSource(files: readonly File[]): LocalFileData
         studyInstanceUID,
         seriesInstanceUID,
         metadata: entries.map((entry) => entry.metadata),
-        imageIdFor: (_sop, metadata) => {
+        imageIdFor: (_sop, metadata, frameNumber) => {
           const file = byMetadata.get(metadata);
           if (file === undefined) throw new DataSourceError('Instance metadata lost its file.');
-          return imageIdFor(file);
+          const id = imageIdFor(file);
+          // One id for the file, and the frame on the end for a file with more than one, which is
+          // the form Cornerstone's loader reads the frame from.
+          return frameCountOf(metadata) > 1 ? `${id}?frame=${frameNumber.toString()}` : id;
         },
       });
     },
