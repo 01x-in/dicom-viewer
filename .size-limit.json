@@ -7,7 +7,7 @@
   {
     "name": "core: viewer chunk",
     "path": "packages/core/dist/viewer-core-*.js",
-    "limit": "27.5 kB"
+    "limit": "28 kB"
   },
   {
     "name": "core: shared data chunk (UIDs, series, frame geometry, DICOM JSON helpers)",

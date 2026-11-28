@@ -25,7 +25,7 @@ Spec: [specs/sr-export.md](specs/sr-export.md). Decisions: [ADR 0014](adr/0014-s
 
 | Budget | Size | Limit |
 |---|---|---|
-| core: viewer chunk | 27.44 kB | 27.5 kB (was 27) |
+| core: viewer chunk | 27.51 kB | 28 kB (was 27) |
 | core: engine chunk (lazy) | 804.06 kB | 880 kB |
 | core: PDF chunk (lazy) | 2.01 kB | 2 kB (unchanged) |
 | elements: viewer element chunk | 28.64 kB | 29 kB (was 27) |

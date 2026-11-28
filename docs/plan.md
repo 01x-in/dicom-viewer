@@ -333,7 +333,7 @@ Reference files:
 - **The file has the patient's identity in it,** whatever `showPatientInfo` says, and the menu item says so.
 - **The panel's controls are config.** `measurements: { downloadFormats, copyText }`. A format left out is left out of the panel only.
 - **dcmjs reads UTF-8 as Windows-1252,** so the reader repairs text for a file that says `ISO_IR 192`. This also mends M10.
-- **Three size budgets were raised:** the core viewer chunk to 27.5 kB, the elements viewer chunk to 29 kB, and `core/testing` to 4.5 kB.
+- **Three size budgets were raised:** the core viewer chunk to 28 kB, the elements viewer chunk to 29 kB, and `core/testing` to 4.5 kB.
 - Still open: a PACS, OHIF, and 3D Slicer have not been tried with an exported file, `dciodvfy` has not been run, a report on a real Enhanced CT, MR, or PT has not been written, loading an exported report again makes its measurements twice, there is no way to open a `.dcm` from disk as a report, the visual baselines for the new panel controls, and Safari and Firefox.
 
 ## M12 outcome
