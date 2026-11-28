@@ -4,7 +4,9 @@ import { DEFAULT_WINDOW_PRESETS } from '../window-presets';
 import { mergeById, resolveCorners } from './overlay-items';
 import {
   type ConfigBody,
+  DOWNLOAD_FORMATS,
   type KeybindingsConfig,
+  type MeasurementsConfig,
   OVERLAY_CORNERS,
   type OverlayConfig,
   type OverlayCornersConfig,
@@ -80,6 +82,17 @@ function mergePanels(base: PanelsConfig | undefined, next: PanelsConfig): Panels
   return { ...base, ...(next.hide === undefined ? {} : { hide: next.hide }) };
 }
 
+function mergeMeasurements(
+  base: MeasurementsConfig | undefined,
+  next: MeasurementsConfig,
+): MeasurementsConfig {
+  return {
+    ...base,
+    ...(next.downloadFormats === undefined ? {} : { downloadFormats: next.downloadFormats }),
+    ...(next.copyText === undefined ? {} : { copyText: next.copyText }),
+  };
+}
+
 function mergeTools(base: ToolsConfig | undefined, next: ToolsConfig): ToolsConfig {
   return { ...base, ...(next.active === undefined ? {} : { active: next.active }) };
 }
@@ -115,6 +128,7 @@ function mergeTwo(base: ConfigBody, next: ConfigBody): ConfigBody {
     panels: layerValue(base.panels, next.panels, mergePanels),
     windowLevelPresets: layerValue(base.windowLevelPresets, next.windowLevelPresets, replace),
     tools: layerValue(base.tools, next.tools, mergeTools),
+    measurements: layerValue(base.measurements, next.measurements, mergeMeasurements),
   };
 }
 
@@ -145,5 +159,9 @@ export function resolveConfig(layers: readonly ConfigBody[]): ResolvedViewerConf
     panels: { hide: merged.panels?.hide ?? [] },
     windowLevelPresets: merged.windowLevelPresets ?? DEFAULT_WINDOW_PRESETS,
     tools: { active: merged.tools?.active ?? DEFAULT_PRIMARY_TOOL },
+    measurements: {
+      downloadFormats: merged.measurements?.downloadFormats ?? DOWNLOAD_FORMATS,
+      copyText: merged.measurements?.copyText ?? true,
+    },
   };
 }

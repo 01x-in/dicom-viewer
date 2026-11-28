@@ -7,7 +7,7 @@
   {
     "name": "core: viewer chunk",
     "path": "packages/core/dist/viewer-core-*.js",
-    "limit": "27 kB"
+    "limit": "28 kB"
   },
   {
     "name": "core: shared data chunk (UIDs, series, frame geometry, DICOM JSON helpers)",
@@ -47,7 +47,7 @@
   {
     "name": "core/testing",
     "path": "packages/core/dist/testing.js",
-    "limit": "4 kB"
+    "limit": "4.5 kB"
   },
   {
     "name": "elements: entry",
@@ -62,7 +62,7 @@
   {
     "name": "elements: viewer element chunk",
     "path": "packages/elements/dist/viewer-element-*.js",
-    "limit": "27 kB"
+    "limit": "29 kB"
   },
   {
     "name": "elements: styles.css",

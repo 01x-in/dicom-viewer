@@ -23,6 +23,7 @@ export type IconName =
   | 'zoom-out'
   | 'invert'
   | 'reset'
+  | 'refresh'
   | 'cine'
   | 'presets'
   | 'layout'
@@ -55,6 +56,7 @@ const SHAPES: Readonly<Record<IconName, string>> = {
   'zoom-out': `<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5.5 5.5M7.5 10.5h6"/>`,
   invert: `<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 4h16v16z" fill="currentColor"/>`,
   reset: `<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>`,
+  refresh: `<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/>`,
   cine: `<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>`,
   layout: `<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M12 4v16M4 12h16"/>`,
   crosshairs: `<path d="M12 3v7M12 14v7M3 12h7M14 12h7"/><circle cx="12" cy="12" r="1.5"/>`,

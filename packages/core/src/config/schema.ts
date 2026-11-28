@@ -4,6 +4,7 @@ import type { PrimaryTool } from '../tools';
 import type { WindowPreset } from '../window-presets';
 import { resolveTag } from './tags';
 import {
+  DOWNLOAD_FORMATS,
   OVERLAY_BUILTINS,
   OVERLAY_FORMATS,
   type OverlayItemConfig,
@@ -205,6 +206,13 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
       })
       .nullable()
       .optional(),
+    measurements: z
+      .strictObject({
+        downloadFormats: z.array(z.enum(DOWNLOAD_FORMATS)).optional(),
+        copyText: z.boolean().optional(),
+      })
+      .nullable()
+      .optional(),
   })
   .superRefine((config, context) => {
     if (typeof config.keybindings === 'object' && config.keybindings !== null) {
@@ -271,6 +279,17 @@ const configSchema: z.ZodType<ViewerConfigV1> = z
           entryIds.add(entry.id);
         });
       }
+    });
+    const formats = new Set<string>();
+    (config.measurements?.downloadFormats ?? []).forEach((format, index) => {
+      if (formats.has(format)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['measurements', 'downloadFormats', index],
+          message: `The download format "${format}" is listed twice.`,
+        });
+      }
+      formats.add(format);
     });
     const ids = new Set<string>();
     (config.windowLevelPresets ?? []).forEach((preset, index) => {

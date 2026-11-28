@@ -909,6 +909,33 @@
           "type": "null"
         }
       ]
+    },
+    "measurements": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "downloadFormats": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "text",
+                  "pdf",
+                  "sr"
+                ]
+              }
+            },
+            "copyText": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [

@@ -386,6 +386,82 @@ export async function smokeShell(browser: Browser, input: SmokeInput): Promise<s
       if ((await entries.first().getAttribute('aria-selected')) !== 'true')
         failures.push('jumping to a measurement did not pick it in the list');
 
+      // Download and copy. The measurement is named Aorta, so the files say so.
+      const panel = page.locator('dv-measurement-list');
+      const menuButton = panel.locator('[data-action="download-menu"]');
+      const menuItem = (action: string): ReturnType<Page['locator']> =>
+        panel.locator(`[role="menuitem"][data-action="${action}"]`);
+      await menuButton.click();
+      if (
+        (await menuButton.getAttribute('aria-expanded')) !== 'true' ||
+        (await panel.locator('[role="menuitem"]').count()) !== 3
+      ) {
+        failures.push('the Download menu did not open with three items');
+      } else {
+        await runAxe(page, 'the Download menu open', failures);
+        await page.keyboard.press('Escape');
+        if ((await menuButton.getAttribute('aria-expanded')) !== 'false')
+          failures.push('Escape did not close the Download menu');
+      }
+      const saved: Record<string, string> = {};
+      for (const [action, name] of [
+        ['download-text', 'measurement-report.txt'],
+        ['download-pdf', 'measurement-report.pdf'],
+        ['download-sr', 'measurements.dcm'],
+      ] as const) {
+        await menuButton.click();
+        try {
+          const [download] = await Promise.all([
+            page.waitForEvent('download', { timeout: 20_000 }),
+            menuItem(action).click(),
+          ]);
+          if (download.suggestedFilename() !== name)
+            failures.push(`${action} saved ${download.suggestedFilename()}, expected ${name}`);
+          const path = await download.path();
+          saved[action] = readFileSync(path).toString('latin1');
+        } catch (error) {
+          failures.push(
+            `${action} saved nothing: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      if (!(saved['download-text'] ?? '').includes('Aorta: Length'))
+        failures.push('the text file does not have the measurement');
+      if (!(saved['download-pdf'] ?? '').startsWith('%PDF-1.4'))
+        failures.push('the PDF file is not a PDF');
+      const dicom = saved['download-sr'] ?? '';
+      if (dicom.slice(128, 132) !== 'DICM') failures.push('the SR file is not a DICOM file');
+      if (!dicom.includes('Aorta')) failures.push('the SR file does not have the label');
+      // Copy: with the clipboard, and without it, which shows the text to copy by hand.
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      await panel.locator('[data-action="copy-text"]').click();
+      await waitFor(
+        page,
+        'the copy to be confirmed',
+        async () => (await panel.locator('[data-copy-status]').count()) === 1,
+        failures,
+      );
+      const copied = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '');
+      if (!copied.includes('Aorta: Length'))
+        failures.push(`the clipboard has "${copied.slice(0, 40)}", not the text of the report`);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+      });
+      await panel.locator('[data-action="copy-text"]').click();
+      if (
+        await waitFor(
+          page,
+          'the text to be shown for copying by hand',
+          async () => (await panel.locator('textarea[data-copy-box]').count()) === 1,
+          failures,
+        )
+      ) {
+        const boxText = await panel.locator('textarea[data-copy-box]').inputValue();
+        if (!boxText.includes('Aorta: Length'))
+          failures.push('the box for copying by hand does not have the text');
+        await runAxe(page, 'the box for copying by hand', failures);
+      }
+
       // Remove it with the Delete key.
       await entries.first().focus();
       await page.keyboard.press('Delete');

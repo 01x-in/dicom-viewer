@@ -2,6 +2,7 @@ import type { SeriesInstance, SeriesStack } from './data/types';
 import type { MprOrientation } from './mpr';
 import type { MeasurementType, Point3 } from './measurements/model';
 import type { SrRead } from './measurements/sr';
+import type { SrWriteInput } from './measurements/sr-write';
 import type { PixelSlice } from './measurements/stats';
 import type { SegmentationDisplay } from './segmentations/display';
 import type { SegmentationHeader } from './segmentations/header';
@@ -181,5 +182,12 @@ export interface RenderingPort {
    * an image that is not among them is counted as unreadable.
    */
   readReport(bytes: ArrayBuffer, instances: readonly SeriesInstance[]): Promise<SrRead>;
+  /**
+   * Writes the measurements as a TID 1500 Structured Report, as the bytes of a DICOM file. The
+   * engine learns what it needs about the images the measurements are on, and lets go of them when
+   * it is done. The patient and study are copied from those images, so the file says who the
+   * patient is.
+   */
+  writeReport(input: SrWriteInput): Promise<ArrayBuffer>;
   destroy(): void;
 }

@@ -2,6 +2,9 @@
 // because every script that touches `window.__dvViewer` must agree on its type.
 
 export interface ViewerHandle {
+  config: {
+    get(): { measurements: { downloadFormats: string[]; copyText: boolean } };
+  };
   getState(): {
     studyInstanceUID?: string;
     viewports: {
@@ -69,6 +72,8 @@ export interface ViewerHandle {
     }>;
     /** What `exportPdf` made, as its type and its bytes read as Latin-1 (every byte one character). */
     exportPdf(): Promise<Blob>;
+    exportText(): Promise<string>;
+    exportSr(options?: { seriesDescription?: string; seriesNumber?: number }): Promise<Blob>;
     jumpTo(id: string): Promise<void>;
     /** The slice of each measurement in its stack, counting from 1. */
     slices(): Promise<ReadonlyMap<string, number>>;

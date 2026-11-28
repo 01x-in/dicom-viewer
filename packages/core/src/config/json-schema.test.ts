@@ -35,6 +35,7 @@ describe('the JSON Schema of the config', () => {
       [
         '$schema',
         'keybindings',
+        'measurements',
         'overlay',
         'palette',
         'panels',

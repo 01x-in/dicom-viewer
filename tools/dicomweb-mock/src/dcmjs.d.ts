@@ -7,7 +7,12 @@ declare module 'dcmjs' {
   export type DicomJson = Record<string, DicomJsonElement>;
 
   export interface DicomMessageStatic {
-    readFile(buffer: ArrayBuffer): { meta: DicomJson; dict: DicomJson };
+    readFile(buffer: ArrayBuffer): {
+      meta: DicomJson;
+      dict: DicomJson;
+      /** The whole file again, with whatever was changed in `meta` and `dict`. */
+      write(): ArrayBuffer;
+    };
   }
 
   export const data: { DicomMessage: DicomMessageStatic };

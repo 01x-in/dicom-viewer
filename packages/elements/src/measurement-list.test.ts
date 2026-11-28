@@ -408,8 +408,16 @@ describe('choosing several measurements', () => {
     expect(row(list, 'a').getAttribute('aria-keyshortcuts')).toBe('X');
     expect(checked(list)).toEqual([]);
     expect(count(list)).toBe('0 selected');
-    expect(action(list, 'show-together').getAttribute('aria-disabled')).toBe('true');
+    expect(action(list, 'show-selected').getAttribute('aria-disabled')).toBe('true');
     expect(action(list, 'delete-selected').getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('has the two actions in one row, so they sit side by side', async () => {
+    const { list } = await mount([length('a', 2), length('b', 7)]);
+    const row = action(list, 'show-selected').parentElement;
+    expect(row?.classList.contains('selection-buttons')).toBe(true);
+    expect(action(list, 'delete-selected').parentElement).toBe(row);
+    expect(action(list, 'show-selected').textContent.trim()).toBe('Show selected');
   });
 
   it('checks and unchecks a row without showing it: choosing is not the same as picking', async () => {
@@ -419,7 +427,7 @@ describe('choosing several measurements', () => {
     expect(count(list)).toBe('1 selected');
     expect(fake.viewer.measurements.getSelected()).toBeUndefined();
     expect(fake.viewer.getState().viewports[0]?.imageIndex).toBe(5);
-    expect(action(list, 'show-together').getAttribute('aria-disabled')).toBeNull();
+    expect(action(list, 'show-selected').getAttribute('aria-disabled')).toBeNull();
     await toggle(list, 'b');
     expect(checked(list)).toEqual([]);
   });
@@ -478,7 +486,7 @@ describe('choosing several measurements', () => {
   it('does nothing with nothing checked', async () => {
     const { list, fake } = await mount([length('a', 2)]);
     action(list, 'delete-selected').click();
-    action(list, 'show-together').click();
+    action(list, 'show-selected').click();
     await settle(list);
     expect(fake.viewer.measurements.list()).toHaveLength(1);
     expect(fake.viewer.getState().layout).toBe('1x1');
@@ -492,7 +500,7 @@ describe('choosing several measurements', () => {
       const { list, fake } = await mount([length('a', 2), length('b', 7), length('c', 4)]);
       await toggle(list, 'c');
       await toggle(list, 'a');
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(fake.viewer.getState().layout).toBe('1x2');
       expect(imageAt(fake, 'vp-0')).toBe(2);
@@ -505,7 +513,7 @@ describe('choosing several measurements', () => {
       const { list, fake } = await mount([length('a', 1), length('b', 2), length('c', 3)]);
       selectAll(list).click();
       await settle(list);
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(fake.viewer.getState().layout).toBe('2x2');
       expect([imageAt(fake, 'vp-0'), imageAt(fake, 'vp-1'), imageAt(fake, 'vp-2')]).toEqual([
@@ -516,7 +524,7 @@ describe('choosing several measurements', () => {
     it('shows one where it is, without changing the layout', async () => {
       const { list, fake } = await mount([length('a', 1), length('b', 8)]);
       await toggle(list, 'b');
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(fake.viewer.getState().layout).toBe('1x1');
       expect(imageAt(fake, 'vp-0')).toBe(8);
@@ -528,7 +536,7 @@ describe('choosing several measurements', () => {
       const { list, fake } = await mount(five);
       selectAll(list).click();
       await settle(list);
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(fake.viewer.getState().layout).toBe('2x2');
       expect([0, 1, 2, 3].map((at) => imageAt(fake, `vp-${at.toString()}`))).toEqual([0, 1, 2, 3]);
@@ -546,7 +554,7 @@ describe('choosing several measurements', () => {
         errors.push((event as CustomEvent<{ error: Error }>).detail.error);
       });
       fake.viewer.destroy();
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(errors.length).toBeGreaterThan(0);
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
@@ -557,12 +565,12 @@ describe('choosing several measurements', () => {
       const { list, fake } = await mount(five);
       selectAll(list).click();
       await settle(list);
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).not.toBeNull();
       list.addEventListener('dv-error', () => undefined);
       fake.viewer.destroy();
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
     });
@@ -579,11 +587,52 @@ describe('choosing several measurements', () => {
       await other.viewer.setViewportSeries('vp-0', FAKE_IDS.ct);
       for (const measurement of five) await other.viewer.measurements.add(measurement);
       // The show is on its way when the list is given the other viewer, which has the same ids.
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       list.viewer = other.viewer;
       await settle(list);
       expect(list.shadowRoot?.querySelector('[data-selection-status]')).toBeNull();
       expect(count(list)).toBe('0 selected');
+    });
+
+    it('has a Single view button that is there only while the layout has more than one viewport, and puts it back', async () => {
+      const { list, fake } = await mount([length('a', 1), length('b', 2)]);
+      expect(list.shadowRoot?.querySelector('[data-action="single-view"]')).toBeNull();
+      selectAll(list).click();
+      await settle(list);
+      action(list, 'show-selected').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('1x2');
+      expect(action(list, 'single-view').textContent.trim()).toBe('Single view');
+      action(list, 'single-view').click();
+      await settle(list);
+      expect(fake.viewer.getState().layout).toBe('1x1');
+      expect(list.shadowRoot?.querySelector('[data-action="single-view"]')).toBeNull();
+    });
+
+    it('follows a layout that was changed somewhere else', async () => {
+      const { list, fake } = await mount([length('a', 1)]);
+      await fake.viewer.setLayout('2x2');
+      await settle(list);
+      expect(action(list, 'single-view')).not.toBeNull();
+      await fake.viewer.setLayout('1x1');
+      await settle(list);
+      expect(list.shadowRoot?.querySelector('[data-action="single-view"]')).toBeNull();
+    });
+
+    it('reports a layout that cannot be set as dv-error, and says in the words the host gives', async () => {
+      const { list, fake } = await mount([length('a', 1)]);
+      await fake.viewer.setLayout('2x2');
+      list.messages = { singleView: 'Una vista' };
+      await settle(list);
+      expect(action(list, 'single-view').textContent.trim()).toBe('Una vista');
+      const errors: Error[] = [];
+      list.addEventListener('dv-error', (event) => {
+        errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+      });
+      fake.viewer.setLayout = (): Promise<void> => Promise.reject(new Error('no'));
+      action(list, 'single-view').click();
+      await settle(list);
+      expect(errors.map((error) => error.message)).toEqual(['no']);
     });
 
     it('reports what cannot be shown as dv-error', async () => {
@@ -596,7 +645,7 @@ describe('choosing several measurements', () => {
         errors.push((event as CustomEvent<{ error: Error }>).detail.error);
       });
       fake.viewer.destroy();
-      action(list, 'show-together').click();
+      action(list, 'show-selected').click();
       await settle(list);
       expect(errors.length).toBeGreaterThan(0);
     });
@@ -607,13 +656,13 @@ describe('choosing several measurements', () => {
     list.messages = {
       selectAll: 'Elegir todo',
       selectedCount: '{count} elegidas',
-      showTogether: 'Mostrar juntas',
+      showSelected: 'Mostrar elegidas',
       deleteSelected: 'Eliminar las elegidas',
     };
     await settle(list);
     expect(selectAll(list).getAttribute('aria-label')).toBe('Elegir todo');
     expect(count(list)).toBe('0 elegidas');
-    expect(action(list, 'show-together').textContent.trim()).toBe('Mostrar juntas');
+    expect(action(list, 'show-selected').textContent.trim()).toBe('Mostrar elegidas');
     expect(action(list, 'delete-selected').textContent.trim()).toBe('Eliminar las elegidas');
   });
 });
@@ -780,6 +829,37 @@ describe('loading a report', () => {
     expect(reportSelect(list)?.selectedOptions[0]?.text.trim()).toBe(`SR ${FAKE_IDS.sr}`);
   });
 
+  it('shows a long report name cut to fit, with the whole name in the tooltip, and leaves a short one alone', async () => {
+    const { list, fake } = await mount();
+    const long = 'Phantom SR (sr-measurements)';
+    const original = fake.viewer.getStudy.bind(fake.viewer);
+    fake.viewer.getStudy = (): ReturnType<typeof original> => {
+      const study = original();
+      return study === undefined
+        ? study
+        : {
+            ...study,
+            series: study.series.map((series) =>
+              series.seriesInstanceUID === FAKE_IDS.sr ? { ...series, description: long } : series,
+            ),
+          };
+    };
+    // The list takes the reports again when the study changes and comes back.
+    await fake.viewer.loadStudy('1.2.5');
+    await settle(list);
+    await fake.viewer.loadStudy(FAKE_IDS.study);
+    await settle(list);
+    const option = [...(reportSelect(list)?.options ?? [])].find(
+      (item) => item.value === FAKE_IDS.sr,
+    );
+    expect(option?.label).toBe('Phantom SR (sr-measurem…');
+    expect(option?.title).toBe(long);
+    // The text of the option is still the whole name.
+    expect(option?.text.trim()).toBe(long);
+    const short = [...(reportSelect(list)?.options ?? [])].find((item) => item.value === '');
+    expect(short?.hasAttribute('label')).toBe(false);
+  });
+
   it('has no reload button until a report is loaded, and then loads the same report again, replacing what it made', async () => {
     const { list, fake } = await mount();
     expect(list.shadowRoot?.querySelector('[data-action="reload-report"]')).toBeNull();
@@ -787,11 +867,27 @@ describe('loading a report', () => {
     await fake.viewer.measurements.remove(fake.viewer.measurements.list()[0]?.id ?? '');
     await settle(list);
     expect(rows(list)).toHaveLength(1);
-    action(list, 'reload-report').click();
+    const reload = action(list, 'reload-report');
+    // A picture only: its name is the label, and the picture is hidden from assistive technology.
+    expect(reload.textContent.trim()).toBe('');
+    expect(reload.getAttribute('aria-label')).toBe('Reload report');
+    expect(reload.getAttribute('title')).toBe('Reload report');
+    expect(reload.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    reload.click();
     await settle(list);
     expect(rows(list)).toHaveLength(2);
     expect(reportStatus(list)).toBe('Report loaded: 1 added, 1 replaced.');
     expect(reportSelect(list)?.value).toBe(FAKE_IDS.sr);
+  });
+
+  it('puts the report select and the reload picture on a line of their own, so the name of the report has room', async () => {
+    const { list } = await mount();
+    await choose(list, FAKE_IDS.sr);
+    const line = reportSelect(list)?.parentElement;
+    expect(line?.classList.contains('report-load')).toBe(true);
+    expect(action(list, 'reload-report').parentElement).toBe(line);
+    // The other buttons are not on that line.
+    expect(action(list, 'copy-text').parentElement).not.toBe(line);
   });
 
   it('takes the reload button away when the study changes, and uses the words the host gives', async () => {
@@ -799,7 +895,8 @@ describe('loading a report', () => {
     await choose(list, FAKE_IDS.sr);
     list.messages = { reloadReport: 'Cargar de nuevo' };
     await settle(list);
-    expect(action(list, 'reload-report').textContent.trim()).toBe('Cargar de nuevo');
+    expect(action(list, 'reload-report').getAttribute('aria-label')).toBe('Cargar de nuevo');
+    expect(action(list, 'reload-report').getAttribute('title')).toBe('Cargar de nuevo');
     await fake.viewer.loadStudy('1.2.5');
     await settle(list);
     expect(list.shadowRoot?.querySelector('[data-action="reload-report"]')).toBeNull();
@@ -880,47 +977,371 @@ describe('loading a report', () => {
   });
 });
 
-describe('the PDF button', () => {
-  it('is there with no measurements, and can not be used', async () => {
+/** Records the files the page saves, in place of the browser saving them. */
+function captureDownloads(): { names: string[]; made: Blob[]; restore: () => void } {
+  const made: Blob[] = [];
+  const names: string[] = [];
+  URL.createObjectURL = (blob: Blob | MediaSource): string => {
+    if (blob instanceof Blob) made.push(blob);
+    return 'blob:fake';
+  };
+  URL.revokeObjectURL = (): void => undefined;
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    names.push(this.download);
+  });
+  return {
+    names,
+    made,
+    restore: (): void => {
+      click.mockRestore();
+    },
+  };
+}
+
+const menuButton = (list: DvMeasurementListElement): HTMLButtonElement =>
+  action(list, 'download-menu');
+const menuItems = (list: DvMeasurementListElement): HTMLButtonElement[] => [
+  ...(list.shadowRoot?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []),
+];
+const menuKey = (element: HTMLElement, key: string): void => {
+  element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+};
+async function openMenu(list: DvMeasurementListElement): Promise<void> {
+  menuButton(list).click();
+  await settle(list);
+}
+
+describe('the Download menu', () => {
+  it('is a button named Download that says it opens a menu, and can not be used with no measurements', async () => {
     const { list } = await mount();
-    const button = action(list, 'download-pdf');
+    const button = menuButton(list);
+    expect(button.textContent.trim()).toBe('Download');
+    expect(button.getAttribute('aria-haspopup')).toBe('menu');
+    expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(button.getAttribute('aria-disabled')).toBe('true');
-    expect(button.textContent.trim()).toBe('Download PDF');
+    button.click();
+    await settle(list);
+    expect(menuItems(list)).toEqual([]);
   });
 
-  it('can be used when there are measurements, and saves the report', async () => {
+  it('puts the focus on the first item when Enter or Space opens it (a click with no pointer), and leaves it on the button for a mouse click', async () => {
     const { list } = await mount([length('a')]);
-    const button = action(list, 'download-pdf');
-    expect(button.hasAttribute('aria-disabled')).toBe(false);
-    const made: Blob[] = [];
-    URL.createObjectURL = (blob: Blob | MediaSource): string => {
-      if (blob instanceof Blob) made.push(blob);
-      return 'blob:fake';
-    };
-    URL.revokeObjectURL = (): void => undefined;
-    const names: string[] = [];
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
-      this: HTMLAnchorElement,
-    ) {
-      names.push(this.download);
-    });
+    menuButton(list).click();
+    await settle(list);
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[0]);
+    menuKey(menuItems(list)[0] ?? menuButton(list), 'Escape');
+    await settle(list);
+    menuButton(list).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    await settle(list);
+    expect(menuButton(list).getAttribute('aria-expanded')).toBe('true');
+    expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
+  });
+
+  it('opens with the formats of the config in its order, the PDF keeping the name it always had', async () => {
+    const { list } = await mount([length('a')]);
+    await openMenu(list);
+    expect(menuButton(list).getAttribute('aria-expanded')).toBe('true');
+    expect(menuItems(list).map((item) => item.dataset['action'])).toEqual([
+      'download-text',
+      'download-pdf',
+      'download-sr',
+    ]);
+    expect(menuItems(list).map((item) => item.textContent.trim())).toEqual([
+      'Text (.txt)',
+      'PDF (.pdf)',
+      'DICOM SR (.dcm, includes patient identity)',
+    ]);
+    expect(list.shadowRoot?.querySelector('[role="menu"]')?.getAttribute('aria-labelledby')).toBe(
+      menuButton(list).id,
+    );
+  });
+
+  it('saves the text and the PDF as files, closes, and gives the focus back to the button', async () => {
+    const { list } = await mount([length('a')]);
+    const saved = captureDownloads();
     try {
-      button.click();
+      await openMenu(list);
+      action(list, 'download-text').click();
       await vi.waitFor(() => {
-        expect(names).toEqual(['measurement-report.pdf']);
+        expect(saved.names).toEqual(['measurement-report.txt']);
+      });
+      expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+      expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
+      await openMenu(list);
+      action(list, 'download-pdf').click();
+      await vi.waitFor(() => {
+        expect(saved.names).toEqual(['measurement-report.txt', 'measurement-report.pdf']);
       });
     } finally {
-      click.mockRestore();
+      saved.restore();
     }
-    expect(made[0]?.type).toBe('application/pdf');
+    expect(saved.made.map((blob) => blob.type)).toEqual([
+      'text/plain;charset=utf-8',
+      'application/pdf',
+    ]);
   });
 
-  it('does nothing when it can not be used', async () => {
-    const { list } = await mount();
-    const errors: unknown[] = [];
-    list.addEventListener('dv-error', (event) => errors.push(event));
-    action(list, 'download-pdf').click();
+  it('saves the DICOM SR as a file, and the file is the report, with a type another tool knows', async () => {
+    const { list } = await mount([length('a')]);
+    const saved = captureDownloads();
+    try {
+      await openMenu(list);
+      action(list, 'download-sr').click();
+      await vi.waitFor(() => {
+        expect(saved.names).toEqual(['measurements.dcm']);
+      });
+    } finally {
+      saved.restore();
+    }
+    expect(saved.made[0]?.type).toBe('application/dicom');
+    expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('says so when the report can not be written, and keeps the menu usable', async () => {
+    const { list, fake } = await mount([length('a')]);
+    const errors: Error[] = [];
+    list.addEventListener('dv-error', (event) => {
+      errors.push((event as CustomEvent<{ error: Error }>).detail.error);
+    });
+    fake.viewer.measurements.exportSr = (): Promise<Blob> => Promise.reject(new Error('no'));
+    await openMenu(list);
+    action(list, 'download-sr').click();
     await settle(list);
-    expect(errors).toEqual([]);
+    expect(errors.map((error) => error.message)).toEqual(['no']);
+    await openMenu(list);
+    expect(menuItems(list)).toHaveLength(3);
+  });
+
+  it('is used from the keyboard: Enter or the Down arrow opens it on the first item, the arrows go round, Home and End, Escape closes', async () => {
+    const { list } = await mount([length('a')]);
+    menuKey(menuButton(list), 'ArrowDown');
+    await settle(list);
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[0]);
+    menuKey(menuItems(list)[0] as HTMLElement, 'ArrowDown');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[1]);
+    menuKey(menuItems(list)[1] as HTMLElement, 'End');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[2]);
+    menuKey(menuItems(list)[2] as HTMLElement, 'ArrowDown');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[0]);
+    menuKey(menuItems(list)[0] as HTMLElement, 'ArrowUp');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[2]);
+    menuKey(menuItems(list)[2] as HTMLElement, 'Home');
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[0]);
+    menuKey(menuItems(list)[0] as HTMLElement, 'Escape');
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+    expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
+  });
+
+  it('closes with Escape when it was opened with the mouse and the focus is still on the button', async () => {
+    const { list } = await mount([length('a')]);
+    await openMenu(list);
+    expect(menuButton(list).getAttribute('aria-expanded')).toBe('true');
+    menuKey(menuButton(list), 'Escape');
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+    expect(menuButton(list).getAttribute('aria-expanded')).toBe('false');
+    expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
+  });
+
+  it('closes when the focus goes somewhere else', async () => {
+    const { list } = await mount([length('a')]);
+    await openMenu(list);
+    menuItems(list)[0]?.focus();
+    menuItems(list)[0]?.dispatchEvent(
+      new FocusEvent('focusout', { bubbles: true, composed: true, relatedTarget: document.body }),
+    );
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('has the formats the host chose, in its order, and none at all hides the menu', async () => {
+    const { list, fake } = await mount([length('a')]);
+    fake.viewer.config.apply({ version: 1, measurements: { downloadFormats: ['pdf', 'text'] } });
+    await settle(list);
+    await openMenu(list);
+    expect(menuItems(list).map((item) => item.dataset['action'])).toEqual([
+      'download-pdf',
+      'download-text',
+    ]);
+    fake.viewer.config.apply({ version: 1, measurements: { downloadFormats: [] } });
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[data-action="download-menu"]')).toBeNull();
+    expect(menuItems(list)).toEqual([]);
+    fake.viewer.config.apply({ version: 1, measurements: null });
+    await settle(list);
+    expect(menuButton(list)).not.toBeNull();
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a')]);
+    list.messages = {
+      download: 'Descargar',
+      downloadText: 'Texto',
+      downloadPdf: 'PDF',
+      downloadSr: 'DICOM SR',
+    };
+    await settle(list);
+    expect(menuButton(list).textContent.trim()).toBe('Descargar');
+    await openMenu(list);
+    expect(menuItems(list).map((item) => item.textContent.trim())).toEqual([
+      'Texto',
+      'PDF',
+      'DICOM SR',
+    ]);
+  });
+});
+
+describe('the Copy button', () => {
+  const clipboard = (value: unknown): void => {
+    Object.defineProperty(navigator, 'clipboard', { value, configurable: true });
+  };
+  const copyStatus = (list: DvMeasurementListElement): string | undefined =>
+    list.shadowRoot?.querySelector('[data-copy-status]')?.textContent.replace(/\s+/g, ' ').trim();
+  const box = (list: DvMeasurementListElement): HTMLTextAreaElement | null =>
+    list.shadowRoot?.querySelector<HTMLTextAreaElement>('textarea[data-copy-box]') ?? null;
+
+  it('is there, named Copy, and can not be used with no measurements', async () => {
+    const { list } = await mount();
+    const button = action(list, 'copy-text');
+    expect(button.textContent.trim()).toBe('Copy');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    clipboard({ writeText: vi.fn() });
+    button.click();
+    await settle(list);
+    expect(copyStatus(list)).toBeUndefined();
+  });
+
+  it('puts the text on the clipboard, and says so', async () => {
+    const { list } = await mount([length('a', 4, 'Aorta')]);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    clipboard({ writeText });
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(copyStatus(list)).toBe('Copied.');
+    });
+    expect(String(writeText.mock.calls[0]?.[0])).toContain('Aorta: Length 5.0 mm');
+    expect(box(list)).toBeNull();
+  });
+
+  it('shows the text in a box, selected, and says to copy it by hand, when the browser refuses', async () => {
+    const { list } = await mount([length('a', 4, 'Aorta')]);
+    clipboard({ writeText: vi.fn().mockRejectedValue(new Error('denied')) });
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(box(list)).not.toBeNull();
+    });
+    const field = box(list);
+    if (field === null) throw new Error('No box');
+    expect(field.readOnly).toBe(true);
+    expect(field.value).toContain('Aorta: Length 5.0 mm');
+    expect(field.getAttribute('aria-label')).toBe('Measurements as text');
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe(field.value.length);
+    expect(copyStatus(list)).toBe(
+      'The browser did not allow copying. Select the text below and copy it.',
+    );
+  });
+
+  it('does the same when the browser has no clipboard at all', async () => {
+    const { list } = await mount([length('a')]);
+    clipboard(undefined);
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(box(list)).not.toBeNull();
+    });
+  });
+
+  it('is left out when the host says so, and comes back with the next layer', async () => {
+    const { list, fake } = await mount([length('a')]);
+    fake.viewer.config.apply({ version: 1, measurements: { copyText: false } });
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[data-action="copy-text"]')).toBeNull();
+    fake.viewer.config.apply({ version: 1, measurements: { copyText: true } });
+    await settle(list);
+    expect(action(list, 'copy-text')).not.toBeNull();
+  });
+
+  it('takes the note and the box away when the measurements change', async () => {
+    const { list, fake } = await mount([length('a')]);
+    clipboard({ writeText: vi.fn().mockRejectedValue(new Error('denied')) });
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(box(list)).not.toBeNull();
+    });
+    await fake.viewer.measurements.add(length('b', 7));
+    await settle(list);
+    expect(box(list)).toBeNull();
+    expect(copyStatus(list)).toBeUndefined();
+  });
+
+  it('does not put back the text of a list that has gone while it was being made', async () => {
+    const { list, fake } = await mount([length('a')]);
+    clipboard({ writeText: vi.fn().mockRejectedValue(new Error('denied')) });
+    const real = fake.viewer.measurements.exportText.bind(fake.viewer.measurements);
+    let release: (() => void) | undefined;
+    let calls = 0;
+    vi.spyOn(fake.viewer.measurements, 'exportText').mockImplementation(async (options) => {
+      calls += 1;
+      // The first is the command's own. The second is the panel's, for the box, and it waits.
+      if (calls === 2) await new Promise<void>((resolve) => (release = resolve));
+      return real(options);
+    });
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(calls).toBe(2);
+    });
+    await fake.viewer.measurements.add(length('b', 7));
+    await settle(list);
+    release?.();
+    await settle(list);
+    expect(box(list)).toBeNull();
+    expect(copyStatus(list)).toBeUndefined();
+  });
+
+  it('uses the words the host gives', async () => {
+    const { list } = await mount([length('a')]);
+    list.messages = {
+      copyText: 'Copiar',
+      copiedText: 'Copiado.',
+    };
+    clipboard({ writeText: vi.fn().mockResolvedValue(undefined) });
+    await settle(list);
+    expect(action(list, 'copy-text').textContent.trim()).toBe('Copiar');
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(copyStatus(list)).toBe('Copiado.');
+    });
+  });
+});
+
+describe('the words of the report controls', () => {
+  it('can all be translated: the control, the group, the prompt, and what it says about a load', async () => {
+    const { list } = await mount();
+    list.messages = {
+      reportGroup: 'Informe',
+      loadReport: 'Cargar informe',
+      loadReportPrompt: 'Cargar informe…',
+      reportLoaded: 'Informe cargado: {added} nuevas, {replaced} reemplazadas.',
+      reportLeftOut: 'Omitido:',
+    };
+    await settle(list);
+    expect(list.shadowRoot?.querySelector('[role="group"][aria-label="Informe"]')).not.toBeNull();
+    expect(reportSelect(list)?.getAttribute('aria-label')).toBe('Cargar informe');
+    expect(reportSelect(list)?.options[0]?.text).toBe('Cargar informe…');
+    await choose(list, FAKE_IDS.sr);
+    expect(reportStatus(list)).toBe('Informe cargado: 2 nuevas, 0 reemplazadas.');
+  });
+
+  it('says a report could not be loaded in the words the host gives', async () => {
+    const { list, fake } = await mount();
+    list.messages = { reportFailed: 'No se pudo cargar: {message}', noMeasurementsAdded: 'Nada.' };
+    await settle(list);
+    fake.viewer.measurements.loadSr = (): Promise<never> => Promise.reject(new Error('mala'));
+    list.addEventListener('dv-error', () => undefined);
+    await choose(list, FAKE_IDS.sr);
+    expect(reportStatus(list)).toBe('No se pudo cargar: mala');
   });
 });

@@ -10,6 +10,17 @@ import {
   type SrRead,
   type SrShape,
 } from '../measurements/sr';
+import {
+  isCoordinates,
+  isRecord,
+  isUtf8,
+  itemsOf,
+  measurementGroups,
+  meaningOf,
+  repairUtf8,
+  reportOf,
+} from './sr-items';
+import { LABEL_CODE } from './sr-finish';
 
 /** The reader's names for the shapes the model keeps. */
 const TYPE_OF_TOOL: Readonly<Record<string, MeasurementType>> = {
@@ -20,43 +31,6 @@ const TYPE_OF_TOOL: Readonly<Record<string, MeasurementType>> = {
   Probe: 'probe',
   Angle: 'angle',
 };
-
-const REPORT_MEANING = 'Imaging Measurements';
-const GROUP_MEANING = 'Measurement Group';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-/** A content sequence that holds one item is a bare item in the named form, not a list of one. */
-function toArray(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  return value === undefined ? [] : [value];
-}
-
-function itemsOf(value: unknown): Record<string, unknown>[] {
-  return toArray(value).filter(isRecord);
-}
-
-function meaningOf(item: Record<string, unknown>): unknown {
-  const name = toArray(item['ConceptNameCodeSequence']).find(isRecord);
-  return name?.['CodeMeaning'];
-}
-
-function reportOf(dataset: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(dataset)) return undefined;
-  return itemsOf(dataset['ContentSequence']).find((item) => meaningOf(item) === REPORT_MEANING);
-}
-
-function measurementGroups(dataset: unknown): Record<string, unknown>[] {
-  const report = reportOf(dataset);
-  if (report === undefined) return [];
-  return itemsOf(report['ContentSequence']).filter((item) => meaningOf(item) === GROUP_MEANING);
-}
-
-function isCoordinates(item: Record<string, unknown>): boolean {
-  return item['ValueType'] === 'SCOORD' || item['ValueType'] === 'SCOORD3D';
-}
 
 /**
  * The reader looks for a shape inside the number of a measurement group. The DICOM template, and
@@ -76,6 +50,35 @@ export function liftSiblingCoordinates(dataset: unknown): void {
     if (inside.some(isCoordinates)) continue;
     number['ContentSequence'] = [...inside, ...beside];
   }
+}
+
+/** The group's Finding is this viewer's own label code, so its Comment is the label written whole. */
+function hasViewerLabel(group: Record<string, unknown>): boolean {
+  return itemsOf(group['ContentSequence']).some(
+    (item) =>
+      item['ValueType'] === 'CODE' &&
+      meaningOf(item) === 'Finding' &&
+      itemsOf(item['ConceptCodeSequence']).some(
+        (found) =>
+          found['CodeValue'] === LABEL_CODE.value &&
+          found['CodingSchemeDesignator'] === LABEL_CODE.scheme,
+      ),
+  );
+}
+
+/**
+ * The text of the Comment in a measurement group, where this viewer writes a label whole. A Comment
+ * in a report from another tool says something else, and does not name the measurement.
+ */
+function commentOf(group: Record<string, unknown>): string | undefined {
+  if (!hasViewerLabel(group)) return undefined;
+  for (const item of itemsOf(group['ContentSequence'])) {
+    if (item['ValueType'] === 'TEXT' && meaningOf(item) === 'Comment') {
+      const text = item['TextValue'];
+      if (typeof text === 'string' && text !== '') return text;
+    }
+  }
+  return undefined;
 }
 
 const finite = z.number();
@@ -174,6 +177,7 @@ function naturalizedReport(bytes: ArrayBuffer): Record<string, unknown> {
   if (!isRecord(dataset)) throw new Error(NOT_TID_1500);
   const template = itemsOf(dataset['ContentTemplateSequence'])[0]?.['TemplateIdentifier'];
   if (template !== '1500') throw new Error(NOT_TID_1500);
+  if (isUtf8(dataset)) repairUtf8(dataset);
   return dataset;
 }
 
@@ -254,7 +258,11 @@ export function readStructuredReport(
       unreadable += 1;
       continue;
     }
-    shapes.push(...read.shapes);
+    // A label longer than a code can hold is written whole as a Comment. It is the better source.
+    const label = commentOf(group);
+    shapes.push(
+      ...(label === undefined ? read.shapes : read.shapes.map((shape) => ({ ...shape, label }))),
+    );
     unsupported.push(...read.unsupported);
     unreadable += read.unreadable;
   }

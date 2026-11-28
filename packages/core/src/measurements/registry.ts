@@ -1,6 +1,6 @@
 import { optionalString } from '../data/dicom-json';
-import { sliceKey } from '../data/series';
-import type { LoadedSeriesData, SeriesStack } from '../data/types';
+import { findSlice, sliceKey } from '../data/series';
+import type { LoadedSeriesData, SeriesInstance, SeriesStack } from '../data/types';
 import { isNotFound } from '../data/errors';
 import { assertDicomUid } from '../data/uid';
 import type { MeasurementChange, RenderingPort, StackPort } from '../rendering-port';
@@ -20,7 +20,8 @@ import {
   type Point3,
   type RoiStats,
 } from './model';
-import { buildReport, type ReportContext } from './report';
+import { renderText } from '../report/text';
+import { buildReport, type ReportContext, type ReportModel } from './report';
 import { sliceNumbers } from './slice-numbers';
 import { measurementsFromSr, type SrSkip } from './sr';
 import { probeHu, roiStats } from './stats';
@@ -99,6 +100,23 @@ export interface PdfOptions {
   readonly title?: string;
 }
 
+export interface TextOptions {
+  /** The first line of the text, of at most 120 characters. Default `Measurement report`. */
+  readonly title?: string;
+}
+
+/** How long a series description can be: the value is a long string (LO), of at most 64 characters. */
+export /** The largest value of a DICOM IS (integer string), which is a signed 32-bit number. */
+const MAX_SERIES_NUMBER = 2_147_483_647;
+const MAX_SERIES_DESCRIPTION_LENGTH = 64;
+
+export interface SrExportOptions {
+  /** The description of the report's series, at most 64 characters. Default `Measurements`. */
+  readonly seriesDescription?: string;
+  /** The number of the report's series: a whole number from 0. Default 60. */
+  readonly seriesNumber?: number;
+}
+
 export interface JumpOptions {
   /** Default `vp-0`. */
   readonly viewportId?: string;
@@ -155,6 +173,25 @@ export interface MeasurementsApi {
    * Rejects with a `RangeError` when there are no measurements.
    */
   exportPdf(options?: PdfOptions): Promise<Blob>;
+  /**
+   * The same report as plain text, one line for each measurement, to paste into a message or a
+   * report. It is made from the same rows as the PDF, so the two say the same, and it follows the
+   * same rules: the patient is left out unless the viewer is set to show who the patient is. Text
+   * is not limited to Latin-1. Rejects with a `RangeError` when there are no measurements, or the
+   * title is too long.
+   */
+  exportText(options?: TextOptions): Promise<string>;
+  /**
+   * The measurements of the study on screen as a DICOM Structured Report (a TID 1500 measurement
+   * report), a `Blob` of type `application/dicom`, made in the browser and kept in the order of the
+   * list. The file is the report only: the measurements, with a reference to each image by UID.
+   * It has no pixel data. It is in the study of the images and names the same patient, as a PACS
+   * needs, so **the file has the patient's identity in it**, whatever the viewer is set to show.
+   * Each export is a new series, and each measurement has the same identifier every time. Rejects
+   * with a `RangeError` when there are no measurements or an option does not fit, and with an
+   * `Error` for a measurement on a series the data source does not have.
+   */
+  exportSr(options?: SrExportOptions): Promise<Blob>;
 }
 
 /** A stack on screen, with the engine drawing it. */
@@ -191,6 +228,8 @@ export interface MeasurementDeps {
     studyInstanceUID: string,
     seriesInstanceUIDs: readonly string[],
   ): Promise<ReportContext>;
+  /** A new UID, for the series and the instance of a report. */
+  newUid(): string;
   /** A failure nobody is waiting for, such as a slice that could not be read for its pixels. */
   fail(error: Error): void;
 }
@@ -536,7 +575,8 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     return { added, replaced };
   }
 
-  async function exportPdfNow(options: PdfOptions): Promise<Blob> {
+  /** The rows, order, and patient rules that the PDF and the text are both made from. */
+  async function reportModelNow(options: TextOptions): Promise<ReportModel> {
     const title = options.title?.trim();
     if (title !== undefined && title.length > MAX_REPORT_TITLE_LENGTH) {
       throw new RangeError(
@@ -557,7 +597,7 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
       ...new Set(inStudy.map((measurement) => measurement.reference.seriesInstanceUID)),
     ]);
     deps.assertAlive();
-    const report = buildReport({
+    return buildReport({
       ...context,
       title: title === '' ? undefined : title,
       generatedAt: new Date(),
@@ -565,9 +605,95 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
       measurements: inStudy,
       origins,
     });
+  }
+
+  async function exportPdfNow(options: PdfOptions): Promise<Blob> {
+    const report = await reportModelNow(options);
     // The writer is its own chunk, so a page that never makes a report never loads it.
     const { renderPdf } = await import('../report/pdf');
     return new Blob([renderPdf(report)], { type: 'application/pdf' });
+  }
+
+  async function exportTextNow(options: TextOptions): Promise<string> {
+    return renderText(await reportModelNow(options));
+  }
+
+  async function exportSrNow(options: SrExportOptions): Promise<Blob> {
+    const seriesDescription = options.seriesDescription ?? 'Measurements';
+    const seriesNumber = options.seriesNumber ?? 60;
+    if (Array.from(seriesDescription).length > MAX_SERIES_DESCRIPTION_LENGTH) {
+      throw new RangeError(
+        `A series description has at most ${MAX_SERIES_DESCRIPTION_LENGTH.toString()} characters.`,
+      );
+    }
+    // DICOM's IS (integer string) holds a signed 32-bit number, and a series number is not negative.
+    if (!Number.isInteger(seriesNumber) || seriesNumber < 0 || seriesNumber > MAX_SERIES_NUMBER) {
+      throw new RangeError(
+        `A series number is a whole number from 0 to ${MAX_SERIES_NUMBER.toString()}.`,
+      );
+    }
+    const studyInstanceUID = deps.study();
+    if (studyInstanceUID === undefined) {
+      throw new Error('Load a study first: call loadStudy, or setState with a studyInstanceUID.');
+    }
+    const inStudy = [...items.values()].filter(
+      (measurement) => measurement.reference.studyInstanceUID === studyInstanceUID,
+    );
+    if (inStudy.length === 0) {
+      throw new RangeError('There are no measurements of this study to put in a report.');
+    }
+    // The report names each image by UID and takes the patient and study from it, so every
+    // measurement needs its image from the source.
+    const instances = new Map<string, SeriesInstance>();
+    let missing = 0;
+    for (const seriesInstanceUID of new Set(
+      inStudy.map((measurement) => measurement.reference.seriesInstanceUID),
+    )) {
+      let loaded: LoadedSeriesData | undefined;
+      try {
+        loaded = await deps.getSeries(studyInstanceUID, seriesInstanceUID);
+      } catch (error) {
+        if (!isNotFound(error)) throw toError(error);
+      }
+      for (const measurement of inStudy) {
+        if (measurement.reference.seriesInstanceUID !== seriesInstanceUID) continue;
+        const sop = measurement.reference.sopInstanceUID;
+        // The image is the frame the measurement is on: one image of a stack, whose metadata
+        // reads as a single-frame image does. A series with no stack to show has frame 1 only.
+        const frame = frameOf(measurement.reference);
+        const instance =
+          findSlice(loaded?.stacks.flatMap((stack) => stack.instances) ?? [], sop, frame) ??
+          findSlice(loaded?.instances ?? [], sop, frame);
+        if (instance === undefined) missing += 1;
+        else instances.set(sliceKey(instance.sopInstanceUID, instance.frameNumber), instance);
+      }
+    }
+    if (missing > 0) {
+      throw new Error(
+        `${missing.toString()} ${missing === 1 ? 'measurement is' : 'measurements are'} on images this data source does not have, so a report cannot refer to ${missing === 1 ? 'it' : 'them'}.`,
+      );
+    }
+    deps.assertAlive();
+    const port = await deps.port();
+    const bytes = await port.writeReport({
+      measurements: inStudy.map((measurement) => ({
+        id: measurement.id,
+        type: measurement.type,
+        points: measurement.points,
+        label: measurement.label,
+        sopInstanceUID: measurement.reference.sopInstanceUID,
+        frameNumber: frameOf(measurement.reference),
+        values: measurementValues(measurement),
+      })),
+      instances: [...instances.values()],
+      seriesInstanceUID: deps.newUid(),
+      sopInstanceUID: deps.newUid(),
+      seriesDescription,
+      seriesNumber,
+      madeAt: new Date(),
+    });
+    deps.assertAlive();
+    return new Blob([bytes], { type: 'application/dicom' });
   }
 
   async function loadSrNow(seriesInstanceUID: string): Promise<SrLoadResult> {
@@ -806,6 +932,12 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
     },
     exportPdf(options = {}): Promise<Blob> {
       return call(() => exportPdfNow(options));
+    },
+    exportText(options = {}): Promise<string> {
+      return call(() => exportTextNow(options));
+    },
+    exportSr(options = {}): Promise<Blob> {
+      return call(() => exportSrNow(options));
     },
     loadSr(seriesInstanceUID): Promise<SrLoadResult> {
       try {

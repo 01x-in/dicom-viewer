@@ -6,6 +6,7 @@ import {
   measurementName,
   measurementNames,
   type SeriesSummary,
+  type ResolvedViewerConfig,
   type SrLoadResult,
   type Viewer,
   resolveViewerMessages,
@@ -21,6 +22,7 @@ import {
   type PropertyValues,
   type TemplateResult,
 } from 'lit';
+import { icon, iconStyles } from './icons';
 import { baseStyles, themeStyles } from './theme';
 import { nextFocusIndex } from './toolbar-config';
 
@@ -34,14 +36,44 @@ const EVENTS = [
   'measurement:selected',
   'study:loaded',
   'state:changed',
+  'config:changed',
 ] as const;
 
 export { measurementName };
+
+type MeasurementsSettings = ResolvedViewerConfig['measurements'];
+
+/** What the host has not said: every format, and the Copy button. */
+const DEFAULT_SETTINGS: MeasurementsSettings = {
+  downloadFormats: ['text', 'pdf', 'sr'],
+  copyText: true,
+};
+
+/** The command, the message, and the name of each item of the Download menu. */
+const DOWNLOAD_ITEMS = {
+  text: { command: 'measurements.downloadText', label: 'downloadText', action: 'download-text' },
+  pdf: { command: 'measurements.downloadPdf', label: 'downloadPdf', action: 'download-pdf' },
+  sr: { command: 'measurements.downloadSr', label: 'downloadSr', action: 'download-sr' },
+} as const;
+
+/** What the panel says about the last press of Copy. */
+type CopyStatus = { readonly kind: 'copied' } | { readonly kind: 'manual'; readonly text: string };
 
 /** What the panel says about the last report it was asked to load. */
 type ReportStatus =
   | { readonly kind: 'loaded'; readonly result: SrLoadResult }
   | { readonly kind: 'failed'; readonly message: string };
+
+/** The most characters of a report's name the select shows, so it leaves room for the reload picture. */
+const MAX_REPORT_NAME = 24;
+
+/** A long name cut with an ellipsis, by characters and not by UTF-16 units. The option keeps the whole name as its text. */
+function trimmed(name: string): string {
+  const characters = Array.from(name);
+  return characters.length <= MAX_REPORT_NAME
+    ? name
+    : `${characters.slice(0, MAX_REPORT_NAME - 1).join('')}…`;
+}
 
 function sameList(a: readonly Measurement[], b: readonly Measurement[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
@@ -71,6 +103,10 @@ export class DvMeasurementListElement extends LitElement {
     loadingReport: { state: true },
     slices: { state: true },
     chosen: { state: true },
+    settings: { state: true },
+    menuOpen: { state: true },
+    multiViewport: { state: true },
+    copyStatus: { state: true },
     selectionStatus: { state: true },
   };
 
@@ -78,6 +114,7 @@ export class DvMeasurementListElement extends LitElement {
   static override styles: CSSResultGroup = [
     themeStyles,
     baseStyles,
+    iconStyles,
     css`
       :host {
         display: flex;
@@ -144,6 +181,65 @@ export class DvMeasurementListElement extends LitElement {
         content: '✓';
         font-weight: 700;
       }
+      .report-load {
+        display: flex;
+        flex-basis: 100%;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+        align-items: center;
+      }
+      .report-load select {
+        flex: 1 1 0;
+        min-width: 0;
+        width: 0;
+        text-overflow: ellipsis;
+      }
+      .icon-button {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: calc(var(--dv-space, 0.25rem) * 1.5);
+        min-width: 2rem;
+      }
+      .menu-wrap {
+        display: inline-flex;
+      }
+      /* The menu is as wide as the panel and sits above the report area, so a long item wraps and nothing is cut off. */
+      [role='menu'] {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        right: 0;
+        z-index: 2;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        margin: 0 calc(var(--dv-space, 0.25rem) * 2) calc(var(--dv-space, 0.25rem) * 1);
+        padding: calc(var(--dv-space, 0.25rem) * 1);
+        background: var(--dv-color-surface-raised, #212731);
+        border: 1px solid var(--dv-color-border, #667284);
+        border-radius: var(--dv-radius-lg, 8px);
+        box-shadow: var(--dv-shadow, 0 6px 18px rgb(0 0 0 / 0.35));
+      }
+      [role='menuitem'] {
+        border: 0;
+        text-align: left;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+      .copy-box {
+        flex-basis: 100%;
+        box-sizing: border-box;
+        min-height: 6rem;
+        font: inherit;
+        font-size: 0.8125rem;
+        color: var(--dv-color-text, #e8ebf0);
+        background: var(--dv-color-surface-raised, #212731);
+        border: 1px solid var(--dv-color-border, #667284);
+        border-radius: var(--dv-radius, 6px);
+        padding: calc(var(--dv-space, 0.25rem) * 2);
+        resize: vertical;
+      }
       .selection {
         display: flex;
         flex-wrap: wrap;
@@ -162,6 +258,19 @@ export class DvMeasurementListElement extends LitElement {
         flex: none;
         margin: 0;
         accent-color: var(--dv-color-accent, #5aa9ff);
+      }
+      .selection-buttons {
+        display: flex;
+        flex-basis: 100%;
+        gap: calc(var(--dv-space, 0.25rem) * 2);
+      }
+      .selection-buttons button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-inline: calc(var(--dv-space, 0.25rem) * 2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .selection-status {
         flex-basis: 100%;
@@ -196,6 +305,7 @@ export class DvMeasurementListElement extends LitElement {
         align-items: center;
       }
       .report {
+        position: relative;
         display: flex;
         flex-wrap: wrap;
         gap: calc(var(--dv-space, 0.25rem) * 2);
@@ -270,10 +380,16 @@ export class DvMeasurementListElement extends LitElement {
   declare loadedReport: string | undefined;
   /** The slice each measurement is on, by id, as the overlay counts it. Worked out by the viewer. */
   declare slices: ReadonlyMap<string, number>;
-  /** The measurements ticked in the list, to show together or delete. Not the one that is picked. */
+  /** The measurements ticked in the list, to show side by side or delete. Not the one that is picked. */
   declare chosen: ReadonlySet<string>;
-  /** What the panel says about the last "Show together", when it could not show everything. */
+  /** What the panel says about the last "Show selected", when it could not show everything. */
   declare selectionStatus: string | undefined;
+  /** What the host chose to show: the formats of the Download menu, and the Copy button. */
+  declare settings: MeasurementsSettings;
+  declare menuOpen: boolean;
+  /** Whether the layout shows more than one viewport, so there is a view to go back from. */
+  declare multiViewport: boolean;
+  declare copyStatus: CopyStatus | undefined;
 
   #off: (() => void)[] = [];
   #listeningTo: Viewer | undefined;
@@ -288,6 +404,9 @@ export class DvMeasurementListElement extends LitElement {
   #slicesKey = '';
   #slicesRefs: ReadonlyMap<string, string> = new Map();
   #slicesRequest = 0;
+  /** Which item of the menu takes the focus when it opens, if the keyboard opened it. */
+  #focusItem: 'first' | 'last' | undefined;
+  #copyRequest = 0;
 
   constructor() {
     super();
@@ -303,6 +422,10 @@ export class DvMeasurementListElement extends LitElement {
     this.slices = new Map();
     this.chosen = new Set();
     this.selectionStatus = undefined;
+    this.settings = DEFAULT_SETTINGS;
+    this.menuOpen = false;
+    this.multiViewport = false;
+    this.copyStatus = undefined;
   }
 
   override connectedCallback(): void {
@@ -313,6 +436,7 @@ export class DvMeasurementListElement extends LitElement {
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
+    document.removeEventListener('pointerdown', this.#onDocumentPointerDown, true);
     this.#stopListening();
   }
 
@@ -335,6 +459,25 @@ export class DvMeasurementListElement extends LitElement {
       const input = this.renderRoot.querySelector<HTMLInputElement>('input[type="text"]');
       input?.focus();
       input?.select();
+    }
+    if (changed.has('menuOpen')) {
+      document.removeEventListener('pointerdown', this.#onDocumentPointerDown, true);
+      if (this.menuOpen) {
+        document.addEventListener('pointerdown', this.#onDocumentPointerDown, true);
+        const items = this.#menuItems();
+        (this.#focusItem === 'last'
+          ? items.at(-1)
+          : this.#focusItem === 'first'
+            ? items[0]
+            : undefined
+        )?.focus();
+      }
+      this.#focusItem = undefined;
+    }
+    if (changed.has('copyStatus') && this.copyStatus?.kind === 'manual') {
+      const field = this.renderRoot.querySelector<HTMLTextAreaElement>('textarea[data-copy-box]');
+      field?.focus();
+      field?.setSelectionRange(0, field.value.length);
     }
     if (this.#focusRowAfterUpdate) {
       this.#focusRowAfterUpdate = false;
@@ -369,7 +512,25 @@ export class DvMeasurementListElement extends LitElement {
       viewer === undefined || study === undefined
         ? []
         : viewer.measurements.list({ studyInstanceUID: study });
-    if (!sameList(next, this.items)) this.items = next;
+    if (!sameList(next, this.items)) {
+      this.items = next;
+      // The note about a copy, and its box, were about the measurements as they were, and a copy
+      // that is still being made must not put its text back.
+      this.copyStatus = undefined;
+      this.#copyRequest += 1;
+    }
+    const multiViewport = viewer !== undefined && viewer.getState().layout !== '1x1';
+    if (multiViewport !== this.multiViewport) this.multiViewport = multiViewport;
+    const settings = viewer?.config.get().measurements ?? DEFAULT_SETTINGS;
+    if (
+      settings.copyText !== this.settings.copyText ||
+      settings.downloadFormats.join() !== this.settings.downloadFormats.join()
+    ) {
+      this.settings = settings;
+    }
+    if (this.menuOpen && (next.length === 0 || settings.downloadFormats.length === 0)) {
+      this.menuOpen = false;
+    }
     this.#refreshSlices(next);
     if ([...this.chosen].some((id) => !next.some((item) => item.id === id))) {
       this.#choose(new Set([...this.chosen].filter((id) => next.some((item) => item.id === id))));
@@ -399,7 +560,7 @@ export class DvMeasurementListElement extends LitElement {
     }
   }
 
-  /** Changes which measurements are ticked. What was said about the last "Show together" no longer applies. */
+  /** Changes which measurements are ticked. What was said about the last "Show selected" no longer applies. */
   #choose(chosen: ReadonlySet<string>): void {
     this.chosen = chosen;
     this.selectionStatus = undefined;
@@ -426,7 +587,7 @@ export class DvMeasurementListElement extends LitElement {
    * four (and it says so). One is shown where it is. Every step goes through the viewer's queue, in
    * order, and the first one is shown last, so it is the one that is picked.
    */
-  #showTogether(): void {
+  #showSelected(): void {
     const { viewer } = this;
     const items = this.#chosenItems();
     if (viewer === undefined || items.length === 0) return;
@@ -467,6 +628,13 @@ export class DvMeasurementListElement extends LitElement {
       0,
       this.items.findIndex((item) => item.id === shown[0]?.id),
     );
+  }
+
+  /** Puts the layout back to one viewport, which Show selected changed. The toolbar's Layout menu does the same. */
+  #singleView(): void {
+    this.viewer?.setLayout('1x1').catch((error: unknown) => {
+      this.#fail(error);
+    });
   }
 
   #deleteChosen(): void {
@@ -611,12 +779,116 @@ export class DvMeasurementListElement extends LitElement {
       });
   }
 
-  #downloadPdf(): void {
+  /** Closes the menu when a press lands outside it. A browser that does not focus a button on a click sends no focus change. */
+  #onDocumentPointerDown = (event: Event): void => {
+    const wrap = this.renderRoot.querySelector('.menu-wrap');
+    if (wrap !== null && !event.composedPath().includes(wrap)) this.menuOpen = false;
+  };
+
+  #menuItems(): HTMLElement[] {
+    return [...this.renderRoot.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  }
+
+  #menuButton(): HTMLElement | null {
+    return this.renderRoot.querySelector<HTMLElement>('[data-action="download-menu"]');
+  }
+
+  #openMenu(focus: 'first' | 'last' | undefined): void {
+    if (this.items.length === 0) return;
+    this.#focusItem = focus;
+    this.menuOpen = true;
+  }
+
+  #closeMenu(focusButton: boolean): void {
+    this.menuOpen = false;
+    if (focusButton) this.#menuButton()?.focus();
+  }
+
+  #onMenuButtonKeydown(event: KeyboardEvent): void {
+    // Opened with the mouse, the focus is still here: Escape must close it from here too.
+    if (event.key === 'Escape' && this.menuOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.#closeMenu(true);
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.#openMenu(event.key === 'ArrowDown' ? 'first' : 'last');
+    }
+  }
+
+  #onMenuKeydown(event: KeyboardEvent): void {
+    const items = this.#menuItems();
+    const current = items.indexOf(event.target as HTMLElement);
+    switch (event.key) {
+      case 'Escape':
+        event.preventDefault();
+        event.stopPropagation();
+        this.#closeMenu(true);
+        return;
+      case 'ArrowDown':
+        event.preventDefault();
+        items[(current + 1) % items.length]?.focus();
+        return;
+      case 'ArrowUp':
+        event.preventDefault();
+        items[(current - 1 + items.length) % items.length]?.focus();
+        return;
+      case 'Home':
+        event.preventDefault();
+        items[0]?.focus();
+        return;
+      case 'End':
+        event.preventDefault();
+        items.at(-1)?.focus();
+        return;
+      case 'Tab':
+        this.#closeMenu(false);
+        return;
+      default:
+        return;
+    }
+  }
+
+  #onMenuFocusout(event: FocusEvent): void {
+    const wrap = event.currentTarget as HTMLElement;
+    if (!this.menuOpen || wrap.contains(event.relatedTarget as Node | null)) return;
+    this.menuOpen = false;
+  }
+
+  #download(format: keyof typeof DOWNLOAD_ITEMS): void {
     const { viewer } = this;
+    this.#closeMenu(true);
     if (viewer === undefined || this.items.length === 0) return;
-    viewer.commands.run('measurements.downloadPdf').catch((error: unknown) => {
+    viewer.commands.run(DOWNLOAD_ITEMS[format].command).catch((error: unknown) => {
       this.#fail(error);
     });
+  }
+
+  /** Copies the text of the report. A browser that refuses gets the text in a box to copy by hand. */
+  #copy(): void {
+    const { viewer } = this;
+    if (viewer === undefined || this.items.length === 0) return;
+    this.#copyRequest += 1;
+    const request = this.#copyRequest;
+    const current = (): boolean => this.#copyRequest === request;
+    viewer.commands.run('measurements.copyText').then(
+      () => {
+        if (current()) this.copyStatus = { kind: 'copied' };
+      },
+      () => {
+        // Whatever the reason, the person gets the text: the box has it, selected.
+        viewer.measurements.exportText().then(
+          (text) => {
+            if (current()) this.copyStatus = { kind: 'manual', text };
+          },
+          (error: unknown) => {
+            if (current()) this.#fail(error);
+          },
+        );
+      },
+    );
   }
 
   #startRename(measurement: Measurement | undefined): void {
@@ -853,28 +1125,46 @@ export class DvMeasurementListElement extends LitElement {
       <span data-selected-count role="status">
         ${formatViewerMessage(text.selectedCount, { count })}
       </span>
-      <button
-        type="button"
-        part="button"
-        data-action="show-together"
-        aria-disabled=${none ? 'true' : nothing}
-        @click=${(): void => {
-          this.#showTogether();
-        }}
-      >
-        ${text.showTogether}
-      </button>
-      <button
-        type="button"
-        part="button"
-        data-action="delete-selected"
-        aria-disabled=${none ? 'true' : nothing}
-        @click=${(): void => {
-          this.#deleteChosen();
-        }}
-      >
-        ${text.deleteSelected}
-      </button>
+      <div class="selection-buttons">
+        <button
+          type="button"
+          part="button"
+          data-action="show-selected"
+          aria-disabled=${none ? 'true' : nothing}
+          @click=${(): void => {
+            this.#showSelected();
+          }}
+        >
+          ${text.showSelected}
+        </button>
+        <button
+          type="button"
+          part="button"
+          data-action="delete-selected"
+          aria-disabled=${none ? 'true' : nothing}
+          @click=${(): void => {
+            this.#deleteChosen();
+          }}
+        >
+          ${text.deleteSelected}
+        </button>
+      </div>
+      ${
+        this.multiViewport
+          ? html`<div class="selection-buttons">
+              <button
+                type="button"
+                part="button"
+                data-action="single-view"
+                @click=${(): void => {
+                  this.#singleView();
+                }}
+              >
+                ${text.singleView}
+              </button>
+            </div>`
+          : nothing
+      }
       ${
         this.selectionStatus === undefined
           ? nothing
@@ -890,7 +1180,7 @@ export class DvMeasurementListElement extends LitElement {
     if (status === undefined) return nothing;
     if (status.kind === 'failed') {
       return html`<div class="report-status" role="status" data-report-status>
-        <p>The report could not be loaded: ${status.message}</p>
+        <p>${formatViewerMessage(resolveViewerMessages(this.messages).reportFailed, { message: status.message })}</p>
       </div>`;
     }
     const { added, replaced, skipped } = status.result;
@@ -898,14 +1188,17 @@ export class DvMeasurementListElement extends LitElement {
       <p>
         ${
           added + replaced === 0
-            ? 'No measurements were added.'
-            : `Report loaded: ${added.toString()} added, ${replaced.toString()} replaced.`
+            ? resolveViewerMessages(this.messages).noMeasurementsAdded
+            : formatViewerMessage(resolveViewerMessages(this.messages).reportLoaded, {
+                added,
+                replaced,
+              })
         }
       </p>
       ${
         skipped.length === 0
           ? nothing
-          : html`<p>Left out:</p>
+          : html`<p>${resolveViewerMessages(this.messages).reportLeftOut}</p>
             <ul>
               ${skipped.map((skip) => html`<li>${skip.reason} (${skip.count.toString()})</li>`)}
             </ul>`
@@ -913,65 +1206,161 @@ export class DvMeasurementListElement extends LitElement {
     </div>`;
   }
 
-  #renderReport(): TemplateResult {
-    const empty = this.items.length === 0;
+  #renderDownloadMenu(empty: boolean): TemplateResult | typeof nothing {
+    const formats = this.settings.downloadFormats;
+    if (formats.length === 0) return nothing;
     const text = resolveViewerMessages(this.messages);
-    return html`<div class="report" role="group" aria-label="Report">
-      ${
-        this.reports.length === 0
-          ? nothing
-          : html`<select
-            part="select"
-            data-action="load-report"
-            aria-label="Load report"
-            ?disabled=${this.loadingReport}
-            @change=${(event: Event): void => {
-              const select = event.currentTarget as HTMLSelectElement;
-              const chosen = select.value;
-              // The prompt is not a report: the control goes back to the one that is loaded.
-              if (chosen === '') select.value = this.loadedReport ?? '';
-              this.#loadReport(chosen);
-            }}
-          >
-            <option value="" ?selected=${this.loadedReport === undefined}>Load report…</option>
-            ${this.reports.map(
-              (report) =>
-                html`<option
-                  value=${report.seriesInstanceUID}
-                  ?selected=${this.loadedReport === report.seriesInstanceUID}
-                >
-                  ${report.description ?? `SR ${report.seriesInstanceUID}`}
-                </option>`,
-            )}
-          </select>`
-      }
-      ${
-        this.loadedReport === undefined
-          ? nothing
-          : html`<button
-              type="button"
-              part="button"
-              data-action="reload-report"
-              aria-disabled=${this.loadingReport ? 'true' : nothing}
-              @click=${(): void => {
-                if (this.loadedReport !== undefined) this.#loadReport(this.loadedReport);
-              }}
-            >
-              ${text.reloadReport}
-            </button>`
-      }
+    const open = this.menuOpen && !empty;
+    return html`<div class="menu-wrap" @focusout=${(event: FocusEvent): void => {
+      this.#onMenuFocusout(event);
+    }}>
       <button
         type="button"
         part="button"
-        data-action="download-pdf"
+        id="dv-measurements-download"
+        data-action="download-menu"
+        aria-haspopup="menu"
+        aria-expanded=${open ? 'true' : 'false'}
         aria-disabled=${empty ? 'true' : nothing}
-        @click=${(): void => {
-          this.#downloadPdf();
+        @click=${(event: MouseEvent): void => {
+          // Enter and Space make a click with no pointer (`detail` is 0), and the focus goes
+          // into the menu as it does for the arrow keys. A mouse click leaves it on the button.
+          if (open) this.#closeMenu(false);
+          else this.#openMenu(event.detail === 0 ? 'first' : undefined);
+        }}
+        @keydown=${(event: KeyboardEvent): void => {
+          this.#onMenuButtonKeydown(event);
         }}
       >
-        Download PDF
+        ${text.download}
       </button>
-      ${this.#renderReportStatus()}
+      ${
+        open
+          ? html`<div
+              role="menu"
+              part="menu"
+              aria-labelledby="dv-measurements-download"
+              @keydown=${(event: KeyboardEvent): void => {
+                this.#onMenuKeydown(event);
+              }}
+            >
+              ${formats.map((format) => {
+                const item = DOWNLOAD_ITEMS[format];
+                return html`<button
+                  type="button"
+                  role="menuitem"
+                  part="menu-item"
+                  tabindex="-1"
+                  data-action=${item.action}
+                  @click=${(): void => {
+                    this.#download(format);
+                  }}
+                >
+                  ${text[item.label]}
+                </button>`;
+              })}
+            </div>`
+          : nothing
+      }
+    </div>`;
+  }
+
+  #renderCopyStatus(): TemplateResult | typeof nothing {
+    const status = this.copyStatus;
+    if (status === undefined) return nothing;
+    const text = resolveViewerMessages(this.messages);
+    if (status.kind === 'copied') {
+      return html`<p class="report-status" role="status" data-copy-status>${text.copiedText}</p>`;
+    }
+    return html`<p class="report-status" role="status" data-copy-status>${text.copyFailed}</p>
+      <textarea
+        class="copy-box"
+        data-copy-box
+        readonly
+        aria-label=${text.copyBoxLabel}
+        .value=${status.text}
+      ></textarea>`;
+  }
+
+  #renderReportSelect(text: ViewerMessages): TemplateResult {
+    return html`<select
+      part="select"
+      data-action="load-report"
+      aria-label=${text.loadReport}
+      ?disabled=${this.loadingReport}
+      @change=${(event: Event): void => {
+        const select = event.currentTarget as HTMLSelectElement;
+        const chosen = select.value;
+        // The prompt is not a report: the control goes back to the one that is loaded.
+        if (chosen === '') select.value = this.loadedReport ?? '';
+        this.#loadReport(chosen);
+      }}
+    >
+      <option value="" ?selected=${this.loadedReport === undefined}>
+        ${text.loadReportPrompt}
+      </option>
+      ${this.reports.map((report) => {
+        const name = report.description ?? `SR ${report.seriesInstanceUID}`;
+        const shown = trimmed(name);
+        return html`<option
+          value=${report.seriesInstanceUID}
+          label=${shown === name ? nothing : shown}
+          title=${shown === name ? nothing : name}
+          ?selected=${this.loadedReport === report.seriesInstanceUID}
+        >
+          ${name}
+        </option>`;
+      })}
+    </select>`;
+  }
+
+  /** A picture, since a select cannot choose the report that is already chosen: it loads that report again. */
+  #renderReloadButton(text: ViewerMessages): TemplateResult | typeof nothing {
+    if (this.loadedReport === undefined) return nothing;
+    return html`<button
+      type="button"
+      part="button"
+      class="icon-button"
+      data-action="reload-report"
+      aria-label=${text.reloadReport}
+      title=${text.reloadReport}
+      aria-disabled=${this.loadingReport ? 'true' : nothing}
+      @click=${(): void => {
+        if (this.loadedReport !== undefined) this.#loadReport(this.loadedReport);
+      }}
+    >
+      ${icon('refresh')}
+    </button>`;
+  }
+
+  #renderReport(): TemplateResult {
+    const empty = this.items.length === 0;
+    const text = resolveViewerMessages(this.messages);
+    return html`<div class="report" role="group" aria-label=${text.reportGroup}>
+      ${
+        this.reports.length === 0
+          ? nothing
+          : html`<div class="report-load">
+              ${this.#renderReportSelect(text)} ${this.#renderReloadButton(text)}
+            </div>`
+      }
+      ${
+        this.settings.copyText
+          ? html`<button
+              type="button"
+              part="button"
+              data-action="copy-text"
+              aria-disabled=${empty ? 'true' : nothing}
+              @click=${(): void => {
+                this.#copy();
+              }}
+            >
+              ${text.copyText}
+            </button>`
+          : nothing
+      }
+      ${this.#renderDownloadMenu(empty)}
+      ${this.#renderReportStatus()} ${this.#renderCopyStatus()}
     </div>`;
   }
 

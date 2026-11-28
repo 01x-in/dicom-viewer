@@ -176,14 +176,42 @@ function builtins(): Readonly<Record<string, Command>> {
         downloadBlob(await viewer.measurements.exportPdf(), 'measurement-report.pdf');
       },
       // There is something to put in the report: a measurement of the study on screen.
-      enabled: ({ viewer }) => {
-        const study = viewer.getState().studyInstanceUID;
-        return (
-          study !== undefined && viewer.measurements.list({ studyInstanceUID: study }).length > 0
-        );
-      },
+      enabled: hasMeasurements,
       check: (args) => {
         parse(noArgs, 'measurements.downloadPdf', args);
+      },
+    },
+    'measurements.downloadText': {
+      run: async ({ viewer }) => {
+        const text = await viewer.measurements.exportText();
+        downloadBlob(
+          new Blob([text], { type: 'text/plain;charset=utf-8' }),
+          'measurement-report.txt',
+        );
+      },
+      enabled: hasMeasurements,
+      check: (args) => {
+        parse(noArgs, 'measurements.downloadText', args);
+      },
+    },
+    'measurements.downloadSr': {
+      run: async ({ viewer }) => {
+        downloadBlob(await viewer.measurements.exportSr(), 'measurements.dcm');
+      },
+      enabled: hasMeasurements,
+      check: (args) => {
+        parse(noArgs, 'measurements.downloadSr', args);
+      },
+    },
+    'measurements.copyText': {
+      // The text is asked for, and the clipboard is asked to take it, in the same step: Safari
+      // lets a write through only when it starts in the click, before anything is awaited.
+      run: async ({ viewer }) => {
+        await copyToClipboard(viewer.measurements.exportText());
+      },
+      enabled: hasMeasurements,
+      check: (args) => {
+        parse(noArgs, 'measurements.copyText', args);
       },
     },
     'preset.apply': {
@@ -198,6 +226,43 @@ function builtins(): Readonly<Record<string, Command>> {
       },
     },
   };
+}
+
+/** There is something to put in a report: a measurement of the study on screen. */
+function hasMeasurements({ viewer }: CommandContext): boolean {
+  const study = viewer.getState().studyInstanceUID;
+  return study !== undefined && viewer.measurements.list({ studyInstanceUID: study }).length > 0;
+}
+
+/**
+ * Puts text on the clipboard. Rejects, and says why, when the browser has none or refuses. The text
+ * is given as a promise so the write can start in the click that asked for it: browsers that have
+ * `ClipboardItem` take the promise itself, and the others get the text when it is there.
+ */
+async function copyToClipboard(text: Promise<string>): Promise<void> {
+  const clipboard: Clipboard | undefined =
+    typeof navigator === 'undefined' ? undefined : navigator.clipboard;
+  if (clipboard === undefined) {
+    // Nothing will use the text, so a failure to make it is not what is reported.
+    text.catch(() => undefined);
+    throw new Error('This browser has no clipboard to copy to. It needs a secure (HTTPS) page.');
+  }
+  try {
+    if (typeof ClipboardItem === 'undefined') {
+      await clipboard.writeText(await text);
+    } else {
+      await clipboard.write([
+        new ClipboardItem({
+          'text/plain': text.then((value) => new Blob([value], { type: 'text/plain' })),
+        }),
+      ]);
+    }
+  } catch (error) {
+    throw new Error(
+      `The browser did not allow copying to the clipboard${error instanceof Error ? `: ${error.message}` : '.'}`,
+      { cause: error },
+    );
+  }
 }
 
 function asCommand(input: CommandInput): Command {

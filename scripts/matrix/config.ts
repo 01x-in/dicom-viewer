@@ -108,6 +108,15 @@ export async function smokeConfig(browser: Browser, input: ConfigInput): Promise
     if ((await page.locator('dv-panel-dock [role="tab"][data-panel="measurements"]').count()) !== 1)
       failures.push('the Measurements tab is missing');
 
+    // The measurements panel: the file leaves the DICOM SR out of the Download menu, and keeps Copy.
+    const measurements = await page.evaluate(() => window.__dvViewer?.config.get().measurements);
+    if (measurements?.downloadFormats.join() !== 'text,pdf' || !measurements.copyText)
+      failures.push(`the file made the measurements config ${JSON.stringify(measurements)}`);
+    if ((await page.locator('dv-measurement-list [data-action="download-menu"]').count()) !== 1)
+      failures.push('the measurements panel has no Download menu');
+    if ((await page.locator('dv-measurement-list [data-action="copy-text"]').count()) !== 1)
+      failures.push('the measurements panel has no Copy button');
+
     // The lines over the picture: Columns from a tag, the size taken out, no patient.
     const topRight = (await page.locator(CORNER('top-right')).textContent()) ?? '';
     if (topRight !== 'CT\nColumns 128') failures.push(`the top right corner says "${topRight}"`);

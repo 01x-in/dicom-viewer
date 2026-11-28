@@ -149,6 +149,22 @@ export interface PanelsConfig {
   readonly hide?: readonly PanelId[] | undefined;
 }
 
+/** The items the Download menu of the measurements panel can have, in the order the menu lists them. */
+export const DOWNLOAD_FORMATS = ['text', 'pdf', 'sr'] as const;
+export type DownloadFormat = (typeof DOWNLOAD_FORMATS)[number];
+
+export interface MeasurementsConfig {
+  /**
+   * The items of the Download menu, in order: `text` (.txt), `pdf`, and `sr` (a DICOM Structured
+   * Report, which has the patient's identity in it). Default all three. An empty list hides the
+   * menu. A format that is left out is left out of the panel only: the API and the commands still
+   * work.
+   */
+  readonly downloadFormats?: readonly DownloadFormat[] | undefined;
+  /** Shows the Copy button. Default `true`. */
+  readonly copyText?: boolean | undefined;
+}
+
 export interface ToolsConfig {
   /** The tool the left mouse button drives at the start. Read when the viewer starts. */
   readonly active?: PrimaryTool | undefined;
@@ -170,6 +186,7 @@ export interface ConfigBody {
   /** Replaces the list of window presets. */
   readonly windowLevelPresets?: readonly WindowPreset[] | null | undefined;
   readonly tools?: ToolsConfig | null | undefined;
+  readonly measurements?: MeasurementsConfig | null | undefined;
 }
 
 /** A config as a host writes it: JSON, with `version: 1`. */
@@ -200,4 +217,8 @@ export interface ResolvedViewerConfig {
   readonly panels: { readonly hide: readonly PanelId[] };
   readonly windowLevelPresets: readonly WindowPreset[];
   readonly tools: { readonly active: PrimaryTool };
+  readonly measurements: {
+    readonly downloadFormats: readonly DownloadFormat[];
+    readonly copyText: boolean;
+  };
 }
