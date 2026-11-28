@@ -328,6 +328,28 @@ describe('writeStructuredReport', () => {
     expect(read.shapes[4]?.label).toBe('Nodule');
   });
 
+  it("takes a Comment as the whole label only when the Finding is this viewer's own code", () => {
+    // Plain ASCII: dcmjs would write text it has read as Windows-1252 again, and double it.
+    const long = `Aorte ${'x'.repeat(100)}`;
+    const labelled = LIST.map((m) => (m.id === 'm-length' ? { ...m, label: long } : m));
+    const read = data.DicomMessage.readFile(writeStructuredReport(inputOf(labelled)));
+    // Another tool's code for the Finding, with the same Comment: the Comment says something else.
+    const rename = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        for (const item of node) rename(item);
+      } else if (isRecord(node)) {
+        const value = node['00080100'];
+        if (isRecord(value) && Array.isArray(value['Value']) && value['Value'][0] === 'LABEL') {
+          value['Value'] = ['OTHER'];
+        }
+        for (const child of Object.values(node)) rename(child);
+      }
+    };
+    rename(read.dict);
+    const shapes = readStructuredReport(read.write(), imageIdBySop).shapes;
+    expect(shapes[1]?.label).toBe(Array.from(long).slice(0, 64).join(''));
+  });
+
   it('writes a probe with its value in Hounsfield units, and leaves the number out when the viewer has none', () => {
     const dataset = naturalized(writeStructuredReport(inputOf()));
     const [number] = numbersOf(group(dataset, 0));
@@ -357,6 +379,23 @@ describe('writeStructuredReport', () => {
     });
     // The rectangle had an area and nothing from the pixels.
     expect(numbersOf(group(dataset, 5)).map(meaningOf)).toEqual(['Area']);
+  });
+
+  it('keeps the shape of a probe that has no value, and writes no number for it', () => {
+    const bare: SrWriteMeasurement = {
+      id: 'bare',
+      type: 'probe',
+      points: [at(0, 40, 40)],
+      sopInstanceUID: sopOf(0),
+      frameNumber: 1,
+      values: {},
+    };
+    const bytes = writeStructuredReport(inputOf([bare]));
+    expect(numbersOf(group(naturalized(bytes), 0))).toEqual([]);
+    const read = readStructuredReport(bytes, imageIdBySop);
+    expect(read.unreadable).toBe(0);
+    expect(read.shapes.map((shape) => shape.type)).toEqual(['probe']);
+    closeTo(read.shapes[0]?.points ?? [], bare.points);
   });
 
   it('writes the minimum of a rectangle too: the writer leaves it out, and an ellipse has it', () => {

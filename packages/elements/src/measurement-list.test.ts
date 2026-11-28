@@ -1026,6 +1026,19 @@ describe('the Download menu', () => {
     expect(menuItems(list)).toEqual([]);
   });
 
+  it('puts the focus on the first item when Enter or Space opens it (a click with no pointer), and leaves it on the button for a mouse click', async () => {
+    const { list } = await mount([length('a')]);
+    menuButton(list).click();
+    await settle(list);
+    expect(list.shadowRoot?.activeElement).toBe(menuItems(list)[0]);
+    menuKey(menuItems(list)[0] ?? menuButton(list), 'Escape');
+    await settle(list);
+    menuButton(list).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    await settle(list);
+    expect(menuButton(list).getAttribute('aria-expanded')).toBe('true');
+    expect(list.shadowRoot?.activeElement).toBe(menuButton(list));
+  });
+
   it('opens with the formats of the config in its order, the PDF keeping the name it always had', async () => {
     const { list } = await mount([length('a')]);
     await openMenu(list);
@@ -1259,6 +1272,30 @@ describe('the Copy button', () => {
       expect(box(list)).not.toBeNull();
     });
     await fake.viewer.measurements.add(length('b', 7));
+    await settle(list);
+    expect(box(list)).toBeNull();
+    expect(copyStatus(list)).toBeUndefined();
+  });
+
+  it('does not put back the text of a list that has gone while it was being made', async () => {
+    const { list, fake } = await mount([length('a')]);
+    clipboard({ writeText: vi.fn().mockRejectedValue(new Error('denied')) });
+    const real = fake.viewer.measurements.exportText.bind(fake.viewer.measurements);
+    let release: (() => void) | undefined;
+    let calls = 0;
+    vi.spyOn(fake.viewer.measurements, 'exportText').mockImplementation(async (options) => {
+      calls += 1;
+      // The first is the command's own. The second is the panel's, for the box, and it waits.
+      if (calls === 2) await new Promise<void>((resolve) => (release = resolve));
+      return real(options);
+    });
+    action(list, 'copy-text').click();
+    await vi.waitFor(() => {
+      expect(calls).toBe(2);
+    });
+    await fake.viewer.measurements.add(length('b', 7));
+    await settle(list);
+    release?.();
     await settle(list);
     expect(box(list)).toBeNull();
     expect(copyStatus(list)).toBeUndefined();

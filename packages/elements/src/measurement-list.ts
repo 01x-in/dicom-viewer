@@ -514,8 +514,10 @@ export class DvMeasurementListElement extends LitElement {
         : viewer.measurements.list({ studyInstanceUID: study });
     if (!sameList(next, this.items)) {
       this.items = next;
-      // The note about a copy, and its box, were about the measurements as they were.
+      // The note about a copy, and its box, were about the measurements as they were, and a copy
+      // that is still being made must not put its text back.
       this.copyStatus = undefined;
+      this.#copyRequest += 1;
     }
     const multiViewport = viewer !== undefined && viewer.getState().layout !== '1x1';
     if (multiViewport !== this.multiViewport) this.multiViewport = multiViewport;
@@ -1220,9 +1222,11 @@ export class DvMeasurementListElement extends LitElement {
         aria-haspopup="menu"
         aria-expanded=${open ? 'true' : 'false'}
         aria-disabled=${empty ? 'true' : nothing}
-        @click=${(): void => {
+        @click=${(event: MouseEvent): void => {
+          // Enter and Space make a click with no pointer (`detail` is 0), and the focus goes
+          // into the menu as it does for the arrow keys. A mouse click leaves it on the button.
           if (open) this.#closeMenu(false);
-          else this.#openMenu(undefined);
+          else this.#openMenu(event.detail === 0 ? 'first' : undefined);
         }}
         @keydown=${(event: KeyboardEvent): void => {
           this.#onMenuButtonKeydown(event);

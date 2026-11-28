@@ -2,7 +2,7 @@
 // the real engine in a browser, and the PDF report of what it made. The shapes of the report are
 // at places of the phantom whose numbers are known exactly.
 import { execFile } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -315,11 +315,19 @@ async function checkExports(
       failures.push(`highdicom: ${line}`);
     }
     if (out === '') failures.push(`the check of the SR did not run: ${String(error)}`);
+  } finally {
+    // Only the checker reads these files. The bytes for the round trip are still in memory.
+    rmSync(dir, { recursive: true, force: true });
   }
 
   // Served back, as a server that was sent it would, and loaded again.
+  // Only the bytes of the file: a small Buffer shares a pool, and its `buffer` is more than itself.
+  const exportedBytes = Buffer.from(files.first, 'base64');
   const seriesUid = input.mock.fixtures.addInstance(
-    Buffer.from(files.first, 'base64').buffer.slice(0),
+    exportedBytes.buffer.slice(
+      exportedBytes.byteOffset,
+      exportedBytes.byteOffset + exportedBytes.byteLength,
+    ),
   );
   const again = await page
     .evaluate(

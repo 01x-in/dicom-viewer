@@ -215,6 +215,8 @@ describe('measurements.exportText', () => {
     await h.viewer.measurements.add(length('a', 0));
     const text = await h.viewer.measurements.exportText();
     expect(text).not.toMatch(/Patient|Birth/);
+    // The values, not only their names: the fixture's patient is DOE^JANE, with the ID ID-7.
+    expect(text).not.toMatch(/DOE|JANE|ID-7/);
   });
 
   it('uses the title a host gives, and rejects one that is too long', async () => {
@@ -291,6 +293,31 @@ describe('the text commands', () => {
 
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(String(writeText.mock.calls[0]?.[0])).toContain('Length 1: Length 5.0 mm');
+  });
+
+  it('measurements.copyText starts the write before the text is made, where the browser has ClipboardItem, so the click still counts', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add(length('a', 0));
+    const items: Record<string, Promise<Blob>>[] = [];
+    class FakeClipboardItem {
+      constructor(readonly data: Record<string, Promise<Blob>>) {
+        items.push(data);
+      }
+    }
+    vi.stubGlobal('ClipboardItem', FakeClipboardItem);
+    const write = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { write }, configurable: true });
+
+    const running = h.viewer.commands.run('measurements.copyText');
+    // Asked for in the same step as the command, before anything has been awaited.
+    expect(write).toHaveBeenCalledTimes(1);
+    await running;
+
+    const blob = await items[0]?.['text/plain'];
+    expect(blob?.type).toBe('text/plain');
+    expect(await blob?.text()).toContain('Length 1: Length 5.0 mm');
+    vi.unstubAllGlobals();
   });
 
   it('measurements.copyText rejects, and says why, when the browser has no clipboard or refuses it', async () => {

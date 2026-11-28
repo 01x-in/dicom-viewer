@@ -142,7 +142,7 @@ describe('measurements.exportSr', () => {
     await expect(
       h.viewer.measurements.exportSr({ seriesDescription: 'x'.repeat(64) }),
     ).resolves.toBeInstanceOf(Blob);
-    for (const seriesNumber of [-1, 1.5, Number.NaN]) {
+    for (const seriesNumber of [-1, 1.5, Number.NaN, 2_147_483_648]) {
       await expect(h.viewer.measurements.exportSr({ seriesNumber })).rejects.toThrow(RangeError);
     }
   });
@@ -230,6 +230,36 @@ describe('measurements.exportSr', () => {
         sop: m.reference.sopInstanceUID,
       })),
     ).toEqual(before);
+  });
+
+  it('is read back on the frame it was on, for a multi-frame image', async () => {
+    const h = harness();
+    await ready(h);
+    await h.viewer.measurements.add({
+      id: 'f',
+      type: 'length',
+      reference: {
+        studyInstanceUID: STUDY,
+        seriesInstanceUID: MULTIFRAME,
+        sopInstanceUID: MULTIFRAME_SOP,
+        frameNumber: 3,
+      },
+      points: [
+        [0, 0, 0],
+        [3, 4, 0],
+      ],
+    });
+    const blob = await h.viewer.measurements.exportSr();
+    h.source.addReport(NEW_REPORT, await blob.arrayBuffer());
+    h.port.reportReferences = [MULTIFRAME];
+    await h.viewer.loadStudy(STUDY);
+    await h.viewer.measurements.clear();
+    const result = await h.viewer.measurements.loadSr(NEW_REPORT);
+    expect(result).toMatchObject({ added: 1, skipped: [] });
+    expect(h.viewer.measurements.list()[0]?.reference).toMatchObject({
+      sopInstanceUID: MULTIFRAME_SOP,
+      frameNumber: 3,
+    });
   });
 
   it('writes again a measurement that came from a report', async () => {

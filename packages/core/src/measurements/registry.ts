@@ -106,7 +106,9 @@ export interface TextOptions {
 }
 
 /** How long a series description can be: the value is a long string (LO), of at most 64 characters. */
-export const MAX_SERIES_DESCRIPTION_LENGTH = 64;
+export /** The largest value of a DICOM IS (integer string), which is a signed 32-bit number. */
+const MAX_SERIES_NUMBER = 2_147_483_647;
+const MAX_SERIES_DESCRIPTION_LENGTH = 64;
 
 export interface SrExportOptions {
   /** The description of the report's series, at most 64 characters. Default `Measurements`. */
@@ -624,8 +626,11 @@ export function createMeasurementsRegistry(deps: MeasurementDeps): MeasurementsR
         `A series description has at most ${MAX_SERIES_DESCRIPTION_LENGTH.toString()} characters.`,
       );
     }
-    if (!Number.isInteger(seriesNumber) || seriesNumber < 0) {
-      throw new RangeError('A series number is a whole number from 0.');
+    // DICOM's IS (integer string) holds a signed 32-bit number, and a series number is not negative.
+    if (!Number.isInteger(seriesNumber) || seriesNumber < 0 || seriesNumber > MAX_SERIES_NUMBER) {
+      throw new RangeError(
+        `A series number is a whole number from 0 to ${MAX_SERIES_NUMBER.toString()}.`,
+      );
     }
     const studyInstanceUID = deps.study();
     if (studyInstanceUID === undefined) {

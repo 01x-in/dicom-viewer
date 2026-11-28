@@ -222,9 +222,11 @@ export function finishReport(dataset: Record<string, unknown>, input: FinishInpu
         },
       ];
     }
+    // The shape is moved out of the number first: a probe with no value loses its number, and the
+    // shape inside it must not go with it.
+    liftShape(group);
     if (measurement.type === 'probe') setProbeValue(group, measurement.values.hu);
     if (measurement.type === 'rectangle') addMinimum(group, measurement.values.minHu);
-    liftShape(group);
     made.push([measurement.id, group]);
   }
   // The writer groups by image and by kind of shape. The report is in the order of the list.

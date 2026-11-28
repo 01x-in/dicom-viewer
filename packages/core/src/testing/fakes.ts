@@ -894,6 +894,7 @@ export function fakePort(): FakePort {
           points: measurement.points,
           label: measurement.label,
           sopInstanceUID: measurement.sopInstanceUID,
+          ...(measurement.frameNumber > 1 ? { frameNumber: measurement.frameNumber } : {}),
           position,
         })),
       };

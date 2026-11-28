@@ -20,6 +20,7 @@ import {
   repairUtf8,
   reportOf,
 } from './sr-items';
+import { LABEL_CODE } from './sr-finish';
 
 /** The reader's names for the shapes the model keeps. */
 const TYPE_OF_TOOL: Readonly<Record<string, MeasurementType>> = {
@@ -51,8 +52,26 @@ export function liftSiblingCoordinates(dataset: unknown): void {
   }
 }
 
-/** The text of the Comment in a measurement group: where a label is written whole. */
+/** The group's Finding is this viewer's own label code, so its Comment is the label written whole. */
+function hasViewerLabel(group: Record<string, unknown>): boolean {
+  return itemsOf(group['ContentSequence']).some(
+    (item) =>
+      item['ValueType'] === 'CODE' &&
+      meaningOf(item) === 'Finding' &&
+      itemsOf(item['ConceptCodeSequence']).some(
+        (found) =>
+          found['CodeValue'] === LABEL_CODE.value &&
+          found['CodingSchemeDesignator'] === LABEL_CODE.scheme,
+      ),
+  );
+}
+
+/**
+ * The text of the Comment in a measurement group, where this viewer writes a label whole. A Comment
+ * in a report from another tool says something else, and does not name the measurement.
+ */
 function commentOf(group: Record<string, unknown>): string | undefined {
+  if (!hasViewerLabel(group)) return undefined;
   for (const item of itemsOf(group['ContentSequence'])) {
     if (item['ValueType'] === 'TEXT' && meaningOf(item) === 'Comment') {
       const text = item['TextValue'];
