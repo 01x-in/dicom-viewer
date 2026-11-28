@@ -28,6 +28,8 @@ function within(
 export async function scenarioReport(browser: Browser, input: HeadlessInput): Promise<string[]> {
   const watched = await watch(browser);
   const { page, failures } = watched;
+  // Which step an abort happened in, as a page error alone does not say.
+  let step = 'opening the page';
   try {
     const report = input.mock.fixtures.series.find((item) => item.modality === 'SR');
     if (report === undefined) return ['the phantom has no SR'];
@@ -38,6 +40,7 @@ export async function scenarioReport(browser: Browser, input: HeadlessInput): Pr
     if (!(await expectReady(watched))) return failures;
     const before = await page.evaluate(() => window.__dvDiagnostics?.());
 
+    step = `loading the report ${report.seriesUid}`;
     const first = await page.evaluate(
       (uid) => window.__dvViewer?.measurements.loadSr(uid),
       report.seriesUid,
@@ -109,6 +112,7 @@ export async function scenarioReport(browser: Browser, input: HeadlessInput): Pr
     }
 
     // Again: the same measurements, replaced.
+    step = 'loading the report again';
     const second = await page.evaluate(
       (uid) => window.__dvViewer?.measurements.loadSr(uid),
       report.seriesUid,
@@ -156,9 +160,12 @@ export async function scenarioReport(browser: Browser, input: HeadlessInput): Pr
       failures.push('the PDF names the patient without being asked');
 
     // M11: the text, and the SR another tool must read.
+    step = 'exporting';
     failures.push(...(await checkExports(page, input, report.studyUid, before?.imagesInUse)));
   } catch (error) {
-    failures.push(`scenario aborted: ${error instanceof Error ? error.message : String(error)}`);
+    failures.push(
+      `scenario aborted while ${step}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
     await watched.close();
   }
@@ -314,18 +321,24 @@ async function checkExports(
   const seriesUid = input.mock.fixtures.addInstance(
     Buffer.from(files.first, 'base64').buffer.slice(0),
   );
-  const again = await page.evaluate(
-    async ({ uid, study }) => {
-      const viewer = window.__dvViewer;
-      if (viewer === undefined) return undefined;
-      await viewer.loadStudy(study);
-      const before = viewer.measurements.exportJson().measurements;
-      await viewer.measurements.clear();
-      const loaded = await viewer.measurements.loadSr(uid);
-      return { before, loaded, after: viewer.measurements.exportJson().measurements };
-    },
-    { uid: seriesUid, study: studyUid },
-  );
+  const again = await page
+    .evaluate(
+      async ({ uid, study }) => {
+        const viewer = window.__dvViewer;
+        if (viewer === undefined) return undefined;
+        await viewer.loadStudy(study);
+        const before = viewer.measurements.exportJson().measurements;
+        await viewer.measurements.clear();
+        const loaded = await viewer.measurements.loadSr(uid);
+        return { before, loaded, after: viewer.measurements.exportJson().measurements };
+      },
+      { uid: seriesUid, study: studyUid },
+    )
+    .catch((error: unknown) => {
+      throw new Error(
+        `loading the exported SR (series ${seriesUid}, ${String(files.first.length)} base64 characters): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   if (again === undefined) return [...failures, 'the SR could not be loaded again'];
   if (again.loaded.added !== held.length || again.loaded.skipped.length !== 0) {
     failures.push(
